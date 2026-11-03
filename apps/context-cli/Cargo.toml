@@ -1,0 +1,11 @@
+[package]
+name = "context-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+context-core = { path = "../../crates/context-core", features = ["codex-auth-experimental"] }
+serde_json.workspace = true
+tokio.workspace = true
+tempfile.workspace = true

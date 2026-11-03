@@ -1,0 +1,30 @@
+name: Rust core
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: macOS accessibility/Vision syntax
+        if: runner.os == 'macOS'
+        run: |
+          swiftc -typecheck scripts/macos-accessibility.swift
+          swiftc -typecheck scripts/macos-ocr.swift
+          swiftc -typecheck apps/context-desktop/ui/mac-app.swift
+          swiftc -parse-as-library -typecheck scripts/macos-system-audio.swift
+      - name: Python helper syntax and runner tests
+        run: |
+          python3 -m py_compile scripts/linux-accessibility.py scripts/linux-portal-capture.py scripts/task_queue.py scripts/dev_agent_runner.py apps/context-desktop/ui/linux-gtk.py
+          python3 -m unittest discover -s tests -v

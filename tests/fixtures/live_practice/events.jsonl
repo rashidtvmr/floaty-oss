@@ -1,0 +1,13 @@
+{"schema":1,"type":"session_started","session_id":"fixture-session","sequence":1,"source":"system","timestamp":"2026-11-03T00:00:00Z"}
+{"schema":1,"type":"question_detected","session_id":"fixture-session","request_id":"q1","sequence":2,"source":"accessibility","timestamp":"2026-11-03T00:00:01Z","text":"How do you reverse a linked list?"}
+{"schema":1,"type":"answer_started","session_id":"fixture-session","request_id":"q1","sequence":3,"source":"accessibility","timestamp":"2026-11-03T00:00:01Z"}
+{"schema":1,"type":"answer_delta","session_id":"fixture-session","request_id":"q1","sequence":4,"source":"system","timestamp":"2026-11-03T00:00:02Z","text":"Keep a previous pointer."}
+{"schema":1,"type":"answer_completed","session_id":"fixture-session","request_id":"q1","sequence":5,"source":"system","timestamp":"2026-11-03T00:00:02Z"}
+{"schema":1,"type":"question_detected","session_id":"fixture-session","request_id":"q2","sequence":6,"source":"accessibility","timestamp":"2026-11-03T00:00:03Z","text":"What is the time complexity of binary search?"}
+{"schema":1,"type":"answer_started","session_id":"fixture-session","request_id":"q2","sequence":7,"source":"accessibility","timestamp":"2026-11-03T00:00:03Z"}
+{"schema":1,"type":"answer_delta","session_id":"fixture-session","request_id":"q2","sequence":8,"source":"system","timestamp":"2026-11-03T00:00:04Z","text":"O(log n)."}
+{"schema":1,"type":"answer_completed","session_id":"fixture-session","request_id":"q2","sequence":9,"source":"system","timestamp":"2026-11-03T00:00:04Z"}
+{"schema":1,"type":"session_paused","session_id":"fixture-session","sequence":10,"source":"system","timestamp":"2026-11-03T00:00:05Z"}
+{"schema":1,"type":"session_resumed","session_id":"fixture-session","sequence":11,"source":"system","timestamp":"2026-11-03T00:00:06Z"}
+{"schema":1,"type":"error","session_id":"fixture-session","sequence":12,"source":"system","timestamp":"2026-11-03T00:00:07Z","message":"Synthetic provider status example"}
+{"schema":1,"type":"session_stopped","session_id":"fixture-session","sequence":13,"source":"system","timestamp":"2026-11-03T00:00:08Z"}

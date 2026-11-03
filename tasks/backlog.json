@@ -1,0 +1,359 @@
+{
+  "schema_version": 1,
+  "max_parallel_agents": 4,
+  "tasks": [
+    {
+      "id": "CORE-001",
+      "title": "Screen text normalization and bounded deduplication",
+      "state": "done",
+      "dependencies": [],
+      "acceptance": [
+        "Preserve code indentation",
+        "Do not process unchanged text",
+        "Memory bounded"
+      ],
+      "owner": "core"
+    },
+    {
+      "id": "CAP-001",
+      "title": "Accessibility-first capture on macOS and Linux",
+      "state": "in_review",
+      "dependencies": [
+        "CORE-001"
+      ],
+      "acceptance": [
+        "OS consent honored",
+        "Focused text extracted",
+        "No silent capture",
+        "End-to-end Linux AT-SPI test"
+      ],
+      "owner": "capture"
+    },
+    {
+      "id": "OCR-001",
+      "title": "Local OCR fallback",
+      "state": "in_review",
+      "dependencies": [
+        "CORE-001"
+      ],
+      "acceptance": [
+        "macOS native Vision",
+        "Linux Tesseract",
+        "Golden screenshot tests with symbols/indentation"
+      ],
+      "owner": "ocr"
+    },
+    {
+      "id": "AI-001",
+      "title": "BYOK OpenAI compatible and Codex CLI providers",
+      "state": "in_review",
+      "dependencies": [
+        "CORE-001"
+      ],
+      "acceptance": [
+        "Capabilities validated",
+        "Read-only Codex execution",
+        "Retry and cancellation",
+        "No API tokens logged"
+      ],
+      "owner": "models"
+    },
+    {
+      "id": "AI-002",
+      "title": "Official ChatGPT sign-in integration when supported",
+      "state": "pending",
+      "dependencies": [
+        "AI-001"
+      ],
+      "acceptance": [
+        "Official OAuth/device flow only",
+        "No reading private auth files",
+        "No assumption subscription equals unlimited API quota"
+      ],
+      "owner": "models"
+    },
+    {
+      "id": "AUDIO-001",
+      "title": "Authorized local speech transcription",
+      "state": "in_review",
+      "dependencies": [
+        "CORE-001"
+      ],
+      "acceptance": [
+        "Explicit recording consent",
+        "Local Whisper",
+        "Source selection",
+        "No recordings by default"
+      ],
+      "owner": "audio"
+    },
+    {
+      "id": "UI-001",
+      "title": "Minimal native desktop interface",
+      "state": "in_review",
+      "dependencies": [
+        "CORE-001",
+        "AI-001"
+      ],
+      "acceptance": [
+        "Mac AppKit shell compile",
+        "Linux GTK runtime",
+        "Visible session state",
+        "Start/stop",
+        "Model selector",
+        "Keyboard-first access"
+      ],
+      "owner": "ui"
+    },
+    {
+      "id": "TEST-001",
+      "title": "Golden tests and platform E2E",
+      "state": "pending",
+      "dependencies": [
+        "CAP-001",
+        "OCR-001",
+        "AI-001"
+      ],
+      "acceptance": [
+        "Actual OCR fixture tests",
+        "Fake provider server",
+        "Mac/Linux consent tests",
+        "3-hour resource test"
+      ],
+      "owner": "quality"
+    },
+    {
+      "id": "REL-001",
+      "title": "Signed packages and launchers",
+      "state": "pending",
+      "dependencies": [
+        "UI-001",
+        "TEST-001"
+      ],
+      "acceptance": [
+        "Linux desktop package",
+        "macOS universal binary",
+        "Installer permission guidance",
+        "Smoke-tested release"
+      ],
+      "owner": "release"
+    },
+    {
+      "id": "LINUX-E2E-002",
+      "title": "Verify ScreenCast portal, AT-SPI2, GTK3 and Tesseract on GNOME/KDE",
+      "state": "pending",
+      "dependencies": [
+        "CAP-001",
+        "OCR-001"
+      ],
+      "acceptance": [
+        "Real GNOME Wayland chooser",
+        "No capture after Stop",
+        "OCR compared to fixture"
+      ],
+      "owner": "quality"
+    },
+    {
+      "id": "MAC-AUDIO-E2E-002",
+      "title": "Verify ScreenCaptureKit system audio and GUI permissions on Mac",
+      "state": "pending",
+      "dependencies": [
+        "AUDIO-001"
+      ],
+      "acceptance": [
+        "OS permission granted",
+        "WAV output correct",
+        "Stop interrupts"
+      ],
+      "owner": "audio"
+    },
+    {
+      "id": "CAP-ALLOWLIST-003",
+      "title": "Add application allowlist and secure field audit",
+      "state": "pending",
+      "dependencies": [
+        "CAP-001"
+      ],
+      "acceptance": [
+        "Explicit application selection",
+        "Secure fields excluded",
+        "No recursive capture"
+      ],
+      "owner": "capture"
+    },
+    {
+      "id": "STREAM-STT-003",
+      "title": "Add authorized streaming STT, VAD and speaker separation",
+      "state": "pending",
+      "dependencies": [
+        "MAC-AUDIO-E2E-002"
+      ],
+      "acceptance": [
+        "Bounded audio buffers",
+        "Pause and immediate stop",
+        "Rolling transcript"
+      ],
+      "owner": "audio"
+    },
+    {
+      "id": "UI-E2E-003",
+      "title": "Test Linux/macOS GUIs with actual permissions",
+      "state": "pending",
+      "dependencies": [
+        "UI-001",
+        "LINUX-E2E-002"
+      ],
+      "acceptance": [
+        "Launch GUI",
+        "Select model and grant",
+        "Stop capture",
+        "No keys logged"
+      ],
+      "owner": "ui"
+    },
+    {
+      "id": "RELEASE-SIGN-003",
+      "title": "Ship tested, signed macOS and Linux installers",
+      "state": "pending",
+      "dependencies": [
+        "REL-001",
+        "UI-E2E-003"
+      ],
+      "acceptance": [
+        "Relocatable binaries",
+        "Signed app",
+        "Ubuntu package",
+        "Install tests"
+      ],
+      "owner": "release"
+    },
+    {
+      "id": "PERF-SOAK-003",
+      "title": "Run 3-hour CPU and memory soak",
+      "state": "pending",
+      "dependencies": [
+        "TEST-001"
+      ],
+      "acceptance": [
+        "Bounded memory",
+        "No lingering capture",
+        "Stable resource usage"
+      ],
+      "owner": "quality"
+    },
+    {
+      "id": "LIVE-EXPERIENCE-004",
+      "title": "P0: Complete Linux live practice UX (AT-SPI, answer panel, opt-in continuous audio)",
+      "state": "pending",
+      "dependencies": [
+        "CORE-001"
+      ],
+      "owner": "live-experience",
+      "priority": "P0",
+      "spec": "docs/AGENT-HANDOFF-LIVE-UX.md",
+      "acceptance": [
+        "All A01-A16 in docs/AGENT-HANDOFF-LIVE-UX.md demonstrated",
+        "Floating GTK answer panel shows new questions and selected provider answers automatically",
+        "Accessibility-first no portal when AT-SPI works; permission-gated local OCR otherwise",
+        "Bounded opt-in audio questions, latest-request-wins, duplicate suppression and stop",
+        "Acceptance tests tests/acceptance pass, real Ollama and Linux desktop E2E evidenced",
+        "Linux x86-64 release rebuilt and SHA256 verified"
+      ]
+    },
+    {
+      "id": "STEALTH-OVERLAY-005",
+      "title": "Linux floating overlay with best-effort screen-capture exclusion",
+      "state": "in_review",
+      "dependencies": [
+        "CORE-001"
+      ],
+      "owner": "ui",
+      "priority": "P0",
+      "spec": "docs/STEALTH-OVERLAY.md",
+      "acceptance": [
+        "overlay_guard.py session detection, ExclusionPlan and capability_report implemented and unit tested",
+        "floating_overlay.py renders live JSONL events and never steals focus",
+        "Behavioural auto-hide while a ScreenCast session is detected, with manual hide preserved",
+        "context-cli overlay launches the overlay without performing capture itself",
+        "Capability matrix documented honestly; no claim of universal invisibility",
+        "security-lab/overlay_probe.py allows real desktop verification"
+      ]
+    },
+    {
+      "id": "A11Y-TREE-006",
+      "title": "Structured accessibility-tree reading with token budget",
+      "state": "in_review",
+      "dependencies": [
+        "CORE-001"
+      ],
+      "owner": "capture",
+      "priority": "P0",
+      "spec": "docs/A11Y-TREE-SHORTCUTS.md",
+      "acceptance": [
+        "Helpers emit schema-1 JSON tree nodes with role, text, focused, bounds, image and protected fields",
+        "A11yTree::parse rejects schema mismatch and malformed JSON",
+        "Focused, tree, text and auto render modes are unit tested",
+        "Token budget bounds max_tokens, max_nodes, max_depth and max_chars and sets truncated",
+        "Protected nodes are skipped and their text is never rendered",
+        "image_regions returns image/graphic nodes largest first"
+      ]
+    },
+    {
+      "id": "OCR-REGION-007",
+      "title": "Region OCR for image/graphic accessibility nodes",
+      "state": "in_review",
+      "dependencies": [
+        "A11Y-TREE-006"
+      ],
+      "owner": "ocr",
+      "priority": "P0",
+      "spec": "docs/A11Y-TREE-SHORTCUTS.md",
+      "acceptance": [
+        "extract_region_text crops with sips/magick/convert and never OCRs the whole screen as a fallback",
+        "extract_regions_text skips regions below min_pixels and caps at max_regions",
+        "Regions below the pixel threshold return an empty string, not an error",
+        "Results are cached by screenshot path and region in a bounded map",
+        "OCR stays opt-in and is never used when accessibility text is sufficient",
+        "Region OCR reports the ocr source badge"
+      ]
+    },
+    {
+      "id": "HOTKEYS-008",
+      "title": "Configurable global shortcuts for every feature",
+      "state": "in_review",
+      "dependencies": [
+        "UI-001"
+      ],
+      "owner": "ui",
+      "priority": "P0",
+      "spec": "docs/A11Y-TREE-SHORTCUTS.md",
+      "acceptance": [
+        "Twelve stable actions are defined and mapped to default accelerators",
+        "Accelerator::parse and display round-trip; duplicate accelerators and unknown actions are rejected",
+        "hotkeys list, hotkeys init and hotkeys print work; init refuses to overwrite without --force",
+        "hide_overlay hides the panel immediately and is remembered by the behavioural guard",
+        "Every shortcut is reachable from the UI without a keyboard",
+        "Out-of-focus globals are documented as requiring the desktop's own hotkey tool"
+      ]
+    },
+    {
+      "id": "CODEX-DEVICE-009",
+      "title": "Native Codex/ChatGPT device authorization",
+      "state": "in_review",
+      "dependencies": [
+        "AI-001"
+      ],
+      "owner": "models",
+      "priority": "P1",
+      "spec": "docs/A11Y-TREE-SHORTCUTS.md",
+      "acceptance": [
+        "Device flow uses only official HTTPS auth.openai.com endpoints with redirects disabled",
+        "Credentials are stored 0600 in ContextLens's own config dir, never the Codex CLI's files",
+        "Tokens and user codes are never logged; Debug redacts them",
+        "Polling is bounded by MAX_POLLS and response bodies by MAX_RESPONSE_BYTES",
+        "codex-login --native, codex-status --native and codex-logout --native --confirm work without the CLI",
+        "CLI-backed behaviour is unchanged when --native is absent"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ContextLens Capture Boundary Lab</title>
+<link rel="stylesheet" href="style.css"><script src="app.js" defer></script>
+</head>
+<body>
+<main>
+<header>
+<p class="kicker">FRONTENDX • AUTHORIZED SECURITY QA</p>
+<h1>Screen capture boundary lab</h1>
+<p>Compare what a participant sees with what an explicitly approved browser screen share captures. Nothing starts automatically or uploads content.</p>
+<p id="status" role="status">Capture stopped. No recording.</p>
+</header>
+<section class="split">
+<article>
+<h2>1. Choose a capture surface</h2>
+<p>The browser asks you to select a tab, application window, or entire monitor. Run the separate visible test marker on your own desktop.</p>
+<div class="controls"><button id="start">Start screen-share test</button><button id="stop" disabled>Stop</button></div>
+<p>Selected source: <strong id="surface">Not selected</strong></p>
+<p>Capture: <strong id="stream-state">Inactive</strong></p>
+</article>
+<article class="preview"><video id="preview" autoplay playsinline muted aria-label="Live browser-approved screen-share preview"></video><p id="placeholder">Your authorized preview appears here.</p></article>
+</section>
+<section>
+<h2>2. Record what you observe</h2>
+<p>Make separate trials for tab capture, window capture, and monitor capture. Your judgments are manually recorded, not inferred from other apps.</p>
+<div class="form">
+<label>Test case<select id="case"><option value="tab">Tab share</option><option value="window">Application window</option><option value="monitor">Entire monitor</option></select></label>
+<label>Marker visible on participant's desktop?<select id="participant"><option value="unknown">Not assessed</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+<label>Marker appears in captured preview?<select id="captured"><option value="unknown">Not assessed</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+<label>System and notes<input id="notes" maxlength="240" placeholder="Chromium, GNOME Wayland, etc."></label>
+</div>
+<div class="controls"><button id="add">Record observation</button><button id="export">Export JSON</button><button id="clear">Clear observations</button></div>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>Source</th><th>Seen locally</th><th>In capture</th><th>Interpretation</th><th>Notes</th></tr></thead><tbody id="observations"><tr><td colspan="6">No observations yet.</td></tr></tbody></table></div>
+</section>
+<section>
+<h2>3. Optional local evidence</h2>
+<p>Nothing is stored unless you explicitly click. Screenshot saves the shared frame. Video recording is capped at 30 seconds. No uploads.</p>
+<div class="controls"><button id="snapshot" disabled>Save preview screenshot</button><button id="record" disabled>Record up to 30s</button><button id="finish-record" disabled>Stop & save recording</button></div>
+</section>
+<section>
+<h2>Interpret findings correctly</h2>
+<p>A missing marker demonstrates the scope of the selected browser capture, <strong>not universal invisibility</strong>. A native client with granted OS permissions can observe different signals. The browser cannot generally enumerate operating-system processes or inspect arbitrary native apps.</p>
+</section>
+<footer>ContextLens local security lab — no analytics, accounts, or uploads.</footer>
+</main>
+</body>
+</html>

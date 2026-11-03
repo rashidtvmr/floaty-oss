@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["crates/context-core", "apps/context-cli"]
+exclude = ["apps/context-desktop"]
+default-members = ["crates/context-core", "apps/context-cli"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "GPL-3.0-only"
+rust-version = "1.88"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+thiserror = "2"
+tempfile = "3"
