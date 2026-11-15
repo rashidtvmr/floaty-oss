@@ -1,0 +1,74 @@
+#!/bin/sh
+# Only this compositor process receives the opt-in. Guard failures run stock GNOME.
+# The user-service drop-in also handles this whole runtime being removed.
+ss_invoked_root=$(dirname -- "$0")
+ss_root=$(CDPATH= cd -P -- "$ss_invoked_root" 2>/dev/null && pwd -P)
+ss_python=/usr/bin/python3
+ss_stock=/usr/bin/gnome-shell
+unset SOCKET_STREAM_CAPTURE_EXCLUDE
+ss_state=
+ss_mode=
+ss_valid=1
+for ss_arg do
+    case "$ss_arg" in
+        --guard-state=/*)
+            if [ -n "$ss_state" ]; then ss_valid=0; else ss_state=${ss_arg#--guard-state=}; fi ;;
+        --mode=*)
+            ss_candidate=${ss_arg#--mode=}
+            case "$ss_candidate" in
+                ""|*[!A-Za-z0-9_.-]*) ss_valid=0 ;;
+                *)
+                    if [ -n "$ss_mode" ] || [ "${#ss_candidate}" -gt 64 ]; then
+                        ss_valid=0
+                    else
+                        ss_mode=$ss_candidate
+                    fi ;;
+            esac ;;
+        *) ss_valid=0 ;;
+    esac
+done
+# Internal flags, malformed modes and unexpected arguments never reach stock.
+set --
+if [ -n "$ss_mode" ]; then set -- "--mode=$ss_mode"; fi
+
+# Remove our inherited loader entries before either the validator or fallback.
+# Empty entries are discarded so the compositor never searches the current dir.
+ss_clean_path() {
+    ss_remaining=$1
+    ss_kind=$2
+    ss_clean=
+    while [ -n "$ss_remaining" ]; do
+        ss_entry=${ss_remaining%%:*}
+        case "$ss_remaining" in *:*) ss_remaining=${ss_remaining#*:};; *) ss_remaining=;; esac
+        while [ "$ss_entry" != / ] && [ "${ss_entry%/}" != "$ss_entry" ]; do ss_entry=${ss_entry%/}; done
+        case "$ss_entry" in
+            ""|"$ss_root/$ss_kind"|"$ss_invoked_root/$ss_kind"|/opt/socket_stream-mutter/*/"$ss_kind"|*/*.socket-stream.*/"$ss_kind") ;;
+            *) ss_clean=${ss_clean:+"$ss_clean:"}$ss_entry ;;
+        esac
+    done
+}
+ss_clean_path "${LD_LIBRARY_PATH-}" lib
+if [ -n "$ss_clean" ]; then LD_LIBRARY_PATH=$ss_clean; export LD_LIBRARY_PATH; else unset LD_LIBRARY_PATH; fi
+ss_clean_path "${GI_TYPELIB_PATH-}" typelib
+if [ -n "$ss_clean" ]; then GI_TYPELIB_PATH=$ss_clean; export GI_TYPELIB_PATH; else unset GI_TYPELIB_PATH; fi
+
+if [ "$ss_valid" -eq 1 ] && [ -n "$ss_root" ] && [ -n "$ss_state" ] &&
+        [ -n "$ss_mode" ] && [ -x "$ss_python" ]; then
+    # Validate once, consume durably and exec in this same PID. The bootstrap
+    # also catches a missing/broken dispatcher before it can break the login.
+    exec "$ss_python" -I -c '
+import os, runpy, sys
+stock = sys.argv[1]
+sys.argv = sys.argv[2:]
+mode = sys.argv[-1]
+try:
+    runpy.run_path(sys.argv[0], run_name="__main__")
+except (Exception, SystemExit):
+    pass
+print("SocketStream Mutter: custom runtime unavailable or not armed; starting stock GNOME Shell.", file=sys.stderr)
+os.execv(stock, [stock, mode])
+' "$ss_stock" "$ss_root/validate_runtime.py" "$ss_root/runtime.json" \
+        --launch --guard-state "$ss_state" "--mode=$ss_mode"
+fi
+echo 'SocketStream Mutter: custom runtime unavailable or not armed; starting stock GNOME Shell.' >&2
+exec "$ss_stock" "$@"

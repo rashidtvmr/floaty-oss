@@ -54,14 +54,24 @@ def session(compositor, session_type=guard.SESSION_WAYLAND):
 
 
 class Harness(unittest.TestCase):
-    def make(self, compositor, config_home, *, runner=None, available=(), session_type=guard.SESSION_WAYLAND):
+    def make(self, compositor, config_home, *, runner=None, available=(),
+             session_type=guard.SESSION_WAYLAND, runtime=None, proc_root=None, uid=0):
         runner = runner or FakeRunner()
+        environ = {"XDG_CONFIG_HOME": str(config_home)}
+        # Never read the real /opt manifest or the host process table in tests.
+        environ["SOCKET_STREAM_MUTTER_RUNTIME"] = str(
+            runtime if runtime is not None else Path(config_home) / "no-runtime.json")
         return rules.CaptureExclusion(
             session(compositor, session_type),
-            environ={"XDG_CONFIG_HOME": str(config_home)},
+            environ=environ,
             home=config_home,
             runner=runner,
             which=fake_which(*available),
+            proc_root=(
+                Path(proc_root) if proc_root is not None
+                else Path(config_home) / "proc"
+            ),
+            uid=uid,
         )
 
 
@@ -547,17 +557,28 @@ class HyprlandRules(Harness):
 
 
 class UnsupportedSessions(Harness):
-    def test_gnome_reports_the_real_limitation(self):
+    def test_gnome_without_the_custom_runtime_is_unsupported(self):
         with tempfile.TemporaryDirectory() as temp:
             exclusion = self.make("gnome", Path(temp))
             status = exclusion.status()
             self.assertFalse(status.supported)
+            self.assertFalse(status.deployed)
             self.assertFalse(status.configured)
-            self.assertIn("no per-window", status.detail)
+            self.assertFalse(status.restart_required)
+            self.assertFalse(status.verified)
+            self.assertIn("not installed", status.detail)
             self.assertIn("single application window", status.guidance)
-            self.assertIn("whole-screen", status.guidance)
+            self.assertFalse(status.can_install)
             with self.assertRaises(rules.CaptureRuleError):
                 exclusion.install()
+
+    def test_gnome_x11_points_at_the_wayland_requirement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            exclusion = self.make("gnome", Path(temp), session_type=guard.SESSION_X11)
+            status = exclusion.status()
+            self.assertFalse(status.supported)
+            self.assertIn("Wayland", status.guidance)
+            self.assertFalse(status.deployed)
 
     def test_x11_reports_root_window_capture(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -215,6 +215,28 @@ class CapabilityReport(unittest.TestCase):
         self.assertIn("single application window", report["recommended"])
         self.assertIn("GNOME", " ".join(report["limitations"]))
 
+    def test_gnome_activation_is_distinct_from_live_runtime_and_pixels(self):
+        session = guard.SessionInfo(guard.SESSION_WAYLAND, "gnome", "gnome", True, True)
+        pending = guard.capability_report(
+            session, compositor_skip_capture=True, capture_rule_supported=True,
+            runtime_deployed=True, restart_required=True, xwayland_dock=True,
+        )
+        self.assertIn("fresh GNOME login", pending["mechanism"])
+        self.assertFalse(pending["capture_rule"]["runtime_active"])
+        active = guard.capability_report(
+            session, compositor_skip_capture=True, capture_rule_supported=True,
+            runtime_deployed=True, runtime_active=True, xwayland_dock=True,
+        )
+        self.assertEqual(active["capture_rule"]["backend"], "gnome")
+        self.assertTrue(active["capture_rule"]["runtime_active"])
+        self.assertFalse(active["capture_rule"]["runtime_verified"])
+        self.assertFalse(active["guaranteed"])
+        self.assertIn("received video", active["recommended"])
+        self.assertNotIn("cannot exclude", active["recommended"])
+        plan = guard.build_plan(session, xwayland_dock=True, runtime_active=True)
+        self.assertTrue(any("runtime is active" in note for note in plan.notes))
+        self.assertFalse(plan.guaranteed)
+
     def test_kde_report_names_the_hide_from_screencast_rule(self):
         report = guard.capability_report(
             guard.SessionInfo(guard.SESSION_WAYLAND, "kde", "kde", False, True)

@@ -31,6 +31,22 @@ class ProbeNeverHides(unittest.TestCase):
 
 
 class ProbeReport(unittest.TestCase):
+    def test_gnome_runtime_activation_does_not_claim_capture_verification(self):
+        session = guard.SessionInfo(guard.SESSION_WAYLAND, "gnome", "gnome", True, True)
+        status = rules.RuleStatus(
+            backend="gnome", supported=True, configured=True, verified=False,
+            deployed=True, runtime_active=True, restart_required=False, detail="active",
+        )
+        report = probe._format_report(
+            guard, session, guard.build_plan(session),
+            probe._safe_capability(guard, session, True, True, True,
+                                   runtime_deployed=True, runtime_active=True), [], status,
+        )
+        self.assertIn("runtime deployed     : yes", report)
+        self.assertIn("runtime active       : yes", report)
+        self.assertIn("fresh login required : no", report)
+        self.assertIn("runtime verified      : no", report)
+
     def test_configured_rule_is_reported_and_runtime_stays_unverified(self):
         session = guard.SessionInfo(
             guard.SESSION_WAYLAND, "niri", "niri", False, True,

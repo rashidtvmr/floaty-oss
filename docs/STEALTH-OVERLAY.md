@@ -4,7 +4,7 @@
 **Target:** Linux x86-64 (X11 and Wayland). The native macOS AppKit panel is a
 separate implementation documented in section 7 and `docs/MACOS-TESTING.md`;
 sections 1–6 and the capability matrix below describe Linux only.
-**Status:** visibility, slight opacity, panel identity and compositor-rule setup implemented. Panel identity and opacity are runtime-verified on the target GNOME 50 desktop; niri/Hyprland/KDE rules have automated configuration tests but pending real-share QA. Stock GNOME/X11/sway have no per-window whole-screen exclusion. An opt-in custom Mutter 50.1 source patch is available in `native/mutter-capture-filter`; see its README for measured coverage and activation.
+**Status:** visibility, slight opacity, panel identity and compositor-rule setup implemented. Panel identity and opacity are runtime-verified on the target GNOME 50 desktop; niri/Hyprland/KDE rules have automated configuration tests but pending real-share QA. Stock GNOME/X11/sway have no per-window whole-screen exclusion. The opt-in Ubuntu Mutter `50.1-0ubuntu2.5` runtime now passes native capture tests, the full-Shell startup probe and eight real-systemd lifecycle cases. The earlier duplicate-GType login failure was reproduced and fixed in the isolated startup path. The desktop remains on stock GNOME pending live activation. **Chrome whole-screen exclusion is unverified.** See §2.4 and `docs/research/linux-screen-exclusion-2026-11-15.md`.
 
 ## 1. What this feature is
 
@@ -24,15 +24,16 @@ configured, and which do not exist.
 | X11 (any WM) | override-redirect + `_NET_WM_STATE_SKIP_TASKBAR/PAGER` + `_NET_WM_WINDOW_TYPE_NOTIFICATION` | Best effort: usually absent from pickers | **Included** | No; no exclusion API |
 | X11 + compositor honouring `_NET_WM_STATE_SKIP_CAPTURE` | above + `SKIP_CAPTURE` | Best effort | Best effort, compositor-dependent | No |
 | GNOME Shell 50 / mutter 18 (Wayland) | XWayland **dock** layer: stays above fullscreen windows; no per-window capture rule | Excluded only because it is not the shared window | **Included** | Stacking verified on target; exclusion absent |
-| Custom Mutter 50.1 (Wayland) | capture-only actor filter, compositor environment opt-in | Filtered window rendering | Filtered offscreen rendering | See `native/mutter-capture-filter/README.md`; deployed browser QA pending |
+| Custom Mutter 50.1 (Wayland) | capture-only actor filter, compositor environment opt-in | Filtered window rendering | Filtered offscreen rendering | **No** — runtime staged, native tests pass, live activation failed (§2.4); browser pixels unverified |
 | KDE Plasma/KWin 6.7+ (Wayland) | registered `excludefromcapture=true`, `excludefromcapturerule=2` in `kwinrulesrc` | Explicit panel-window capture not covered | Output/region capture filter | Unit-tested; real-share QA pending |
-| Hyprland 0.53+ (Wayland) | window rule `no_screen_share = true` | Excluded | Excluded (black rectangle) | Unit-tested; real-share QA pending |
-| niri (Wayland) | window rule `block-out-from "screen-capture"` | Excluded | Excluded (black rectangle) | Unit-tested; real-share QA pending |
+| Hyprland 0.53+ (Wayland) | window rule `no_screen_share = true` | Black rectangle | Black rectangle (position still leaks) | Unit-tested; real-share QA pending |
+| niri (Wayland) | window rule `block-out-from "screen-capture"` (`kind="hide"` on releases that have it) | Black rectangle by default | Black rectangle by default; hidden only with `kind="hide"` | Unit-tested; real-share QA pending |
 | sway / other wlroots (Wayland) | no documented per-window rule | Best effort | **Included** | No; no rule |
 | Any | automatic hiding | **Never** | **Never** | By design |
 
-**Bottom line:** Linux has no public API equivalent to Windows
-`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` or macOS `NSWindow.sharingType = .none`.
+**Bottom line:** Linux has no cross-compositor public API equivalent to Windows
+`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`. macOS exposes
+`NSWindow.sharingType = .none`, but its coverage depends on the capture API and OS version.
 Stock GNOME Shell/mutter, X11 and sway have no supported per-window rule.
 The custom Mutter build adds a capture filter; it is a separate compositor deployment.
 On niri, Hyprland and KDE Plasma/KWin 6.7+ the documented mechanism is a **compositor rule the
@@ -40,6 +41,21 @@ user installs**; the application writes that rule only after an explicit **Set u
 action. Until a real share is tested, "configured" must not be reported as "verified".
 The panel never auto-hides: it stays visible locally, and on supported compositors the
 compositor replaces or omits it in the capture.
+
+Three qualifications on that table:
+
+* **Black rectangle is not exclusion.** Hyprland and pre-`kind="hide"` niri replace the
+  panel's pixels but still reveal that a window exists and where it is. Do not call
+  that "invisible". niri's own docs add that third-party screenshot tools are not
+  blocked.
+* **KWin has three thresholds, not one.** 6.6 added the `excludeFromCapture` property
+  for output screencasts; 6.7 added the persistent rule and screenshot-plugin coverage;
+  *window* streams only respect exclusion from the still-open 6.9 merge request.
+  Sharing the whole screen is covered; explicitly selecting the panel as a window
+  stream is not yet.
+* **`_NET_WM_STATE_SKIP_CAPTURE` is not an EWMH standard atom.** No compositor in
+  scope (Mutter, KWin, Hyprland, niri) documents honouring it, so that row is an
+  unverified best-effort hint and must not drift into a promise.
 
 **Stacking is a separate problem from capture.** On GNOME Wayland a normal toplevel is
 covered by the next focused window, and by any fullscreen window. mutter has no
@@ -51,10 +67,18 @@ Hyprland and native X11 sessions keep their existing plans.
 
 ### 2.1 What Final Round's Electron `setContentProtection` proves
 
-Final Round 3.0.7 sets Electron `setContentProtection(true)` for its overlay. That is a
-macOS/Windows API. It is evidence that the desktop overlay is intentionally excluded on
-those platforms; it is **not** evidence of Linux capture exclusion. No Linux counterpart
-exists in Electron, GTK3, Qt, X11 or GNOME 50.
+The earlier inspection of Final Round 3.0.7 found
+`setContentProtection(true)` on its overlay. That Electron call requests protection
+on macOS/Windows; the call alone does not establish what a particular recorder
+receives. **On Linux the call is a silent no-op**: Electron's
+`NativeWindowViews::SetContentProtection` body is compiled out unless the platform is
+Windows, and `IsContentProtected()` returns `false` with the comment
+"Not implemented on Linux". Electron's own API reference documents the method as
+macOS/Windows only. Windows additionally applies the change at the **next desktop
+composition**, not on return.
+
+Linux coverage therefore requires the compositor-specific mechanisms in the table
+above; no application-level flag reaches the GNOME screen-cast path.
 
 ### 2.2 Runtime verification on the target desktop
 
@@ -98,6 +122,67 @@ window** covered the desktop (the real target setup):
 | Opacity | 94%, visibly translucent over the window behind it |
 | Capture exclusion | still **no**; the panel is part of the compositor output |
 
+### 2.3 What surveyed open-source assistants actually do (bounded)
+
+A 2026-11-15 pass read 11 public repositories at pinned commits plus one shipped
+artifact (Interview Coder v1.0.33) and the upstream Electron/`tao` code those
+projects rely on. Evidence, hashes, licences and every limitation are in
+[`research/linux-screen-exclusion-2026-11-15.md`](research/linux-screen-exclusion-2026-11-15.md).
+The survey is **not** an enumeration of the ecosystem.
+
+| Family | Examples read | Linux result |
+|---|---|---|
+| Electron overlays | Interview Coder, cheating-daddy, Vysper, OpenCluely, invisible-notes | `setContentProtection(true)` is a **silent no-op**; three report nothing, two disclose |
+| Tauri overlay | GhostAssist | `tao::set_content_protection` is **unsupported on Linux** (compile-time removed); the app still reports `stealth_active: true` — false success |
+| Win32-native | ScreenPrompt | Real `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`; Windows-only, nothing transfers |
+| macOS-only | Ghostbar | `sharingType = .none`; no Linux path |
+| Honest negative | stream-shield | Detection only, overlay deliberately visible |
+| Masquerade | Fuck Leetcode | No exclusion at all; process/window renaming — the opposite of this project's policy |
+
+Bounded findings, stated no more strongly than the evidence:
+
+* **No surveyed OSS project implements GNOME/Mutter whole-screen exclusion.** The
+  gap is structural: there is no protocol (Wayland `wayland-protocols` private-window
+  issue is open), so only the compositor can remove a window from the stream.
+* **A `setContentProtection` call in Linux code is not evidence of protection.**
+  Neither is a "stealth" flag in a UI: GhostAssist is the cautionary case.
+* **No surveyed mechanism was adopted here.** The panel keeps its stable identity
+  because identity is what an exact-match compositor rule or filter matches; runtime
+  renaming would break both.
+* macOS parity is not a strength to promise: `sharingType` is a legacy-path hint and
+  community reports say modern capture APIs can bypass it.
+
+### 2.4 Deployment status of the custom Mutter runtime
+
+The runtime is a **separate compositor deployment**. Precise state after the
+safer-startup verification on 2026-11-15:
+
+| Item | State |
+|---|---|
+| Ubuntu `50.1-0ubuntu2.5` runtime staging | **Published** as immutable `3b4e8e8a98dcb8a3` — schema-2 manifest, copied Shell, exact ELF/GI paths, file hashes and package pins validate |
+| Native/headless Mutter tests | **Passed** — build, pixel, animated, snapshot and transactional-patch tests |
+| Earlier login failure | Duplicate `ClutterActor`/`ClutterAnimatable` registration reproduced in isolation; private copied-Shell RUNPATH and DSO RPATH resolved it in full GI/JS startup |
+| Full-Shell production startup probe | **Passed** — actual Shell READY, 3.021 s liveness, four coherent private mappings, exit 0 and complete cleanup |
+| Durable one-shot guard | **8/8 real-systemd lifecycle cases passed**; same-PID consume, identity-bound readiness, clean-exit-only rearm and stock fallback after failure |
+| Desktop state | **Stock GNOME**, unchanged PID 11136 and no managed override; finalized runtime awaiting live activation |
+| Actual normal desktop logout | **Unmeasured**; guard retains strict `(success, exited, 0)` rearming |
+| Chrome whole-screen exclusion | **UNVERIFIED** — no pixels captured |
+
+Consequences for every status surface: `deployed` means only "files and pins
+validate". It does not mean the compositor loaded them, and it never means a share
+was filtered. `runtime_active` is the only field allowed to reflect a live
+compositor, and it remains false here. The status also exposes the startup guard;
+a latched failure asks for setup again rather than repeatedly requesting login.
+`config_validated` requires compatible, effective configuration, not deployment
+alone. Evidence is in
+[`native/mutter-capture-filter/VERIFICATION.md`](../native/mutter-capture-filter/VERIFICATION.md).
+
+The intended end state is unchanged and worth stating precisely: the panel keeps
+rendering on the local desktop, and **only capture renders** omit it. The patch is a
+capture-only predicate; it never hides the window from the user and never alters
+local painting. That property is what the native tests check; the remaining work
+is live desktop activation and inspection of Chrome's received sharing pixels.
+
 ## 3. Frozen module interfaces
 
 ### 3.1 `apps/socket_stream_desktop/ui/overlay_guard.py` (pure, stdlib only, no GTK)
@@ -133,12 +218,14 @@ def ensure_panel_backend(session=None) -> str   # sets GDK_BACKEND before GTK im
 def backend_is_x11(value) -> bool
 def display_is_x11(display_name) -> bool
 def build_plan(session, *, compositor_skip_capture=False,
-               xwayland_dock=False) -> ExclusionPlan
+               xwayland_dock=False, runtime_active=False) -> ExclusionPlan
 def capability_report(session, *, compositor_skip_capture=False,
-                      xwayland_dock=False) -> dict
+                      xwayland_dock=False, capture_rule_supported=None,
+                      runtime_deployed=False, runtime_active=False,
+                      restart_required=False) -> dict
     # {"session", "compositor", "guaranteed", "mechanism", "limitations",
     #  "recommended", "capture_rule": {"backend", "supported", "configured",
-    #  "runtime_verified", "setup"}}
+    #  "deployed", "runtime_active", "restart_required", "runtime_verified", "setup"}}
 def should_hide(plan, share_active, user_hidden) -> bool   # only user_hidden matters
 
 class ScreenShareWatcher:
@@ -166,12 +253,16 @@ class RuleStatus:             # dataclass(frozen=True)
     backend: str              # "niri" | "hyprland" | "kde" | "gnome" | "x11" | ...
     supported: bool
     configured: bool
-    verified: bool            # config validation passed, not runtime capture proof
+    verified: bool            # always false without separate real-capture evidence
     detail: str
     guidance: str
     path: str
     can_install: bool
     can_remove: bool
+    config_validated: bool    # configuration syntax/reload succeeded
+    deployed: bool            # custom GNOME runtime passes manifest validation
+    runtime_active: bool      # live GNOME opt-in and all four matching mappings
+    restart_required: bool    # fresh desktop login needed for activation/removal
 
 class CaptureExclusion:
     def __init__(self, session=None, *, environ=None, home=None, runner=None, which=None)
@@ -187,9 +278,17 @@ python3 capture_rules.py status|install|remove [--json]
 Safety properties: no write without `install()`; `<file>.socket_stream.bak` backup; atomic
 write that preserves mode; managed markers (`>>> socket_stream capture exclusion (managed) >>>`)
 or the `[socket_stream_capture]` KWin group; restore on validator/reload failure; `status()`
-never raises. Supported backends only: niri `config.kdl`, Hyprland `hyprland.conf` /
-`hyprland.lua`, KWin 6.7+ `kwinrulesrc`. Stock GNOME, X11 and sway return an unsupported status
-with guidance instead of writing anything.
+never raises. Supported configuration backends: niri `config.kdl`, Hyprland
+`hyprland.conf` / `hyprland.lua`, KWin 6.7+ `kwinrulesrc`, and a managed GNOME
+Shell user-service drop-in when a compatible custom Mutter runtime is deployed.
+GNOME activation pins the resolved immutable runtime directory and is **intended**
+to take effect at the next full desktop login. It has **not yet succeeded** on the
+target desktop (§2.4), so activation is unproven until a login completes with a
+functioning Shell. The backend checks the live compositor's own
+environment and library mappings; an environment variable in the app is not
+activation. See [`../native/mutter-capture-filter/README.md`](../native/mutter-capture-filter/README.md).
+Stock GNOME without a compatible runtime, X11 and sway report unsupported;
+removal of an existing managed GNOME override remains available.
 
 ### 3.3 `apps/socket_stream_desktop/ui/floating_overlay.py` (GTK3, lazily imported)
 
@@ -271,18 +370,33 @@ The main Linux window shows a **Capture exclusion** row with **Set up exclusion*
 
 * **KDE Plasma/KWin 6.7+ Wayland** — registers `[socket_stream_capture]` in `[General] rules/count`, preserving other rule order, and writes it to `kwinrulesrc` with
   `wmclass=socket_stream_overlay`, `wmclassmatch=1` (Exact), `excludefromcapture=true`,
-  `excludefromcapturerule=2` (Force), then asks KWin to reconfigure.
+  `excludefromcapturerule=2` (Force), then asks KWin to reconfigure. Upstream
+  coverage is version-split: 6.6 added the property for output screencasts, 6.7
+  added this persistent rule and screenshot coverage, and *window* streams only
+  respect exclusion from the still-open 6.9 change. Sharing the whole screen is the
+  covered case; selecting the panel as a window stream is not.
 * **Hyprland 0.53+** — writes a managed `windowrule { ... no_screen_share = true }` block
   to `hyprland.conf` (or `hl.window_rule` to `hyprland.lua`), runs
   `Hyprland --verify-config`, then `hyprctl reload` and checks `hyprctl configerrors`.
 * **niri** — writes a managed `window-rule { match app-id=... block-out-from "screen-capture" }`
-  block to `config.kdl` and validates with `niri validate`.
-* **GNOME / X11 / sway** — no rule exists. The row says so and recommends sharing a single
-  application window; no file is modified.
+  block to `config.kdl` and validates with `niri validate`. Releases with
+  `kind="hide"` would hide the surface instead of drawing a rectangle; without it
+  the panel's position still leaks, and niri's docs do not block third-party
+  screenshot tools.
+* **GNOME Wayland with a validated custom runtime** — writes a managed systemd user
+  drop-in for the detected GNOME Shell unit (on the tested Ubuntu desktop,
+  `org.gnome.Shell@ubuntu.service`) that wraps the guarded runtime launcher, then
+  reloads user-service configuration. It does **not** restart the live compositor:
+  a full log-out/log-in is required. Static validation of the runtime is not proof
+  that the Shell starts — the first live attempt failed at login (§2.4).
+* **GNOME without a validated runtime, X11, sway** — no rule exists. The row says so
+  and recommends sharing a single application window; no file is modified. Removing
+  an existing managed GNOME override stays available.
 
 A configured rule is not runtime proof. Verify on a real compositor with a real
-whole-screen share; `RuleStatus.verified` means only that the configuration passed its
-validator.
+whole-screen share. `config_validated` records that the written configuration passed
+its own validator; `verified` stays false until a real capture is inspected, and
+`runtime_active` is the only field that reflects the live compositor.
 
 ## 5. Tests
 
@@ -290,7 +404,9 @@ validator.
   capability honesty, configured-rule reporting, explicit-hide visibility rule, watcher
   with injected probes.
 - `tests/test_capture_rules.py` — niri/Hyprland/KDE install/remove, idempotence, backups,
-  validation rollback, KDE version gating, unsupported GNOME/X11/sway, identity.
+  validation rollback, KDE version gating, GNOME runtime gating, X11/sway unsupported, identity.
+- `tests/test_mutter_capture.py`, `tests/test_mutter_runtime.py` — runtime manifest and
+  live-compositor status separation; they do not prove a login succeeds.
 - `tests/test_floating_overlay.py` — import without GTK, CLI argument parsing, opacity,
   panel identity during realize and map, X11 override-redirect fallbacks, GTK3/Gdk
   version pinning, event feeding, visibility across share/focus changes.

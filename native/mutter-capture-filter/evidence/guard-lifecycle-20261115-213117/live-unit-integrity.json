@@ -1,0 +1,30 @@
+{
+  "post_run_live_shell": {
+    "unit": "org.gnome.Shell@ubuntu.service",
+    "properties": {
+      "ActiveState": "active",
+      "DropInPaths": "",
+      "Type": "notify",
+      "NotifyAccess": "main",
+      "MainPID": "11136",
+      "ExecStart": "{ path=/usr/bin/gnome-shell ; argv[]=/usr/bin/gnome-shell --mode=ubuntu ; ignore_errors=no ; start_time=[Sun 2026-11-15 19:47:58 IST] ; stop_time=[n/a] ; pid=11136 ; code=(null) ; status=0/0 }"
+    },
+    "exe": "/usr/bin/gnome-shell",
+    "libraries": [
+      "/usr/lib/x86_64-linux-gnu/libmutter-18.so.0.0.0",
+      "/usr/lib/x86_64-linux-gnu/mutter-18/libmutter-clutter-18.so.0.0.0",
+      "/usr/lib/x86_64-linux-gnu/mutter-18/libmutter-cogl-18.so.0.0.0",
+      "/usr/lib/x86_64-linux-gnu/mutter-18/libmutter-mtk-18.so.0.0.0"
+    ],
+    "pid_unchanged_from_prior_stock_observation": true
+  },
+  "inactive_unit_before_after": {
+    "before": "DropInPaths=\nMainPID=0\nExecStart={ path=/usr/bin/gnome-shell ; argv[]=/usr/bin/gnome-shell --mode=wayland ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }\n",
+    "after": "DropInPaths=\nMainPID=0\nExecStart={ path=/usr/bin/gnome-shell ; argv[]=/usr/bin/gnome-shell --mode=wayland ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }\n",
+    "remaining_qa_units": "",
+    "remaining_scratch": [],
+    "checked_unit": "org.gnome.Shell@wayland.service",
+    "checked_unit_was_live": false,
+    "same_checked_unit": true
+  }
+}

@@ -1,0 +1,3983 @@
+{
+  "cases": [
+    {
+      "arm": {
+        "record": {
+          "phase": "armed"
+        },
+        "returncode": 0,
+        "stderr": ""
+      },
+      "branch": {
+        "branch": "custom",
+        "claim_pid": 82993,
+        "claim_starttime": 685813,
+        "detail": "guard-claimed",
+        "invocation_id": "846ae017e6644837bf0656137d741cbd",
+        "phase": "pending",
+        "pid": 82993
+      },
+      "checks": [
+        {
+          "detail": {
+            "record": {
+              "phase": "armed"
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "guard-arm",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "ready",
+            "observed": "ready"
+          },
+          "name": "exec-start-post-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "gid": 1000,
+            "pid": 82993,
+            "uid": 1000
+          },
+          "name": "control-peer-uid",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "success"
+            ],
+            "observed": "success"
+          },
+          "name": "finish-service_result",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "exited"
+            ],
+            "observed": "exited"
+          },
+          "name": "finish-exit_code",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "0"
+            ],
+            "observed": "0"
+          },
+          "name": "finish-exit_status",
+          "ok": true
+        },
+        {
+          "detail": 0,
+          "name": "systemd-run-rc",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "identity": "same",
+              "phase": "armed",
+              "reason": "clean-stop"
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "status-cli",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected_phase": "armed",
+            "observed": {
+              "phase": "armed",
+              "reason": "clean-stop"
+            }
+          },
+          "name": "state-after-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "clean-stop",
+            "observed": "clean-stop"
+          },
+          "name": "state-after-reason",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": false,
+            "present": false
+          },
+          "name": "state-after-identity",
+          "ok": true
+        },
+        {
+          "detail": "same",
+          "name": "status-identity",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "helper-environment-without-optin",
+          "ok": true
+        },
+        {
+          "detail": 1000,
+          "name": "main-owner",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment": {
+              "INVOCATION_ID": "846ae017e6644837bf0656137d741cbd",
+              "SOCKET_STREAM_CAPTURE_EXCLUDE": "1"
+            },
+            "error": null
+          },
+          "name": "main-process-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment_invocation": "846ae017e6644837bf0656137d741cbd",
+            "service_invocation": "846ae017e6644837bf0656137d741cbd"
+          },
+          "name": "main-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "executable": [
+              68,
+              1010
+            ],
+            "fixture": true,
+            "stock": false
+          },
+          "name": "main-executable",
+          "ok": true
+        },
+        {
+          "detail": {
+            "proc_starttime": 685813,
+            "state_starttime": 685813
+          },
+          "name": "starttime-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "complete": true,
+            "entries": [
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1006,
+                "matches_expected": true,
+                "name": "libmutter-mtk-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1005,
+                "matches_expected": true,
+                "name": "libmutter-cogl-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1004,
+                "matches_expected": true,
+                "name": "libmutter-clutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1003,
+                "matches_expected": true,
+                "name": "libmutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0"
+              }
+            ],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "name": "mutter-mappings",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "stop-helper-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "branch": "custom",
+            "detail": "guard-claimed",
+            "error": null,
+            "reason": null
+          },
+          "name": "launcher-branch",
+          "ok": true
+        },
+        {
+          "detail": "guard-claimed",
+          "name": "consume-refusal-none",
+          "ok": true
+        },
+        {
+          "detail": {
+            "required": [
+              "launcher_pid",
+              "post_main_pid",
+              "control_peer_pid"
+            ],
+            "stored": {
+              "phase": "armed",
+              "reason": "clean-stop"
+            },
+            "values": {
+              "control_peer_pid": 82993,
+              "launcher_pid": 82993,
+              "post_main_pid": 82993,
+              "stop_main_pid": null
+            }
+          },
+          "name": "main-pid-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "consume_pid": 82993,
+            "service_main_pid": 82993
+          },
+          "name": "consume-pid-equals-main",
+          "ok": true
+        },
+        {
+          "detail": [
+            {
+              "phase": "ready",
+              "reason": null
+            },
+            {
+              "phase": "armed",
+              "reason": "clean-stop"
+            }
+          ],
+          "informational": true,
+          "name": "ready-hook-record",
+          "ok": null
+        }
+      ],
+      "diagnostics": {
+        "guard_reasons": [],
+        "guard_records": [
+          {
+            "phase": "ready",
+            "reason": null
+          },
+          {
+            "phase": "armed",
+            "reason": "clean-stop"
+          }
+        ]
+      },
+      "elapsed_seconds": 0.37,
+      "expected": {
+        "after_identity": false,
+        "after_phase": "armed",
+        "after_reason": "clean-stop",
+        "arm": true,
+        "branch": "custom",
+        "command": "exit0",
+        "disarm": false,
+        "finish": {
+          "exit_code": [
+            "exited"
+          ],
+          "exit_status": [
+            "0"
+          ],
+          "service_result": [
+            "success"
+          ]
+        },
+        "pre_ready": false,
+        "rc": "zero",
+        "ready_phase": "ready",
+        "restart_of": null
+      },
+      "name": "clean-ready-exit0",
+      "service": {
+        "control_peer": {
+          "gid": 1000,
+          "pid": 82993,
+          "uid": 1000
+        },
+        "exec_main_code": "exited",
+        "exec_main_status": "0",
+        "finish_tuple": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "service_result": "success"
+        },
+        "output_bytes": 812,
+        "post": {
+          "fixture_executable": [
+            68,
+            1010
+          ],
+          "helper_optin": false,
+          "invocation_id": "846ae017e6644837bf0656137d741cbd",
+          "kind": "post",
+          "main_environment": {
+            "INVOCATION_ID": "846ae017e6644837bf0656137d741cbd",
+            "SOCKET_STREAM_CAPTURE_EXCLUDE": "1"
+          },
+          "main_is_fixture": true,
+          "main_is_stock": false,
+          "main_pid": 82993,
+          "mutter_mappings": {
+            "complete": true,
+            "entries": [
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1006,
+                "matches_expected": true,
+                "name": "libmutter-mtk-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1005,
+                "matches_expected": true,
+                "name": "libmutter-cogl-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1004,
+                "matches_expected": true,
+                "name": "libmutter-clutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1003,
+                "matches_expected": true,
+                "name": "libmutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0"
+              }
+            ],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "process_executable": [
+            68,
+            1010
+          ],
+          "process_owner": 1000,
+          "process_starttime": 685813,
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "846ae017e6644837bf0656137d741cbd",
+            "mode": "ubuntu",
+            "phase": "ready",
+            "pid": 82993,
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 685813
+          },
+          "stock_executable": [
+            68,
+            1011
+          ],
+          "token": "clean-ready-exit0"
+        },
+        "properties": {
+          "ExecStartPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py ready --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/post_hook.py /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/post-clean-ready-exit0.json clean-ready-exit0 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell /run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+          ],
+          "ExecStopPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py finish --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/stop_hook.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/stop-clean-ready-exit0.json clean-ready-exit0"
+          ],
+          "KillMode": [
+            "control-group"
+          ],
+          "LimitCORE": [
+            "0"
+          ],
+          "MemoryMax": [
+            "64M"
+          ],
+          "NotifyAccess": [
+            "main"
+          ],
+          "Restart": [
+            "no"
+          ],
+          "RuntimeMaxSec": [
+            "15"
+          ],
+          "SuccessExitStatus": [
+            "1"
+          ],
+          "TimeoutStartSec": [
+            "8"
+          ],
+          "TimeoutStopSec": [
+            "3"
+          ],
+          "Type": [
+            "notify"
+          ]
+        },
+        "result": "success",
+        "stderr": "Running as unit: socket-stream-guard-qa-clean-ready-exit0-4bf565773ad5.service; invocation ID: 846ae017e6644837bf0656137d741cbd\n          Finished with result: success\nMain processes terminated with: code=exited, status=0/SUCCESS\n               Service runtime: 262ms\n             CPU time consumed: 212ms\n                   Memory peak: 10.6M (swap: 0B)\n",
+        "stdout": "{\"boot_id\":\"d6781961-2dd7-4010-8a34-5afb3b17a8ab\",\"invocation_id\":\"846ae017e6644837bf0656137d741cbd\",\"mode\":\"ubuntu\",\"phase\":\"ready\",\"pid\":82993,\"runtime\":\"/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677\",\"schema\":1,\"starttime\":685813}\n{\"mode\":\"ubuntu\",\"phase\":\"armed\",\"reason\":\"clean-stop\",\"runtime\":\"/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677\",\"schema\":1}\n",
+        "stop": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "helper_optin": false,
+          "invocation_id": "846ae017e6644837bf0656137d741cbd",
+          "kind": "stop",
+          "main_pid": null,
+          "service_result": "success",
+          "state": {
+            "mode": "ubuntu",
+            "phase": "armed",
+            "reason": "clean-stop",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1
+          },
+          "token": "clean-ready-exit0"
+        },
+        "systemd_run_rc": 0,
+        "unit": "socket-stream-guard-qa-clean-ready-exit0-4bf565773ad5"
+      },
+      "slug": "clean-ready-exit0",
+      "state": {
+        "after": {
+          "phase": "armed",
+          "reason": "clean-stop"
+        },
+        "before": {
+          "phase": "missing"
+        },
+        "status_cli": {
+          "record": {
+            "identity": "same",
+            "phase": "armed",
+            "reason": "clean-stop"
+          },
+          "returncode": 0,
+          "stderr": ""
+        }
+      },
+      "status": "pass"
+    },
+    {
+      "arm": {
+        "record": {
+          "phase": "armed"
+        },
+        "returncode": 0,
+        "stderr": ""
+      },
+      "branch": {
+        "branch": "custom",
+        "claim_pid": 83030,
+        "claim_starttime": 685850,
+        "detail": "guard-claimed",
+        "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+        "phase": "pending",
+        "pid": 83030
+      },
+      "checks": [
+        {
+          "detail": {
+            "record": {
+              "phase": "armed"
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "guard-arm",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "exited"
+            ],
+            "observed": "exited"
+          },
+          "name": "finish-exit_code",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "1"
+            ],
+            "observed": "1"
+          },
+          "name": "finish-exit_status",
+          "ok": true
+        },
+        {
+          "detail": 1,
+          "name": "systemd-run-rc",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "identity": "same",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "status-cli",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected_phase": "blocked",
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            }
+          },
+          "name": "state-after-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "pending-failed",
+            "observed": "pending-failed"
+          },
+          "name": "state-after-reason",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": true,
+            "present": true
+          },
+          "name": "state-after-identity",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "stop-helper-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "branch": "custom",
+            "detail": "guard-claimed",
+            "error": null,
+            "reason": null
+          },
+          "name": "launcher-branch",
+          "ok": true
+        },
+        {
+          "detail": "guard-claimed",
+          "name": "consume-refusal-none",
+          "ok": true
+        },
+        {
+          "detail": {
+            "required": [
+              "launcher_pid",
+              "stored_pid"
+            ],
+            "stored": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            },
+            "values": {
+              "launcher_pid": 83030,
+              "stop_main_pid": null,
+              "stored_pid": 83030
+            }
+          },
+          "name": "main-pid-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "consume_pid": 83030,
+            "service_main_pid": 83030
+          },
+          "name": "consume-pid-equals-main",
+          "ok": true
+        }
+      ],
+      "diagnostics": {
+        "guard_reasons": [
+          "startup record was not re-armed"
+        ],
+        "guard_records": [
+          {
+            "phase": "blocked",
+            "reason": "pending-failed"
+          }
+        ]
+      },
+      "elapsed_seconds": 0.257,
+      "expected": {
+        "after_identity": true,
+        "after_phase": "blocked",
+        "after_reason": "pending-failed",
+        "arm": true,
+        "branch": "custom",
+        "command": null,
+        "disarm": false,
+        "finish": {
+          "exit_code": [
+            "exited"
+          ],
+          "exit_status": [
+            "1"
+          ]
+        },
+        "pre_ready": true,
+        "rc": "nonzero",
+        "ready_phase": null,
+        "restart_of": null
+      },
+      "name": "pre-ready-exit1",
+      "service": {
+        "exec_main_code": "exited",
+        "exec_main_status": "1",
+        "finish_tuple": {
+          "exit_code": "exited",
+          "exit_status": "1",
+          "service_result": "protocol"
+        },
+        "output_bytes": 764,
+        "properties": {
+          "ExecStartPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py ready --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/post_hook.py /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/post-pre-ready-exit1.json pre-ready-exit1 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell /run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+          ],
+          "ExecStopPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py finish --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/stop_hook.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/stop-pre-ready-exit1.json pre-ready-exit1"
+          ],
+          "KillMode": [
+            "control-group"
+          ],
+          "LimitCORE": [
+            "0"
+          ],
+          "MemoryMax": [
+            "64M"
+          ],
+          "NotifyAccess": [
+            "main"
+          ],
+          "Restart": [
+            "no"
+          ],
+          "RuntimeMaxSec": [
+            "15"
+          ],
+          "SuccessExitStatus": [
+            "1"
+          ],
+          "TimeoutStartSec": [
+            "8"
+          ],
+          "TimeoutStopSec": [
+            "3"
+          ],
+          "Type": [
+            "notify"
+          ]
+        },
+        "result": "protocol",
+        "stderr": "Running as unit: socket-stream-guard-qa-pre-ready-exit1-32a772e5694c.service; invocation ID: 0371f12aa6c8409ca1a974b9674f913b\nsocket-stream qa fixture: exiting before READY\nSocketStream guard: startup record was not re-armed\n          Finished with result: protocol\nMain processes terminated with: code=exited, status=1/FAILURE\n               Service runtime: 147ms\n             CPU time consumed: 117ms\n                   Memory peak: 10.6M (swap: 0B)\n",
+        "stdout": "{\"boot_id\":\"d6781961-2dd7-4010-8a34-5afb3b17a8ab\",\"invocation_id\":\"0371f12aa6c8409ca1a974b9674f913b\",\"mode\":\"ubuntu\",\"phase\":\"blocked\",\"pid\":83030,\"reason\":\"pending-failed\",\"runtime\":\"/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677\",\"schema\":1,\"starttime\":685850}\n",
+        "stop": {
+          "exit_code": "exited",
+          "exit_status": "1",
+          "helper_optin": false,
+          "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+          "kind": "stop",
+          "main_pid": null,
+          "service_result": "protocol",
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83030,
+            "reason": "pending-failed",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 685850
+          },
+          "token": "pre-ready-exit1"
+        },
+        "systemd_run_rc": 1,
+        "unit": "socket-stream-guard-qa-pre-ready-exit1-32a772e5694c"
+      },
+      "slug": "pre-ready-exit1",
+      "state": {
+        "after": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+          "phase": "blocked",
+          "pid": 83030,
+          "reason": "pending-failed",
+          "starttime": 685850
+        },
+        "before": {
+          "phase": "armed",
+          "reason": "clean-stop"
+        },
+        "status_cli": {
+          "record": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "identity": "same",
+            "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+            "phase": "blocked",
+            "pid": 83030,
+            "reason": "pending-failed",
+            "starttime": 685850
+          },
+          "returncode": 0,
+          "stderr": ""
+        }
+      },
+      "status": "pass"
+    },
+    {
+      "branch": {
+        "branch": "stock",
+        "detail": "guard-refused",
+        "invocation_id": "90196d76161042b291fb1647b19543be",
+        "pid": 83040,
+        "reason": "startup record is blocked; run a new passing probe before arming"
+      },
+      "checks": [
+        {
+          "detail": {
+            "before": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            },
+            "previous_after": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            }
+          },
+          "name": "state-before-is-stale-blocked",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "blocked",
+            "observed": "blocked"
+          },
+          "name": "exec-start-post-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "gid": 1000,
+            "pid": 83040,
+            "uid": 1000
+          },
+          "name": "control-peer-uid",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "success"
+            ],
+            "observed": "success"
+          },
+          "name": "finish-service_result",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "exited"
+            ],
+            "observed": "exited"
+          },
+          "name": "finish-exit_code",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "0"
+            ],
+            "observed": "0"
+          },
+          "name": "finish-exit_status",
+          "ok": true
+        },
+        {
+          "detail": 0,
+          "name": "systemd-run-rc",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "identity": "same",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "status-cli",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected_phase": "blocked",
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            }
+          },
+          "name": "state-after-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "pending-failed",
+            "observed": "pending-failed"
+          },
+          "name": "state-after-reason",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": true,
+            "present": true
+          },
+          "name": "state-after-identity",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "helper-environment-without-optin",
+          "ok": true
+        },
+        {
+          "detail": 1000,
+          "name": "main-owner",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment": {
+              "INVOCATION_ID": "90196d76161042b291fb1647b19543be"
+            },
+            "error": null
+          },
+          "name": "stock-process-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment_invocation": "90196d76161042b291fb1647b19543be",
+            "service_invocation": "90196d76161042b291fb1647b19543be"
+          },
+          "name": "main-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "executable": [
+              68,
+              1011
+            ],
+            "fixture": false,
+            "stock": true
+          },
+          "name": "main-executable",
+          "ok": true
+        },
+        {
+          "detail": [],
+          "name": "no-mutter-mappings",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "stop-helper-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "branch": "stock",
+            "detail": "guard-refused",
+            "error": null,
+            "reason": "startup record is blocked; run a new passing probe before arming"
+          },
+          "name": "launcher-branch",
+          "ok": true
+        },
+        {
+          "detail": {
+            "detail": "guard-refused",
+            "expected": "startup record is blocked; run a new passing probe before arming",
+            "reason": "startup record is blocked; run a new passing probe before arming"
+          },
+          "name": "consume-refusal-blocked",
+          "ok": true
+        },
+        {
+          "detail": {
+            "required": [
+              "launcher_pid",
+              "post_main_pid",
+              "control_peer_pid"
+            ],
+            "stored": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            },
+            "values": {
+              "control_peer_pid": 83040,
+              "launcher_pid": 83040,
+              "post_main_pid": 83040,
+              "stop_main_pid": null
+            }
+          },
+          "name": "main-pid-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "observed": "90196d76161042b291fb1647b19543be",
+            "previous": "0371f12aa6c8409ca1a974b9674f913b"
+          },
+          "name": "new-systemd-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            },
+            "previous": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+              "phase": "blocked",
+              "pid": 83030,
+              "reason": "pending-failed",
+              "starttime": 685850
+            }
+          },
+          "name": "stale-record-retained",
+          "ok": true
+        },
+        {
+          "detail": [
+            "ready requires a matching pending startup",
+            "INVOCATION_ID does not match the recorded startup"
+          ],
+          "informational": true,
+          "name": "ready-hook-refusal",
+          "ok": null
+        }
+      ],
+      "diagnostics": {
+        "guard_reasons": [
+          "ready requires a matching pending startup",
+          "INVOCATION_ID does not match the recorded startup"
+        ],
+        "guard_records": []
+      },
+      "elapsed_seconds": 0.314,
+      "expected": {
+        "after_identity": true,
+        "after_phase": "blocked",
+        "after_reason": "pending-failed",
+        "arm": false,
+        "branch": "stock",
+        "command": "exit0",
+        "disarm": false,
+        "finish": {
+          "exit_code": [
+            "exited"
+          ],
+          "exit_status": [
+            "0"
+          ],
+          "service_result": [
+            "success"
+          ]
+        },
+        "pre_ready": false,
+        "rc": "zero",
+        "ready_phase": "blocked",
+        "restart_of": "pre-ready-exit1"
+      },
+      "name": "pre-ready-exit1-restart",
+      "service": {
+        "control_peer": {
+          "gid": 1000,
+          "pid": 83040,
+          "uid": 1000
+        },
+        "exec_main_code": "exited",
+        "exec_main_status": "0",
+        "finish_tuple": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "service_result": "success"
+        },
+        "output_bytes": 444,
+        "post": {
+          "fixture_executable": [
+            68,
+            1010
+          ],
+          "helper_optin": false,
+          "invocation_id": "90196d76161042b291fb1647b19543be",
+          "kind": "post",
+          "main_environment": {
+            "INVOCATION_ID": "90196d76161042b291fb1647b19543be"
+          },
+          "main_is_fixture": false,
+          "main_is_stock": true,
+          "main_pid": 83040,
+          "mutter_mappings": {
+            "complete": false,
+            "entries": [],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "process_executable": [
+            68,
+            1011
+          ],
+          "process_owner": 1000,
+          "process_starttime": 685872,
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83030,
+            "reason": "pending-failed",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 685850
+          },
+          "stock_executable": [
+            68,
+            1011
+          ],
+          "token": "pre-ready-exit1-restart"
+        },
+        "properties": {
+          "ExecStartPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py ready --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/post_hook.py /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/post-pre-ready-exit1-restart.json pre-ready-exit1-restart /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell /run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+          ],
+          "ExecStopPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py finish --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/stop_hook.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/stop-pre-ready-exit1-restart.json pre-ready-exit1-restart"
+          ],
+          "KillMode": [
+            "control-group"
+          ],
+          "LimitCORE": [
+            "0"
+          ],
+          "MemoryMax": [
+            "64M"
+          ],
+          "NotifyAccess": [
+            "main"
+          ],
+          "Restart": [
+            "no"
+          ],
+          "RuntimeMaxSec": [
+            "15"
+          ],
+          "SuccessExitStatus": [
+            "1"
+          ],
+          "TimeoutStartSec": [
+            "8"
+          ],
+          "TimeoutStopSec": [
+            "3"
+          ],
+          "Type": [
+            "notify"
+          ]
+        },
+        "result": "success",
+        "stderr": "Running as unit: socket-stream-guard-qa-pre-ready-exit1-restart-fcecadd63c38.service\nSocketStream guard: ready requires a matching pending startup\nSocketStream guard: INVOCATION_ID does not match the recorded startup\n          Finished with result: success\nMain processes terminated with: code=exited, status=0/SUCCESS\n               Service runtime: 252ms\n             CPU time consumed: 205ms\n                   Memory peak: 10.6M (swap: 0B)\n",
+        "stdout": "",
+        "stop": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "helper_optin": false,
+          "invocation_id": "90196d76161042b291fb1647b19543be",
+          "kind": "stop",
+          "main_pid": null,
+          "service_result": "success",
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83030,
+            "reason": "pending-failed",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 685850
+          },
+          "token": "pre-ready-exit1-restart"
+        },
+        "systemd_run_rc": 0,
+        "unit": "socket-stream-guard-qa-pre-ready-exit1-restart-fcecadd63c38"
+      },
+      "slug": "pre-ready-exit1-restart",
+      "state": {
+        "after": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+          "phase": "blocked",
+          "pid": 83030,
+          "reason": "pending-failed",
+          "starttime": 685850
+        },
+        "before": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+          "phase": "blocked",
+          "pid": 83030,
+          "reason": "pending-failed",
+          "starttime": 685850
+        },
+        "status_cli": {
+          "record": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "identity": "same",
+            "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+            "phase": "blocked",
+            "pid": 83030,
+            "reason": "pending-failed",
+            "starttime": 685850
+          },
+          "returncode": 0,
+          "stderr": ""
+        }
+      },
+      "status": "pass"
+    },
+    {
+      "arm": {
+        "record": {
+          "phase": "armed"
+        },
+        "returncode": 0,
+        "stderr": ""
+      },
+      "branch": {
+        "branch": "custom",
+        "claim_pid": 83053,
+        "claim_starttime": 685908,
+        "detail": "guard-claimed",
+        "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+        "phase": "pending",
+        "pid": 83053
+      },
+      "checks": [
+        {
+          "detail": {
+            "record": {
+              "phase": "armed"
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "guard-arm",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "ready",
+            "observed": "ready"
+          },
+          "name": "exec-start-post-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "gid": 1000,
+            "pid": 83053,
+            "uid": 1000
+          },
+          "name": "control-peer-uid",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "signal",
+              "core-dump"
+            ],
+            "observed": "core-dump"
+          },
+          "name": "finish-service_result",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "11",
+              "SEGV",
+              "segv"
+            ],
+            "observed": "SEGV"
+          },
+          "name": "finish-exit_status",
+          "ok": true
+        },
+        {
+          "detail": 1,
+          "name": "systemd-run-rc",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "identity": "same",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "status-cli",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected_phase": "blocked",
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            }
+          },
+          "name": "state-after-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "unclean-stop",
+            "observed": "unclean-stop"
+          },
+          "name": "state-after-reason",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": true,
+            "present": true
+          },
+          "name": "state-after-identity",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "helper-environment-without-optin",
+          "ok": true
+        },
+        {
+          "detail": 1000,
+          "name": "main-owner",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment": {
+              "INVOCATION_ID": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "SOCKET_STREAM_CAPTURE_EXCLUDE": "1"
+            },
+            "error": null
+          },
+          "name": "main-process-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment_invocation": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+            "service_invocation": "4c5a17f3b67c4b20b3b3bfe8a81642d0"
+          },
+          "name": "main-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "executable": [
+              68,
+              1010
+            ],
+            "fixture": true,
+            "stock": false
+          },
+          "name": "main-executable",
+          "ok": true
+        },
+        {
+          "detail": {
+            "proc_starttime": 685908,
+            "state_starttime": 685908
+          },
+          "name": "starttime-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "complete": true,
+            "entries": [
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1006,
+                "matches_expected": true,
+                "name": "libmutter-mtk-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1005,
+                "matches_expected": true,
+                "name": "libmutter-cogl-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1004,
+                "matches_expected": true,
+                "name": "libmutter-clutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1003,
+                "matches_expected": true,
+                "name": "libmutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0"
+              }
+            ],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "name": "mutter-mappings",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "stop-helper-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "branch": "custom",
+            "detail": "guard-claimed",
+            "error": null,
+            "reason": null
+          },
+          "name": "launcher-branch",
+          "ok": true
+        },
+        {
+          "detail": "guard-claimed",
+          "name": "consume-refusal-none",
+          "ok": true
+        },
+        {
+          "detail": {
+            "required": [
+              "launcher_pid",
+              "post_main_pid",
+              "control_peer_pid"
+            ],
+            "stored": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            },
+            "values": {
+              "control_peer_pid": 83053,
+              "launcher_pid": 83053,
+              "post_main_pid": 83053,
+              "stop_main_pid": null,
+              "stored_pid": 83053
+            }
+          },
+          "name": "main-pid-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "consume_pid": 83053,
+            "service_main_pid": 83053
+          },
+          "name": "consume-pid-equals-main",
+          "ok": true
+        },
+        {
+          "detail": [
+            {
+              "phase": "ready",
+              "reason": null
+            },
+            {
+              "phase": "blocked",
+              "reason": "unclean-stop"
+            }
+          ],
+          "informational": true,
+          "name": "ready-hook-record",
+          "ok": null
+        }
+      ],
+      "diagnostics": {
+        "guard_reasons": [
+          "startup record was not re-armed"
+        ],
+        "guard_records": [
+          {
+            "phase": "ready",
+            "reason": null
+          },
+          {
+            "phase": "blocked",
+            "reason": "unclean-stop"
+          }
+        ]
+      },
+      "elapsed_seconds": 1.453,
+      "expected": {
+        "after_identity": true,
+        "after_phase": "blocked",
+        "after_reason": "unclean-stop",
+        "arm": true,
+        "branch": "custom",
+        "command": "segv",
+        "disarm": false,
+        "finish": {
+          "exit_status": [
+            "11",
+            "SEGV",
+            "segv"
+          ],
+          "service_result": [
+            "signal",
+            "core-dump"
+          ]
+        },
+        "pre_ready": false,
+        "rc": "nonzero",
+        "ready_phase": "ready",
+        "restart_of": null
+      },
+      "name": "post-ready-segv",
+      "service": {
+        "control_peer": {
+          "gid": 1000,
+          "pid": 83053,
+          "uid": 1000
+        },
+        "exec_main_code": "dumped",
+        "exec_main_status": "SEGV",
+        "finish_tuple": {
+          "exit_code": "dumped",
+          "exit_status": "SEGV",
+          "service_result": "core-dump"
+        },
+        "output_bytes": 949,
+        "post": {
+          "fixture_executable": [
+            68,
+            1010
+          ],
+          "helper_optin": false,
+          "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+          "kind": "post",
+          "main_environment": {
+            "INVOCATION_ID": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+            "SOCKET_STREAM_CAPTURE_EXCLUDE": "1"
+          },
+          "main_is_fixture": true,
+          "main_is_stock": false,
+          "main_pid": 83053,
+          "mutter_mappings": {
+            "complete": true,
+            "entries": [
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1006,
+                "matches_expected": true,
+                "name": "libmutter-mtk-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1005,
+                "matches_expected": true,
+                "name": "libmutter-cogl-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1004,
+                "matches_expected": true,
+                "name": "libmutter-clutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1003,
+                "matches_expected": true,
+                "name": "libmutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0"
+              }
+            ],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "process_executable": [
+            68,
+            1010
+          ],
+          "process_owner": 1000,
+          "process_starttime": 685908,
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+            "mode": "ubuntu",
+            "phase": "ready",
+            "pid": 83053,
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 685908
+          },
+          "stock_executable": [
+            68,
+            1011
+          ],
+          "token": "post-ready-segv"
+        },
+        "properties": {
+          "ExecStartPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py ready --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/post_hook.py /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/post-post-ready-segv.json post-ready-segv /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell /run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+          ],
+          "ExecStopPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py finish --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/stop_hook.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/stop-post-ready-segv.json post-ready-segv"
+          ],
+          "KillMode": [
+            "control-group"
+          ],
+          "LimitCORE": [
+            "0"
+          ],
+          "MemoryMax": [
+            "64M"
+          ],
+          "NotifyAccess": [
+            "main"
+          ],
+          "Restart": [
+            "no"
+          ],
+          "RuntimeMaxSec": [
+            "15"
+          ],
+          "SuccessExitStatus": [
+            "1"
+          ],
+          "TimeoutStartSec": [
+            "8"
+          ],
+          "TimeoutStopSec": [
+            "3"
+          ],
+          "Type": [
+            "notify"
+          ]
+        },
+        "result": "core-dump",
+        "stderr": "Running as unit: socket-stream-guard-qa-post-ready-segv-43f1692c9d24.service\nSocketStream guard: startup record was not re-armed\n          Finished with result: core-dump\nMain processes terminated with: code=dumped, status=11/SEGV\n               Service runtime: 1.347s\n             CPU time consumed: 209ms\n                   Memory peak: 10.6M (swap: 0B)\n",
+        "stdout": "{\"boot_id\":\"d6781961-2dd7-4010-8a34-5afb3b17a8ab\",\"invocation_id\":\"4c5a17f3b67c4b20b3b3bfe8a81642d0\",\"mode\":\"ubuntu\",\"phase\":\"ready\",\"pid\":83053,\"runtime\":\"/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677\",\"schema\":1,\"starttime\":685908}\n{\"boot_id\":\"d6781961-2dd7-4010-8a34-5afb3b17a8ab\",\"invocation_id\":\"4c5a17f3b67c4b20b3b3bfe8a81642d0\",\"mode\":\"ubuntu\",\"phase\":\"blocked\",\"pid\":83053,\"reason\":\"unclean-stop\",\"runtime\":\"/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677\",\"schema\":1,\"starttime\":685908}\n",
+        "stop": {
+          "exit_code": "dumped",
+          "exit_status": "SEGV",
+          "helper_optin": false,
+          "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+          "kind": "stop",
+          "main_pid": null,
+          "service_result": "core-dump",
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83053,
+            "reason": "unclean-stop",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 685908
+          },
+          "token": "post-ready-segv"
+        },
+        "systemd_run_rc": 1,
+        "unit": "socket-stream-guard-qa-post-ready-segv-43f1692c9d24"
+      },
+      "slug": "post-ready-segv",
+      "state": {
+        "after": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+          "phase": "blocked",
+          "pid": 83053,
+          "reason": "unclean-stop",
+          "starttime": 685908
+        },
+        "before": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "0371f12aa6c8409ca1a974b9674f913b",
+          "phase": "blocked",
+          "pid": 83030,
+          "reason": "pending-failed",
+          "starttime": 685850
+        },
+        "status_cli": {
+          "record": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "identity": "same",
+            "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+            "phase": "blocked",
+            "pid": 83053,
+            "reason": "unclean-stop",
+            "starttime": 685908
+          },
+          "returncode": 0,
+          "stderr": ""
+        }
+      },
+      "status": "pass"
+    },
+    {
+      "branch": {
+        "branch": "stock",
+        "detail": "guard-refused",
+        "invocation_id": "c85532df3073471d9bd3863412e2c677",
+        "pid": 83081,
+        "reason": "startup record is blocked; run a new passing probe before arming"
+      },
+      "checks": [
+        {
+          "detail": {
+            "before": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            },
+            "previous_after": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            }
+          },
+          "name": "state-before-is-stale-blocked",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "blocked",
+            "observed": "blocked"
+          },
+          "name": "exec-start-post-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "gid": 1000,
+            "pid": 83081,
+            "uid": 1000
+          },
+          "name": "control-peer-uid",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "success"
+            ],
+            "observed": "success"
+          },
+          "name": "finish-service_result",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "exited"
+            ],
+            "observed": "exited"
+          },
+          "name": "finish-exit_code",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "0"
+            ],
+            "observed": "0"
+          },
+          "name": "finish-exit_status",
+          "ok": true
+        },
+        {
+          "detail": 0,
+          "name": "systemd-run-rc",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "identity": "same",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "status-cli",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected_phase": "blocked",
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            }
+          },
+          "name": "state-after-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "unclean-stop",
+            "observed": "unclean-stop"
+          },
+          "name": "state-after-reason",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": true,
+            "present": true
+          },
+          "name": "state-after-identity",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "helper-environment-without-optin",
+          "ok": true
+        },
+        {
+          "detail": 1000,
+          "name": "main-owner",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment": {
+              "INVOCATION_ID": "c85532df3073471d9bd3863412e2c677"
+            },
+            "error": null
+          },
+          "name": "stock-process-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment_invocation": "c85532df3073471d9bd3863412e2c677",
+            "service_invocation": "c85532df3073471d9bd3863412e2c677"
+          },
+          "name": "main-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "executable": [
+              68,
+              1011
+            ],
+            "fixture": false,
+            "stock": true
+          },
+          "name": "main-executable",
+          "ok": true
+        },
+        {
+          "detail": [],
+          "name": "no-mutter-mappings",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "stop-helper-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "branch": "stock",
+            "detail": "guard-refused",
+            "error": null,
+            "reason": "startup record is blocked; run a new passing probe before arming"
+          },
+          "name": "launcher-branch",
+          "ok": true
+        },
+        {
+          "detail": {
+            "detail": "guard-refused",
+            "expected": "startup record is blocked; run a new passing probe before arming",
+            "reason": "startup record is blocked; run a new passing probe before arming"
+          },
+          "name": "consume-refusal-blocked",
+          "ok": true
+        },
+        {
+          "detail": {
+            "required": [
+              "launcher_pid",
+              "post_main_pid",
+              "control_peer_pid"
+            ],
+            "stored": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            },
+            "values": {
+              "control_peer_pid": 83081,
+              "launcher_pid": 83081,
+              "post_main_pid": 83081,
+              "stop_main_pid": null
+            }
+          },
+          "name": "main-pid-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "observed": "c85532df3073471d9bd3863412e2c677",
+            "previous": "4c5a17f3b67c4b20b3b3bfe8a81642d0"
+          },
+          "name": "new-systemd-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            },
+            "previous": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+              "phase": "blocked",
+              "pid": 83053,
+              "reason": "unclean-stop",
+              "starttime": 685908
+            }
+          },
+          "name": "stale-record-retained",
+          "ok": true
+        },
+        {
+          "detail": [
+            "ready requires a matching pending startup",
+            "INVOCATION_ID does not match the recorded startup"
+          ],
+          "informational": true,
+          "name": "ready-hook-refusal",
+          "ok": null
+        }
+      ],
+      "diagnostics": {
+        "guard_reasons": [
+          "ready requires a matching pending startup",
+          "INVOCATION_ID does not match the recorded startup"
+        ],
+        "guard_records": []
+      },
+      "elapsed_seconds": 0.324,
+      "expected": {
+        "after_identity": true,
+        "after_phase": "blocked",
+        "after_reason": "unclean-stop",
+        "arm": false,
+        "branch": "stock",
+        "command": "exit0",
+        "disarm": false,
+        "finish": {
+          "exit_code": [
+            "exited"
+          ],
+          "exit_status": [
+            "0"
+          ],
+          "service_result": [
+            "success"
+          ]
+        },
+        "pre_ready": false,
+        "rc": "zero",
+        "ready_phase": "blocked",
+        "restart_of": "post-ready-segv"
+      },
+      "name": "post-ready-segv-restart",
+      "service": {
+        "control_peer": {
+          "gid": 1000,
+          "pid": 83081,
+          "uid": 1000
+        },
+        "exec_main_code": "exited",
+        "exec_main_status": "0",
+        "finish_tuple": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "service_result": "success"
+        },
+        "output_bytes": 493,
+        "post": {
+          "fixture_executable": [
+            68,
+            1010
+          ],
+          "helper_optin": false,
+          "invocation_id": "c85532df3073471d9bd3863412e2c677",
+          "kind": "post",
+          "main_environment": {
+            "INVOCATION_ID": "c85532df3073471d9bd3863412e2c677"
+          },
+          "main_is_fixture": false,
+          "main_is_stock": true,
+          "main_pid": 83081,
+          "mutter_mappings": {
+            "complete": false,
+            "entries": [],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "process_executable": [
+            68,
+            1011
+          ],
+          "process_owner": 1000,
+          "process_starttime": 686049,
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83053,
+            "reason": "unclean-stop",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 685908
+          },
+          "stock_executable": [
+            68,
+            1011
+          ],
+          "token": "post-ready-segv-restart"
+        },
+        "properties": {
+          "ExecStartPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py ready --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/post_hook.py /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/post-post-ready-segv-restart.json post-ready-segv-restart /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell /run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+          ],
+          "ExecStopPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py finish --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/stop_hook.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/stop-post-ready-segv-restart.json post-ready-segv-restart"
+          ],
+          "KillMode": [
+            "control-group"
+          ],
+          "LimitCORE": [
+            "0"
+          ],
+          "MemoryMax": [
+            "64M"
+          ],
+          "NotifyAccess": [
+            "main"
+          ],
+          "Restart": [
+            "no"
+          ],
+          "RuntimeMaxSec": [
+            "15"
+          ],
+          "SuccessExitStatus": [
+            "1"
+          ],
+          "TimeoutStartSec": [
+            "8"
+          ],
+          "TimeoutStopSec": [
+            "3"
+          ],
+          "Type": [
+            "notify"
+          ]
+        },
+        "result": "success",
+        "stderr": "Running as unit: socket-stream-guard-qa-post-ready-segv-restart-a02559fb8829.service; invocation ID: c85532df3073471d9bd3863412e2c677\nSocketStream guard: ready requires a matching pending startup\nSocketStream guard: INVOCATION_ID does not match the recorded startup\n          Finished with result: success\nMain processes terminated with: code=exited, status=0/SUCCESS\n               Service runtime: 263ms\n             CPU time consumed: 216ms\n                   Memory peak: 10.9M (swap: 0B)\n",
+        "stdout": "",
+        "stop": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "helper_optin": false,
+          "invocation_id": "c85532df3073471d9bd3863412e2c677",
+          "kind": "stop",
+          "main_pid": null,
+          "service_result": "success",
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83053,
+            "reason": "unclean-stop",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 685908
+          },
+          "token": "post-ready-segv-restart"
+        },
+        "systemd_run_rc": 0,
+        "unit": "socket-stream-guard-qa-post-ready-segv-restart-a02559fb8829"
+      },
+      "slug": "post-ready-segv-restart",
+      "state": {
+        "after": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+          "phase": "blocked",
+          "pid": 83053,
+          "reason": "unclean-stop",
+          "starttime": 685908
+        },
+        "before": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+          "phase": "blocked",
+          "pid": 83053,
+          "reason": "unclean-stop",
+          "starttime": 685908
+        },
+        "status_cli": {
+          "record": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "identity": "same",
+            "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+            "phase": "blocked",
+            "pid": 83053,
+            "reason": "unclean-stop",
+            "starttime": 685908
+          },
+          "returncode": 0,
+          "stderr": ""
+        }
+      },
+      "status": "pass"
+    },
+    {
+      "arm": {
+        "record": {
+          "phase": "armed"
+        },
+        "returncode": 0,
+        "stderr": ""
+      },
+      "branch": {
+        "branch": "custom",
+        "claim_pid": 83094,
+        "claim_starttime": 686086,
+        "detail": "guard-claimed",
+        "invocation_id": "036a0fe6f2874688a62637736d97a840",
+        "phase": "pending",
+        "pid": 83094
+      },
+      "checks": [
+        {
+          "detail": {
+            "record": {
+              "phase": "armed"
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "guard-arm",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "ready",
+            "observed": "ready"
+          },
+          "name": "exec-start-post-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "gid": 1000,
+            "pid": 83094,
+            "uid": 1000
+          },
+          "name": "control-peer-uid",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "success"
+            ],
+            "observed": "success"
+          },
+          "name": "finish-service_result",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "exited"
+            ],
+            "observed": "exited"
+          },
+          "name": "finish-exit_code",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "1"
+            ],
+            "observed": "1"
+          },
+          "name": "finish-exit_status",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "identity": "same",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "status-cli",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected_phase": "blocked",
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            }
+          },
+          "name": "state-after-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "unclean-stop",
+            "observed": "unclean-stop"
+          },
+          "name": "state-after-reason",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": true,
+            "present": true
+          },
+          "name": "state-after-identity",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "helper-environment-without-optin",
+          "ok": true
+        },
+        {
+          "detail": 1000,
+          "name": "main-owner",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment": {
+              "INVOCATION_ID": "036a0fe6f2874688a62637736d97a840",
+              "SOCKET_STREAM_CAPTURE_EXCLUDE": "1"
+            },
+            "error": null
+          },
+          "name": "main-process-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment_invocation": "036a0fe6f2874688a62637736d97a840",
+            "service_invocation": "036a0fe6f2874688a62637736d97a840"
+          },
+          "name": "main-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "executable": [
+              68,
+              1010
+            ],
+            "fixture": true,
+            "stock": false
+          },
+          "name": "main-executable",
+          "ok": true
+        },
+        {
+          "detail": {
+            "proc_starttime": 686086,
+            "state_starttime": 686086
+          },
+          "name": "starttime-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "complete": true,
+            "entries": [
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1006,
+                "matches_expected": true,
+                "name": "libmutter-mtk-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1005,
+                "matches_expected": true,
+                "name": "libmutter-cogl-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1004,
+                "matches_expected": true,
+                "name": "libmutter-clutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1003,
+                "matches_expected": true,
+                "name": "libmutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0"
+              }
+            ],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "name": "mutter-mappings",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "stop-helper-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "branch": "custom",
+            "detail": "guard-claimed",
+            "error": null,
+            "reason": null
+          },
+          "name": "launcher-branch",
+          "ok": true
+        },
+        {
+          "detail": "guard-claimed",
+          "name": "consume-refusal-none",
+          "ok": true
+        },
+        {
+          "detail": {
+            "required": [
+              "launcher_pid",
+              "post_main_pid",
+              "control_peer_pid"
+            ],
+            "stored": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            },
+            "values": {
+              "control_peer_pid": 83094,
+              "launcher_pid": 83094,
+              "post_main_pid": 83094,
+              "stop_main_pid": null,
+              "stored_pid": 83094
+            }
+          },
+          "name": "main-pid-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "consume_pid": 83094,
+            "service_main_pid": 83094
+          },
+          "name": "consume-pid-equals-main",
+          "ok": true
+        },
+        {
+          "detail": [
+            {
+              "phase": "ready",
+              "reason": null
+            },
+            {
+              "phase": "blocked",
+              "reason": "unclean-stop"
+            }
+          ],
+          "informational": true,
+          "name": "ready-hook-record",
+          "ok": null
+        }
+      ],
+      "diagnostics": {
+        "guard_reasons": [
+          "startup record was not re-armed"
+        ],
+        "guard_records": [
+          {
+            "phase": "ready",
+            "reason": null
+          },
+          {
+            "phase": "blocked",
+            "reason": "unclean-stop"
+          }
+        ]
+      },
+      "elapsed_seconds": 0.348,
+      "expected": {
+        "after_identity": true,
+        "after_phase": "blocked",
+        "after_reason": "unclean-stop",
+        "arm": true,
+        "branch": "custom",
+        "command": "exit1",
+        "disarm": false,
+        "finish": {
+          "exit_code": [
+            "exited"
+          ],
+          "exit_status": [
+            "1"
+          ],
+          "service_result": [
+            "success"
+          ]
+        },
+        "pre_ready": false,
+        "rc": "any",
+        "ready_phase": "ready",
+        "restart_of": null
+      },
+      "name": "ready-exit1",
+      "service": {
+        "control_peer": {
+          "gid": 1000,
+          "pid": 83094,
+          "uid": 1000
+        },
+        "exec_main_code": "exited",
+        "exec_main_status": "1",
+        "finish_tuple": {
+          "exit_code": "exited",
+          "exit_status": "1",
+          "service_result": "success"
+        },
+        "output_bytes": 993,
+        "post": {
+          "fixture_executable": [
+            68,
+            1010
+          ],
+          "helper_optin": false,
+          "invocation_id": "036a0fe6f2874688a62637736d97a840",
+          "kind": "post",
+          "main_environment": {
+            "INVOCATION_ID": "036a0fe6f2874688a62637736d97a840",
+            "SOCKET_STREAM_CAPTURE_EXCLUDE": "1"
+          },
+          "main_is_fixture": true,
+          "main_is_stock": false,
+          "main_pid": 83094,
+          "mutter_mappings": {
+            "complete": true,
+            "entries": [
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1006,
+                "matches_expected": true,
+                "name": "libmutter-mtk-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1005,
+                "matches_expected": true,
+                "name": "libmutter-cogl-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1004,
+                "matches_expected": true,
+                "name": "libmutter-clutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1003,
+                "matches_expected": true,
+                "name": "libmutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0"
+              }
+            ],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "process_executable": [
+            68,
+            1010
+          ],
+          "process_owner": 1000,
+          "process_starttime": 686086,
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "036a0fe6f2874688a62637736d97a840",
+            "mode": "ubuntu",
+            "phase": "ready",
+            "pid": 83094,
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 686086
+          },
+          "stock_executable": [
+            68,
+            1011
+          ],
+          "token": "ready-exit1"
+        },
+        "properties": {
+          "ExecStartPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py ready --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/post_hook.py /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/post-ready-exit1.json ready-exit1 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell /run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+          ],
+          "ExecStopPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py finish --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/stop_hook.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/stop-ready-exit1.json ready-exit1"
+          ],
+          "KillMode": [
+            "control-group"
+          ],
+          "LimitCORE": [
+            "0"
+          ],
+          "MemoryMax": [
+            "64M"
+          ],
+          "NotifyAccess": [
+            "main"
+          ],
+          "Restart": [
+            "no"
+          ],
+          "RuntimeMaxSec": [
+            "15"
+          ],
+          "SuccessExitStatus": [
+            "1"
+          ],
+          "TimeoutStartSec": [
+            "8"
+          ],
+          "TimeoutStopSec": [
+            "3"
+          ],
+          "Type": [
+            "notify"
+          ]
+        },
+        "result": "success",
+        "stderr": "Running as unit: socket-stream-guard-qa-ready-exit1-975d64ca2860.service; invocation ID: 036a0fe6f2874688a62637736d97a840\nSocketStream guard: startup record was not re-armed\n          Finished with result: success\nMain processes terminated with: code=exited, status=1/FAILURE\n               Service runtime: 243ms\n             CPU time consumed: 209ms\n                   Memory peak: 10.6M (swap: 0B)\n",
+        "stdout": "{\"boot_id\":\"d6781961-2dd7-4010-8a34-5afb3b17a8ab\",\"invocation_id\":\"036a0fe6f2874688a62637736d97a840\",\"mode\":\"ubuntu\",\"phase\":\"ready\",\"pid\":83094,\"runtime\":\"/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677\",\"schema\":1,\"starttime\":686086}\n{\"boot_id\":\"d6781961-2dd7-4010-8a34-5afb3b17a8ab\",\"invocation_id\":\"036a0fe6f2874688a62637736d97a840\",\"mode\":\"ubuntu\",\"phase\":\"blocked\",\"pid\":83094,\"reason\":\"unclean-stop\",\"runtime\":\"/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677\",\"schema\":1,\"starttime\":686086}\n",
+        "stop": {
+          "exit_code": "exited",
+          "exit_status": "1",
+          "helper_optin": false,
+          "invocation_id": "036a0fe6f2874688a62637736d97a840",
+          "kind": "stop",
+          "main_pid": null,
+          "service_result": "success",
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "036a0fe6f2874688a62637736d97a840",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83094,
+            "reason": "unclean-stop",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 686086
+          },
+          "token": "ready-exit1"
+        },
+        "systemd_run_rc": 0,
+        "unit": "socket-stream-guard-qa-ready-exit1-975d64ca2860"
+      },
+      "slug": "ready-exit1",
+      "state": {
+        "after": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "036a0fe6f2874688a62637736d97a840",
+          "phase": "blocked",
+          "pid": 83094,
+          "reason": "unclean-stop",
+          "starttime": 686086
+        },
+        "before": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "4c5a17f3b67c4b20b3b3bfe8a81642d0",
+          "phase": "blocked",
+          "pid": 83053,
+          "reason": "unclean-stop",
+          "starttime": 685908
+        },
+        "status_cli": {
+          "record": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "identity": "same",
+            "invocation_id": "036a0fe6f2874688a62637736d97a840",
+            "phase": "blocked",
+            "pid": 83094,
+            "reason": "unclean-stop",
+            "starttime": 686086
+          },
+          "returncode": 0,
+          "stderr": ""
+        }
+      },
+      "status": "pass"
+    },
+    {
+      "branch": {
+        "branch": "stock",
+        "detail": "guard-refused",
+        "invocation_id": "48df8dffc2544d63af4b36f18ca0b344",
+        "pid": 83106,
+        "reason": "startup record is blocked; run a new passing probe before arming"
+      },
+      "checks": [
+        {
+          "detail": {
+            "before": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            },
+            "previous_after": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            }
+          },
+          "name": "state-before-is-stale-blocked",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "blocked",
+            "observed": "blocked"
+          },
+          "name": "exec-start-post-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "gid": 1000,
+            "pid": 83106,
+            "uid": 1000
+          },
+          "name": "control-peer-uid",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "success"
+            ],
+            "observed": "success"
+          },
+          "name": "finish-service_result",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "exited"
+            ],
+            "observed": "exited"
+          },
+          "name": "finish-exit_code",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "0"
+            ],
+            "observed": "0"
+          },
+          "name": "finish-exit_status",
+          "ok": true
+        },
+        {
+          "detail": 0,
+          "name": "systemd-run-rc",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "identity": "same",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "status-cli",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected_phase": "blocked",
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            }
+          },
+          "name": "state-after-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "unclean-stop",
+            "observed": "unclean-stop"
+          },
+          "name": "state-after-reason",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": true,
+            "present": true
+          },
+          "name": "state-after-identity",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "helper-environment-without-optin",
+          "ok": true
+        },
+        {
+          "detail": 1000,
+          "name": "main-owner",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment": {
+              "INVOCATION_ID": "48df8dffc2544d63af4b36f18ca0b344"
+            },
+            "error": null
+          },
+          "name": "stock-process-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment_invocation": "48df8dffc2544d63af4b36f18ca0b344",
+            "service_invocation": "48df8dffc2544d63af4b36f18ca0b344"
+          },
+          "name": "main-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "executable": [
+              68,
+              1011
+            ],
+            "fixture": false,
+            "stock": true
+          },
+          "name": "main-executable",
+          "ok": true
+        },
+        {
+          "detail": [],
+          "name": "no-mutter-mappings",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "stop-helper-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "branch": "stock",
+            "detail": "guard-refused",
+            "error": null,
+            "reason": "startup record is blocked; run a new passing probe before arming"
+          },
+          "name": "launcher-branch",
+          "ok": true
+        },
+        {
+          "detail": {
+            "detail": "guard-refused",
+            "expected": "startup record is blocked; run a new passing probe before arming",
+            "reason": "startup record is blocked; run a new passing probe before arming"
+          },
+          "name": "consume-refusal-blocked",
+          "ok": true
+        },
+        {
+          "detail": {
+            "required": [
+              "launcher_pid",
+              "post_main_pid",
+              "control_peer_pid"
+            ],
+            "stored": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            },
+            "values": {
+              "control_peer_pid": 83106,
+              "launcher_pid": 83106,
+              "post_main_pid": 83106,
+              "stop_main_pid": null
+            }
+          },
+          "name": "main-pid-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "observed": "48df8dffc2544d63af4b36f18ca0b344",
+            "previous": "036a0fe6f2874688a62637736d97a840"
+          },
+          "name": "new-systemd-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "observed": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            },
+            "previous": {
+              "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+              "invocation_id": "036a0fe6f2874688a62637736d97a840",
+              "phase": "blocked",
+              "pid": 83094,
+              "reason": "unclean-stop",
+              "starttime": 686086
+            }
+          },
+          "name": "stale-record-retained",
+          "ok": true
+        },
+        {
+          "detail": [
+            "ready requires a matching pending startup",
+            "INVOCATION_ID does not match the recorded startup"
+          ],
+          "informational": true,
+          "name": "ready-hook-refusal",
+          "ok": null
+        }
+      ],
+      "diagnostics": {
+        "guard_reasons": [
+          "ready requires a matching pending startup",
+          "INVOCATION_ID does not match the recorded startup"
+        ],
+        "guard_records": []
+      },
+      "elapsed_seconds": 0.324,
+      "expected": {
+        "after_identity": true,
+        "after_phase": "blocked",
+        "after_reason": "unclean-stop",
+        "arm": false,
+        "branch": "stock",
+        "command": "exit0",
+        "disarm": false,
+        "finish": {
+          "exit_code": [
+            "exited"
+          ],
+          "exit_status": [
+            "0"
+          ],
+          "service_result": [
+            "success"
+          ]
+        },
+        "pre_ready": false,
+        "rc": "zero",
+        "ready_phase": "blocked",
+        "restart_of": "ready-exit1"
+      },
+      "name": "ready-exit1-restart",
+      "service": {
+        "control_peer": {
+          "gid": 1000,
+          "pid": 83106,
+          "uid": 1000
+        },
+        "exec_main_code": "exited",
+        "exec_main_status": "0",
+        "finish_tuple": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "service_result": "success"
+        },
+        "output_bytes": 489,
+        "post": {
+          "fixture_executable": [
+            68,
+            1010
+          ],
+          "helper_optin": false,
+          "invocation_id": "48df8dffc2544d63af4b36f18ca0b344",
+          "kind": "post",
+          "main_environment": {
+            "INVOCATION_ID": "48df8dffc2544d63af4b36f18ca0b344"
+          },
+          "main_is_fixture": false,
+          "main_is_stock": true,
+          "main_pid": 83106,
+          "mutter_mappings": {
+            "complete": false,
+            "entries": [],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "process_executable": [
+            68,
+            1011
+          ],
+          "process_owner": 1000,
+          "process_starttime": 686117,
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "036a0fe6f2874688a62637736d97a840",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83094,
+            "reason": "unclean-stop",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 686086
+          },
+          "stock_executable": [
+            68,
+            1011
+          ],
+          "token": "ready-exit1-restart"
+        },
+        "properties": {
+          "ExecStartPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py ready --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/post_hook.py /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/post-ready-exit1-restart.json ready-exit1-restart /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell /run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+          ],
+          "ExecStopPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py finish --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/stop_hook.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/stop-ready-exit1-restart.json ready-exit1-restart"
+          ],
+          "KillMode": [
+            "control-group"
+          ],
+          "LimitCORE": [
+            "0"
+          ],
+          "MemoryMax": [
+            "64M"
+          ],
+          "NotifyAccess": [
+            "main"
+          ],
+          "Restart": [
+            "no"
+          ],
+          "RuntimeMaxSec": [
+            "15"
+          ],
+          "SuccessExitStatus": [
+            "1"
+          ],
+          "TimeoutStartSec": [
+            "8"
+          ],
+          "TimeoutStopSec": [
+            "3"
+          ],
+          "Type": [
+            "notify"
+          ]
+        },
+        "result": "success",
+        "stderr": "Running as unit: socket-stream-guard-qa-ready-exit1-restart-6f378eb6a255.service; invocation ID: 48df8dffc2544d63af4b36f18ca0b344\nSocketStream guard: ready requires a matching pending startup\nSocketStream guard: INVOCATION_ID does not match the recorded startup\n          Finished with result: success\nMain processes terminated with: code=exited, status=0/SUCCESS\n               Service runtime: 265ms\n             CPU time consumed: 211ms\n                   Memory peak: 10.6M (swap: 0B)\n",
+        "stdout": "",
+        "stop": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "helper_optin": false,
+          "invocation_id": "48df8dffc2544d63af4b36f18ca0b344",
+          "kind": "stop",
+          "main_pid": null,
+          "service_result": "success",
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "036a0fe6f2874688a62637736d97a840",
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "pid": 83094,
+            "reason": "unclean-stop",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 686086
+          },
+          "token": "ready-exit1-restart"
+        },
+        "systemd_run_rc": 0,
+        "unit": "socket-stream-guard-qa-ready-exit1-restart-6f378eb6a255"
+      },
+      "slug": "ready-exit1-restart",
+      "state": {
+        "after": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "036a0fe6f2874688a62637736d97a840",
+          "phase": "blocked",
+          "pid": 83094,
+          "reason": "unclean-stop",
+          "starttime": 686086
+        },
+        "before": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "036a0fe6f2874688a62637736d97a840",
+          "phase": "blocked",
+          "pid": 83094,
+          "reason": "unclean-stop",
+          "starttime": 686086
+        },
+        "status_cli": {
+          "record": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "identity": "same",
+            "invocation_id": "036a0fe6f2874688a62637736d97a840",
+            "phase": "blocked",
+            "pid": 83094,
+            "reason": "unclean-stop",
+            "starttime": 686086
+          },
+          "returncode": 0,
+          "stderr": ""
+        }
+      },
+      "status": "pass"
+    },
+    {
+      "arm": {
+        "record": {
+          "phase": "armed"
+        },
+        "returncode": 0,
+        "stderr": ""
+      },
+      "branch": {
+        "branch": "custom",
+        "claim_pid": 83124,
+        "claim_starttime": 686154,
+        "detail": "guard-claimed",
+        "invocation_id": "fa83c12fdbb8407c9f4c5d7fddd6caf2",
+        "phase": "pending",
+        "pid": 83124
+      },
+      "checks": [
+        {
+          "detail": {
+            "record": {
+              "phase": "armed"
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "guard-arm",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "ready",
+            "observed": "ready"
+          },
+          "name": "exec-start-post-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "gid": 1000,
+            "pid": 83124,
+            "uid": 1000
+          },
+          "name": "control-peer-uid",
+          "ok": true
+        },
+        {
+          "detail": 83124,
+          "name": "main-alive-during-disarm",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "phase": "blocked",
+              "reason": "disarmed"
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "guard-disarm",
+          "ok": true
+        },
+        {
+          "detail": {
+            "phase": "blocked",
+            "reason": "disarmed"
+          },
+          "name": "disarm-marker-while-live",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "success"
+            ],
+            "observed": "success"
+          },
+          "name": "finish-service_result",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "exited"
+            ],
+            "observed": "exited"
+          },
+          "name": "finish-exit_code",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": [
+              "0"
+            ],
+            "observed": "0"
+          },
+          "name": "finish-exit_status",
+          "ok": true
+        },
+        {
+          "detail": 0,
+          "name": "systemd-run-rc",
+          "ok": true
+        },
+        {
+          "detail": {
+            "record": {
+              "identity": "same",
+              "phase": "blocked",
+              "reason": "disarmed"
+            },
+            "returncode": 0,
+            "stderr": ""
+          },
+          "name": "status-cli",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected_phase": "blocked",
+            "observed": {
+              "phase": "blocked",
+              "reason": "disarmed"
+            }
+          },
+          "name": "state-after-phase",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": "disarmed",
+            "observed": "disarmed"
+          },
+          "name": "state-after-reason",
+          "ok": true
+        },
+        {
+          "detail": {
+            "expected": false,
+            "present": false
+          },
+          "name": "state-after-identity",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "helper-environment-without-optin",
+          "ok": true
+        },
+        {
+          "detail": 1000,
+          "name": "main-owner",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment": {
+              "INVOCATION_ID": "fa83c12fdbb8407c9f4c5d7fddd6caf2",
+              "SOCKET_STREAM_CAPTURE_EXCLUDE": "1"
+            },
+            "error": null
+          },
+          "name": "main-process-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "environment_invocation": "fa83c12fdbb8407c9f4c5d7fddd6caf2",
+            "service_invocation": "fa83c12fdbb8407c9f4c5d7fddd6caf2"
+          },
+          "name": "main-invocation",
+          "ok": true
+        },
+        {
+          "detail": {
+            "executable": [
+              68,
+              1010
+            ],
+            "fixture": true,
+            "stock": false
+          },
+          "name": "main-executable",
+          "ok": true
+        },
+        {
+          "detail": {
+            "proc_starttime": 686154,
+            "state_starttime": 686154
+          },
+          "name": "starttime-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "complete": true,
+            "entries": [
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1006,
+                "matches_expected": true,
+                "name": "libmutter-mtk-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1005,
+                "matches_expected": true,
+                "name": "libmutter-cogl-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1004,
+                "matches_expected": true,
+                "name": "libmutter-clutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1003,
+                "matches_expected": true,
+                "name": "libmutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0"
+              }
+            ],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "name": "mutter-mappings",
+          "ok": true
+        },
+        {
+          "detail": false,
+          "name": "stop-helper-without-optin",
+          "ok": true
+        },
+        {
+          "detail": {
+            "branch": "custom",
+            "detail": "guard-claimed",
+            "error": null,
+            "reason": null
+          },
+          "name": "launcher-branch",
+          "ok": true
+        },
+        {
+          "detail": "guard-claimed",
+          "name": "consume-refusal-none",
+          "ok": true
+        },
+        {
+          "detail": {
+            "required": [
+              "launcher_pid",
+              "post_main_pid",
+              "control_peer_pid"
+            ],
+            "stored": {
+              "phase": "blocked",
+              "reason": "disarmed"
+            },
+            "values": {
+              "control_peer_pid": 83124,
+              "launcher_pid": 83124,
+              "post_main_pid": 83124,
+              "stop_main_pid": null
+            }
+          },
+          "name": "main-pid-agreement",
+          "ok": true
+        },
+        {
+          "detail": {
+            "consume_pid": 83124,
+            "service_main_pid": 83124
+          },
+          "name": "consume-pid-equals-main",
+          "ok": true
+        },
+        {
+          "detail": {
+            "phase": "blocked",
+            "reason": "disarmed"
+          },
+          "name": "late-clean-finish-no-rearm",
+          "ok": true
+        },
+        {
+          "detail": {
+            "phase": "blocked",
+            "reason": "disarmed"
+          },
+          "name": "late-clean-finish-no-identity",
+          "ok": true
+        },
+        {
+          "detail": [
+            "INVOCATION_ID does not match the recorded startup"
+          ],
+          "informational": true,
+          "name": "finish-invocation-mismatch",
+          "ok": null
+        },
+        {
+          "detail": [
+            {
+              "phase": "ready",
+              "reason": null
+            }
+          ],
+          "informational": true,
+          "name": "ready-hook-record",
+          "ok": null
+        }
+      ],
+      "diagnostics": {
+        "guard_reasons": [
+          "INVOCATION_ID does not match the recorded startup"
+        ],
+        "guard_records": [
+          {
+            "phase": "ready",
+            "reason": null
+          }
+        ]
+      },
+      "disarm": {
+        "record": {
+          "phase": "blocked",
+          "reason": "disarmed"
+        },
+        "returncode": 0,
+        "stderr": ""
+      },
+      "elapsed_seconds": 0.4,
+      "expected": {
+        "after_identity": false,
+        "after_phase": "blocked",
+        "after_reason": "disarmed",
+        "arm": true,
+        "branch": "custom",
+        "command": "exit0",
+        "disarm": true,
+        "finish": {
+          "exit_code": [
+            "exited"
+          ],
+          "exit_status": [
+            "0"
+          ],
+          "service_result": [
+            "success"
+          ]
+        },
+        "pre_ready": false,
+        "rc": "zero",
+        "ready_phase": "ready",
+        "restart_of": null
+      },
+      "name": "disarm-while-ready",
+      "service": {
+        "control_peer": {
+          "gid": 1000,
+          "pid": 83124,
+          "uid": 1000
+        },
+        "exec_main_code": "exited",
+        "exec_main_status": "0",
+        "finish_tuple": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "service_result": "success"
+        },
+        "output_bytes": 660,
+        "post": {
+          "fixture_executable": [
+            68,
+            1010
+          ],
+          "helper_optin": false,
+          "invocation_id": "fa83c12fdbb8407c9f4c5d7fddd6caf2",
+          "kind": "post",
+          "main_environment": {
+            "INVOCATION_ID": "fa83c12fdbb8407c9f4c5d7fddd6caf2",
+            "SOCKET_STREAM_CAPTURE_EXCLUDE": "1"
+          },
+          "main_is_fixture": true,
+          "main_is_stock": false,
+          "main_pid": 83124,
+          "mutter_mappings": {
+            "complete": true,
+            "entries": [
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1006,
+                "matches_expected": true,
+                "name": "libmutter-mtk-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1005,
+                "matches_expected": true,
+                "name": "libmutter-cogl-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1004,
+                "matches_expected": true,
+                "name": "libmutter-clutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0"
+              },
+              {
+                "deleted": false,
+                "device": [
+                  0,
+                  68
+                ],
+                "inode": 1003,
+                "matches_expected": true,
+                "name": "libmutter-18.so.0",
+                "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0"
+              }
+            ],
+            "expected_paths": [
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+              "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0"
+            ]
+          },
+          "process_executable": [
+            68,
+            1010
+          ],
+          "process_owner": 1000,
+          "process_starttime": 686154,
+          "state": {
+            "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+            "invocation_id": "fa83c12fdbb8407c9f4c5d7fddd6caf2",
+            "mode": "ubuntu",
+            "phase": "ready",
+            "pid": 83124,
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1,
+            "starttime": 686154
+          },
+          "stock_executable": [
+            68,
+            1011
+          ],
+          "token": "disarm-while-ready"
+        },
+        "properties": {
+          "ExecStartPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py ready --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/post_hook.py /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/post-disarm-while-ready.json disarm-while-ready /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell /run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+          ],
+          "ExecStopPost": [
+            "-/usr/bin/python3 -I /opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/startup_guard.py finish --runtime /run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677 --mode ubuntu --state /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json",
+            "-/usr/bin/python3 -I /run/user/1000/socket-stream-guard-qa-9ny0plv0/hooks/stop_hook.py /run/user/1000/socket-stream-guard-qa-9ny0plv0/guard.json /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/events.sock /run/user/1000/socket-stream-guard-qa-9ny0plv0/ipc/stop-disarm-while-ready.json disarm-while-ready"
+          ],
+          "KillMode": [
+            "control-group"
+          ],
+          "LimitCORE": [
+            "0"
+          ],
+          "MemoryMax": [
+            "64M"
+          ],
+          "NotifyAccess": [
+            "main"
+          ],
+          "Restart": [
+            "no"
+          ],
+          "RuntimeMaxSec": [
+            "15"
+          ],
+          "SuccessExitStatus": [
+            "1"
+          ],
+          "TimeoutStartSec": [
+            "8"
+          ],
+          "TimeoutStopSec": [
+            "3"
+          ],
+          "Type": [
+            "notify"
+          ]
+        },
+        "result": "success",
+        "stderr": "Running as unit: socket-stream-guard-qa-disarm-while-ready-646ab265195f.service\nSocketStream guard: INVOCATION_ID does not match the recorded startup\n          Finished with result: success\nMain processes terminated with: code=exited, status=0/SUCCESS\n               Service runtime: 296ms\n             CPU time consumed: 208ms\n                   Memory peak: 10.6M (swap: 0B)\n",
+        "stdout": "{\"boot_id\":\"d6781961-2dd7-4010-8a34-5afb3b17a8ab\",\"invocation_id\":\"fa83c12fdbb8407c9f4c5d7fddd6caf2\",\"mode\":\"ubuntu\",\"phase\":\"ready\",\"pid\":83124,\"runtime\":\"/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677\",\"schema\":1,\"starttime\":686154}\n",
+        "stop": {
+          "exit_code": "exited",
+          "exit_status": "0",
+          "helper_optin": false,
+          "invocation_id": "fa83c12fdbb8407c9f4c5d7fddd6caf2",
+          "kind": "stop",
+          "main_pid": null,
+          "service_result": "success",
+          "state": {
+            "mode": "ubuntu",
+            "phase": "blocked",
+            "reason": "disarmed",
+            "runtime": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+            "schema": 1
+          },
+          "token": "disarm-while-ready"
+        },
+        "systemd_run_rc": 0,
+        "unit": "socket-stream-guard-qa-disarm-while-ready-646ab265195f"
+      },
+      "slug": "disarm-while-ready",
+      "state": {
+        "after": {
+          "phase": "blocked",
+          "reason": "disarmed"
+        },
+        "after_disarm": {
+          "phase": "blocked",
+          "reason": "disarmed"
+        },
+        "before": {
+          "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+          "invocation_id": "036a0fe6f2874688a62637736d97a840",
+          "phase": "blocked",
+          "pid": 83094,
+          "reason": "unclean-stop",
+          "starttime": 686086
+        },
+        "status_cli": {
+          "record": {
+            "identity": "same",
+            "phase": "blocked",
+            "reason": "disarmed"
+          },
+          "returncode": 0,
+          "stderr": ""
+        }
+      },
+      "status": "pass"
+    }
+  ],
+  "errored_cases": [],
+  "euid": 1000,
+  "failed_cases": [],
+  "fixture": {
+    "gnome_shell": {
+      "device": 68,
+      "inode": 1010,
+      "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/gnome-shell"
+    },
+    "libraries": {
+      "libmutter-18.so.0": {
+        "device": 68,
+        "inode": 1003,
+        "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-18.so.0",
+        "size": 4096
+      },
+      "libmutter-clutter-18.so.0": {
+        "device": 68,
+        "inode": 1004,
+        "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-clutter-18.so.0",
+        "size": 4096
+      },
+      "libmutter-cogl-18.so.0": {
+        "device": 68,
+        "inode": 1005,
+        "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-cogl-18.so.0",
+        "size": 4096
+      },
+      "libmutter-mtk-18.so.0": {
+        "device": 68,
+        "inode": 1006,
+        "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677/lib/libmutter-mtk-18.so.0",
+        "size": 4096
+      }
+    },
+    "library_root": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/50.99-0ubuntu2.5.socket-stream.0011223344556677",
+    "stock": {
+      "device": 68,
+      "inode": 1011,
+      "path": "/run/user/1000/socket-stream-guard-qa-9ny0plv0/stock/gnome-shell"
+    }
+  },
+  "generated_utc": "2026-11-15T16:01:22Z",
+  "guard_sha256": "b4c27dc2147ed595cfc4877b982b66814d4c0379d0bc9fda0a99f894211d95bc",
+  "harness_errors": [],
+  "kind": "mutter-startup-guard-qa",
+  "limits": [
+    "The fixture runtime is synthetic: a C executable named gnome-shell maps four synthetic one-page files at ROOT/lib/libmutter-*.so.0. It does not load or execute Mutter, so native runtime validation, schema/manifest checks, loader resolution, ABI compatibility and compositor capture behaviour are NOT tested. A guard mapping check therefore sees correct synthetic paths and inodes only; it does not establish that a real published runtime is natively valid.",
+    "The --runtime argument only supplies the production startup_guard.py module; guard actions run against the private 0700 fixture runtime root under /run/user/UID created by this harness.",
+    "No compositor is started, no app is activated, and no GNOME unit, user profile, live desktop bus or session configuration is inspected or changed.",
+    "The arm/consume/ready/finish/disarm/status guard actions are exercised against real /proc and real systemd ExecStartPost/ExecStopPost; double-consume concurrency is covered by tests/test_mutter_guard.py instead. Timeout, OOM-kill, missing-finish and power-loss cases are not simulated; the restart cases cover the stale blocked record path, and no case re-arms before restarting.",
+    "Service Result/ExecMainCode/ExecMainStatus values are captured from systemd's SERVICE_RESULT/EXIT_CODE/EXIT_STATUS ExecStopPost environment, not inferred.",
+    "Linux-only: the harness cannot execute on macOS; only syntax compilation is possible there."
+  ],
+  "mode": "ubuntu",
+  "preflight": {
+    "markers": [
+      "preflight-start-post-a-0.marker",
+      "preflight-start-post-b-1.marker",
+      "preflight-stop-post-a-2.marker",
+      "preflight-stop-post-b-3.marker"
+    ],
+    "missing": [],
+    "observed": {
+      "returncode": 0,
+      "stderr": "Running as unit: socket-stream-guard-qa-preflight-adbcaba6f6b5-50820665942e.service; invocation ID: 46c4a36d019a46b085b0c4e8b31e0b7a\n          Finished with result: success\nMain processes terminated with: code=exited, status=0/SUCCESS\n               Service runtime: 125ms\n             CPU time consumed: 92ms\n                   Memory peak: 5.6M (swap: 0B)\n",
+      "stdout": ""
+    },
+    "unit": "socket-stream-guard-qa-preflight-adbcaba6f6b5-50820665942e"
+  },
+  "runtime": "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3",
+  "schema": 1,
+  "scratch": null,
+  "scratch_retained": false,
+  "service": {
+    "finish_tuple_source": "SERVICE_RESULT, EXIT_CODE and EXIT_STATUS captured from systemd's ExecStopPost environment; these are the Result, ExecMainCode and ExecMainStatus values, recorded as observed and never inferred",
+    "properties": {
+      "KillMode": "control-group",
+      "LimitCORE": "0",
+      "MemoryMax": "64M",
+      "NotifyAccess": "main",
+      "Restart": "no",
+      "SuccessExitStatus": "1",
+      "Type": "notify"
+    },
+    "timeouts": {
+      "runtime_max": 15,
+      "start": 8,
+      "stop": 3
+    },
+    "unit_prefix": "socket-stream-guard-qa-"
+  },
+  "setup_error": null,
+  "skipped_cases": [],
+  "status": "pass",
+  "uid": 1000
+}

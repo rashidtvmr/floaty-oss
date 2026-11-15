@@ -197,6 +197,12 @@ def _format_report(guard, session, plan, capability, applied, rule_status=None):
             "  runtime verified      : no (requires a real screen share)",
             f"  detail               : {rule_status.detail}",
         ])
+        if rule_status.backend == "gnome":
+            lines.extend([
+                f"  runtime deployed     : {'yes' if rule_status.deployed else 'no'}",
+                f"  runtime active       : {'yes' if rule_status.runtime_active else 'no'}",
+                f"  fresh login required : {'yes' if rule_status.restart_required else 'no'}",
+            ])
         if rule_status.path:
             lines.append(f"  rule file            : {rule_status.path}")
         if rule_status.guidance:
@@ -224,12 +230,15 @@ def _format_report(guard, session, plan, capability, applied, rule_status=None):
 
 
 def _safe_capability(guard, session, compositor_skip_capture=False, xwayland_dock=False,
-                     capture_rule_supported=None):
+                     capture_rule_supported=None, runtime_deployed=False,
+                     runtime_active=False, restart_required=False):
     try:
         return guard.capability_report(
             session, compositor_skip_capture=compositor_skip_capture,
             xwayland_dock=xwayland_dock,
             capture_rule_supported=capture_rule_supported,
+            runtime_deployed=runtime_deployed, runtime_active=runtime_active,
+            restart_required=restart_required,
         )
     except Exception as exc:  # noqa: BLE001 - report, never crash the probe
         return {
@@ -246,6 +255,10 @@ def _print_rule_status(status):
     print(f"configured:       {'yes' if status.configured else 'no'}")
     print(f"config validated: {'yes' if status.config_validated else 'no'}")
     print("runtime verified: no (a real screen share is required)")
+    if status.backend == "gnome":
+        print(f"runtime deployed: {'yes' if status.deployed else 'no'}")
+        print(f"runtime active:   {'yes' if status.runtime_active else 'no'}")
+        print(f"fresh login:      {'required' if status.restart_required else 'not required'}")
     print(f"detail:           {status.detail}")
     if status.path:
         print(f"rule file:        {status.path}")
@@ -334,9 +347,12 @@ def main(argv=None):
     plan = guard.build_plan(
         session, compositor_skip_capture=rule_status.configured,
         xwayland_dock=xwayland_dock,
+        runtime_active=rule_status.runtime_active,
     )
     capability = _safe_capability(
         guard, session, rule_status.configured, xwayland_dock, rule_status.supported,
+        runtime_deployed=rule_status.deployed, runtime_active=rule_status.runtime_active,
+        restart_required=rule_status.restart_required,
     )
     watcher = guard.ScreenShareWatcher()
 

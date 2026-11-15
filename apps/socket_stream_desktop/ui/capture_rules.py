@@ -19,9 +19,30 @@ the compositor's own configuration and asks the compositor to reload it.
 
 What is not real
 ----------------
-GNOME Shell / mutter has no per-window capture-exclusion API.  X11, sway and
-other wlroots compositors do not provide one either.  The module reports those
-sessions as unsupported and never pretends that a rule was applied.
+Stock GNOME Shell / mutter has no per-window capture-exclusion API, and neither
+do X11, sway or other wlroots compositors.  Those sessions are reported as
+unsupported and the module never pretends that a rule was applied.
+
+GNOME with the in-tree custom Mutter filter
+-------------------------------------------
+``native/mutter-capture-filter`` patches Mutter so the compositor can drop the
+panel from capture renders.  That filter needs a deployed patched runtime *and*
+``SOCKET_STREAM_CAPTURE_EXCLUDE=1`` in the environment of the GNOME Shell
+process.  :mod:`mutter_capture` detects whether that is true for the shell that
+owns this session and can install one managed ``systemd --user`` drop-in for
+the exact unit that runs it.  Four separate questions are reported separately:
+whether the runtime is deployed (files match their manifest), whether activation
+is configured for this unit, whether the running compositor actually loaded it,
+and whether the session must be restarted first.  ``verified`` stays false:
+only a real whole-screen share proves pixel-level exclusion.
+
+``configured`` means the override on disk is byte-identical to the one rendered
+for *this* runtime version directory and the unit's effective ``ExecStart``
+names that same directory.  The override deliberately pins the immutable
+version directory instead of the ``current`` symlink, so republishing the
+runtime needs an explicit setup step and never changes an installed
+activation's meaning.  GNOME on X11 cannot activate anything, yet it still
+reports and removes an override left behind by an earlier Wayland session.
 
 Safety
 ------
@@ -50,6 +71,8 @@ from typing import Callable, Mapping, Optional
 
 from overlay_guard import SESSION_WAYLAND, SessionInfo, detect_session
 
+import mutter_capture
+
 PANEL_APP_ID = "socket_stream_overlay"
 PANEL_WM_CLASS = PANEL_APP_ID
 PANEL_TITLE = "SocketStream — Practice Answer"
@@ -72,7 +95,20 @@ class CaptureRuleError(RuntimeError):
 
 @dataclass(frozen=True)
 class RuleStatus:
-    """One honest snapshot of the capture-exclusion setup."""
+    """One honest snapshot of the capture-exclusion setup.
+
+    ``configured`` means the compositor configuration (or, on GNOME, the
+    managed systemd user override) is in place.  ``verified`` is never true for
+    a configured rule: it needs a real screen share.  The GNOME backend adds
+    ``deployed`` (the custom runtime files match their manifest),
+    ``runtime_active`` (the running compositor really loaded them and has the
+    opt-in variable), ``restart_required`` (the on-disk activation and the
+    running shell disagree, so only a fresh login can settle it),
+    ``fallback_latched`` (the activation is configured but the guard latched
+    the stock fallback, so a fresh login will not help and Set up must rearm),
+    and ``startup_guard`` (the guard's own phase: armed, pending, ready,
+    blocked or missing).
+    """
 
     backend: str
     supported: bool
@@ -84,6 +120,11 @@ class RuleStatus:
     can_install: bool = False
     can_remove: bool = False
     config_validated: bool = False
+    deployed: bool = False
+    runtime_active: bool = False
+    restart_required: bool = False
+    fallback_latched: bool = False
+    startup_guard: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -97,6 +138,11 @@ class RuleStatus:
             "can_install": self.can_install,
             "can_remove": self.can_remove,
             "config_validated": self.config_validated,
+            "deployed": self.deployed,
+            "runtime_active": self.runtime_active,
+            "restart_required": self.restart_required,
+            "fallback_latched": self.fallback_latched,
+            "startup_guard": self.startup_guard,
         }
 
 
@@ -876,9 +922,379 @@ def _kde_version(runner: Runner, which: Which) -> Optional[tuple[int, int]]:
     return None
 
 
+def _failed_status(name: str, exc: BaseException, config_home: Path) -> RuleStatus:
+    """A status that claims nothing, yet still offers a real removal.
+
+    A failing probe must not strand a managed override the user wants gone, so
+    the removal half is answered from the filesystem alone.
+    """
+    managed = [item for item in mutter_capture.scan_activation(config_home)
+               if item.managed]
+    return RuleStatus(
+        backend=name, supported=False, configured=False, verified=False,
+        detail=f"capture-exclusion status failed: {type(exc).__name__}",
+        guidance=(
+            "Check the GNOME Shell user service and the custom runtime manually. "
+            "SocketStream never restarts your desktop or your session."
+        ),
+        path=str(managed[0].path) if managed else "",
+        can_install=False, can_remove=bool(managed),
+    )
+
+
+class GnomeMutterBackend:
+    """Custom Mutter runtime status plus managed systemd user activation.
+
+    The runtime is never installed by this class: ``native/mutter-capture-filter``
+    stages it.  This backend reports whether it is deployed, whether activation
+    is configured for the exact unit that runs this session, and whether the
+    running compositor really loaded it.
+    """
+
+    name = "gnome"
+
+    def __init__(self, *, config_home: Path, runner: Runner, which: Which,
+                 environ: Mapping[str, str], proc_root: Path, uid: int,
+                 runtime_owner_uid: int = 0):
+        self._config_home = Path(config_home)
+        self._runner = runner
+        self._which = which
+        self._environ = dict(environ)
+        self._proc_root = Path(proc_root)
+        self._uid = int(uid)
+        # The native validator runs as root and requires a root-owned runtime.
+        # Only tests, which cannot create root-owned directories, override it.
+        self._runtime_owner_uid = int(runtime_owner_uid)
+        self._last_note = ""
+
+    # -- inspection ------------------------------------------------------
+    def _inspect(self):
+        runtime = mutter_capture.load_runtime(
+            self._environ, owner_uid=self._runtime_owner_uid)
+        shell = mutter_capture.detect_shell(
+            runner=self._runner, which=self._which, proc_root=self._proc_root,
+            uid=self._uid, environ=self._environ,
+        )
+        compatible = None
+        compatibility = ""
+        if runtime.deployed:
+            compatible, compatibility = mutter_capture.packages_match(
+                runtime.packages, runner=self._runner, which=self._which,
+            )
+        return runtime, shell, compatible, compatibility
+
+    def _status(self) -> RuleStatus:
+        runtime, shell, compatible, compatibility = self._inspect()
+        entry = (mutter_capture.read_activation(self._config_home, shell.unit)
+                 if shell.ok else None)
+        found = mutter_capture.scan_activation(self._config_home)
+        managed = [item for item in found if item.managed]
+        blocked = [item.path for item in found if not item.regular]
+        foreign = [item.path for item in found if item.regular and not item.managed]
+
+        state = (mutter_capture.guard_state_path(
+            self._config_home, runtime.root, shell.mode)
+            if shell.ok and runtime.deployed else None)
+        guard = (mutter_capture.read_guard_state(state, root=runtime.root, mode=shell.mode) if state is not None
+                  else mutter_capture.GuardState(mutter_capture.GUARD_MISSING))
+
+        # ``configured`` needs every half: the exact schema-2 override rendered
+        # for this runtime directory, an effective ExecStart that names the same
+        # directory, state and mode, and both lifecycle hooks present and
+        # unambiguous in the effective unit.  Any other managed override is
+        # stale and is offered for replacement.
+        configured = bool(
+            shell.ok and runtime.deployed and state is not None
+            and shell.exec_kind == "ours"
+            and shell.managed_root == runtime.root
+            and shell.guarded_state == str(state)
+            and mutter_capture.activation_configured(
+                self._config_home, shell.unit, runtime.root, shell.mode, str(state))
+            and mutter_capture.own_post_hooks(
+                exec_start_post=shell.exec_start_post,
+                exec_stop_post=shell.exec_stop_post,
+                root=runtime.root, mode=shell.mode, state=str(state))
+        )
+        live = (
+            mutter_capture.read_live_state(shell, runtime, self._proc_root)
+            if shell.ok and runtime.deployed
+            else mutter_capture.LiveState("unknown")
+        )
+        supported = bool(runtime.deployed and compatible is True and shell.ok)
+        # Activation only counts once the running compositor is the compatible
+        # runtime: a deployed build is not evidence of a loaded renderer.
+        runtime_active = bool(supported and live.active)
+
+        # The guard latched the stock fallback at the last login.  The override
+        # is configured, but logging out again will not help: Set up must run a
+        # fresh isolated startup check and rearm, so the row must not keep
+        # telling the user to log out.
+        current_attempt = mutter_capture.guard_matches_running(guard, shell, runtime, self._proc_root)
+        ready_current = current_attempt and guard.phase == "ready" and runtime_active
+        fallback_latched = bool(configured and not guard.armed and not ready_current)
+
+        # A fresh login is the only fix while the running shell has not loaded
+        # the configured runtime -- including a shell that loaded it before the
+        # launcher started exporting the opt-in.  It is also the fix when the
+        # activation was just removed while custom libraries are still live.
+        stale_states = ("stock", "mixed", "stale", "missing", "inactive")
+        restart_required = bool(supported and not fallback_latched and (
+            (configured and live.state in stale_states)
+            or (not configured and live.state in ("active", "inactive"))
+        ))
+
+        blocked_at_target = bool(entry is not None and not entry.regular)
+        foreign_at_target = bool(entry is not None and entry.regular and not entry.managed)
+
+        path = ""
+        if entry is not None:
+            path = str(entry.path)
+        else:
+            remaining = [str(item.path) for item in managed] + [str(p) for p in blocked + foreign]
+            if remaining:
+                path = remaining[0]
+            elif runtime.deployed:
+                path = runtime.root
+
+        if not runtime.deployed:
+            detail = runtime.reason or "custom Mutter capture runtime is not installed"
+            guidance = (
+                f"Stock GNOME Shell cannot exclude one window from an entire-screen "
+                f"share; share a single application window instead. The runtime is "
+                f"staged separately at {mutter_capture.DEFAULT_MANIFEST}. "
+                f"SocketStream does not install it."
+            )
+        elif compatible is not True:
+            detail = (
+                "the custom Mutter runtime does not match the installed packages"
+                if compatible is False else
+                "cannot confirm that the custom Mutter runtime matches the installed packages"
+            )
+            guidance = (
+                f"{compatibility or 'the installed package versions could not be read'}. "
+                "The launcher falls back to the stock shell when validation fails. "
+                "Rebuild or remove the runtime."
+            )
+        elif not shell.ok:
+            detail = f"capture exclusion cannot be activated: {shell.reason}"
+            guidance = (
+                "Activation needs the systemd --user service that runs GNOME Shell. "
+                "SocketStream does not change session startup."
+            )
+        elif fallback_latched:
+            # Configured but the guard latched the stock fallback: a fresh login
+            # cannot fix it, so the row must not ask for one again.
+            detail = ("capture-exclusion activation is configured, but its startup "
+                      "guard is not armed for the next custom launch")
+            if live.state == "stock":
+                detail += "; stock GNOME Shell is running"
+            guidance = (
+                "Use Set up exclusion to rerun the isolated startup check and rearm "
+                "the activation. Capture is not verified; only a real whole-screen "
+                "share can show whether the panel is excluded."
+            )
+            if current_attempt:
+                guidance = ("The running custom attempt has not completed its readiness hook. "
+                            "Its guard cannot be rearmed while it is running; the next login "
+                            "uses stock GNOME if readiness remains unconfirmed. Capture is unverified.")
+        elif restart_required and configured:
+            # A configured override the running shell has not honoured yet --
+            # including a shell that loaded the runtime without the opt-in the
+            # launcher now exports.  A fresh login is the fix in both cases.
+            detail = (
+                live.detail if live.state == "inactive" else
+                f"capture-exclusion activation is configured for {shell.unit}, but the "
+                "running shell has not loaded the validated runtime"
+            )
+            guidance = (
+                "Log out and back in so GNOME Shell starts from the configured runtime. "
+                "SocketStream never restarts your desktop or your session."
+            )
+        elif restart_required:
+            detail = (
+                live.detail if live.state == "inactive" else
+                "activation changed; the running shell still uses the previous setup"
+            )
+            guidance = (
+                "Log out and back in so GNOME Shell restarts with the current setup. "
+                "SocketStream never restarts your desktop or your session."
+            )
+        elif runtime_active:
+            detail = (
+                f"custom Mutter runtime {runtime.runtime_id} is loaded by GNOME Shell "
+                "with the capture opt-in set"
+            )
+            guidance = (
+                "The custom capture renderer is enabled; capture is still unverified. "
+                "Only a real whole-screen share can show whether the panel is excluded."
+            )
+        elif configured:
+            detail = (
+                f"capture-exclusion activation is configured for {shell.unit}; the "
+                "running shell state could not be read"
+            )
+            guidance = (
+                "Log out and back in, or check the compositor process manually. "
+                "SocketStream never restarts your desktop or your session."
+            )
+        elif blocked_at_target:
+            detail = (
+                f"{entry.path} exists but is not a regular file SocketStream may read, so "
+                "it was left alone"
+            )
+            guidance = (
+                "Remove or rename that entry yourself, then retry. SocketStream never "
+                "follows, overwrites, or deletes it."
+            )
+        elif foreign_at_target:
+            detail = (
+                f"{entry.path} already exists and was not written by SocketStream"
+            )
+            guidance = (
+                "Rename or remove that file yourself, then retry. SocketStream "
+                "never overwrites or deletes a file it did not write."
+            )
+        else:
+            detail = "the custom Mutter runtime is installed; activation is not set up"
+            guidance = (
+                f"Use Set up exclusion to add the user-service override for "
+                f"{shell.unit}, then log out and back in."
+            )
+
+        return RuleStatus(
+            backend=self.name, supported=supported, configured=configured,
+            verified=False, detail=detail, guidance=guidance, path=path,
+            can_install=bool(
+                supported and (not configured or fallback_latched)
+                and not blocked_at_target and not foreign_at_target
+                and not (current_attempt and not ready_current)
+            ),
+            can_remove=bool(managed),
+            config_validated=bool(configured and compatible is True),
+            deployed=bool(runtime.deployed),
+            runtime_active=runtime_active,
+            restart_required=restart_required,
+            fallback_latched=fallback_latched,
+            startup_guard=guard.phase,
+        )
+
+    def status(self) -> RuleStatus:
+        try:
+            return self._status()
+        except Exception as exc:  # noqa: BLE001 - status must never crash the UI
+            return _failed_status(self.name, exc, self._config_home)
+
+    # -- mutation --------------------------------------------------------
+    def install(self) -> RuleStatus:
+        runtime, shell, compatible, compatibility = self._inspect()
+        if not runtime.deployed:
+            raise CaptureRuleError(
+                runtime.reason or "the custom Mutter runtime is not deployed")
+        if compatible is not True:
+            raise CaptureRuleError(
+                compatibility or "the custom runtime does not match the installed packages"
+            )
+        if not shell.ok:
+            raise CaptureRuleError(
+                shell.reason or "the GNOME Shell user service is not identified")
+        try:
+            self._last_note = mutter_capture.install_activation(
+                config_home=self._config_home, runtime=runtime, shell=shell,
+                runner=self._runner, which=self._which, proc_root=self._proc_root,
+            )
+        except mutter_capture.MutterCaptureError as exc:
+            raise CaptureRuleError(str(exc)) from exc
+        return self.status()
+
+    def remove(self) -> RuleStatus:
+        try:
+            self._last_note = mutter_capture.remove_activation(
+                config_home=self._config_home, runner=self._runner,
+                which=self._which,
+            )
+        except mutter_capture.MutterCaptureError as exc:
+            raise CaptureRuleError(str(exc)) from exc
+        return self.status()
+
+    def note(self) -> str:
+        return self._last_note
+
+
+class GnomeX11Backend:
+    """GNOME on X11: no capture exclusion, but a stale override is still ours.
+
+    The custom Mutter runtime only runs on Wayland, so nothing can be
+    installed here.  A previous Wayland session may however have left the
+    managed ``systemd --user`` override behind, and the user must still be able
+    to see and remove it from this backend.
+    """
+
+    name = "gnome"
+
+    def __init__(self, *, config_home: Path, runner: Runner, which: Which):
+        self._config_home = Path(config_home)
+        self._runner = runner
+        self._which = which
+        self._last_note = ""
+
+    def _managed(self) -> list:
+        return [
+            item for item in mutter_capture.scan_activation(self._config_home)
+            if item.managed
+        ]
+
+    def _status(self) -> RuleStatus:
+        managed = self._managed()
+        if managed:
+            detail = (
+                "a capture-exclusion activation from an earlier GNOME Wayland "
+                "session is still installed"
+            )
+        else:
+            detail = "stock GNOME Shell on X11 has no per-window screen-capture exclusion"
+        guidance = (
+            "X11 clients with display access can read the whole root window, so share "
+            "a single application window. The custom Mutter runtime only runs on "
+            "Wayland; SocketStream never restarts your desktop or your session."
+        )
+        return RuleStatus(
+            backend=self.name, supported=False, configured=False, verified=False,
+            detail=detail, guidance=guidance,
+            path=str(managed[0].path) if managed else "",
+            can_install=False, can_remove=bool(managed),
+        )
+
+    def status(self) -> RuleStatus:
+        try:
+            return self._status()
+        except Exception as exc:  # noqa: BLE001 - status must never crash the UI
+            return _failed_status(self.name, exc, self._config_home)
+
+    def install(self) -> RuleStatus:
+        raise CaptureRuleError(
+            "the custom Mutter runtime can only be activated on a GNOME Wayland "
+            "session"
+        )
+
+    def remove(self) -> RuleStatus:
+        try:
+            self._last_note = mutter_capture.remove_activation(
+                config_home=self._config_home, runner=self._runner,
+                which=self._which,
+            )
+        except mutter_capture.MutterCaptureError as exc:
+            raise CaptureRuleError(str(exc)) from exc
+        return self.status()
+
+    def note(self) -> str:
+        return self._last_note
+
+
 def _select_backend(session: SessionInfo, *, config_home: Path,
                     runner: Runner, which: Which,
-                    environ: Mapping[str, str]):
+                    environ: Mapping[str, str],
+                    proc_root: Path, uid: int,
+                    runtime_owner_uid: int = 0):
     compositor = (session.compositor or "unknown").lower()
     if compositor == "niri" and session.session_type == SESSION_WAYLAND:
         return NiriBackend(
@@ -896,14 +1312,13 @@ def _select_backend(session: SessionInfo, *, config_home: Path,
             runner=runner, which=which, environ=environ,
         )
     if compositor == "gnome":
-        return _UnsupportedBackend(
-            "gnome",
-            "GNOME Shell has no per-window screen-capture exclusion API",
-            "The panel stays visible, but a whole-screen share will include it. "
-            "Share a single application window instead; the panel is then not "
-            "part of the capture. GNOME 50 cannot exclude one window from an "
-            "entire-screen share.",
-        )
+        if session.session_type == SESSION_WAYLAND:
+            return GnomeMutterBackend(
+                config_home=config_home, runner=runner, which=which,
+                environ=environ, proc_root=proc_root, uid=uid,
+                runtime_owner_uid=runtime_owner_uid,
+            )
+        return GnomeX11Backend(config_home=config_home, runner=runner, which=which)
     if compositor in ("sway", "wlroots"):
         return _UnsupportedBackend(
             compositor,
@@ -933,16 +1348,23 @@ class CaptureExclusion:
                  environ: Optional[Mapping[str, str]] = None,
                  home: Optional[Path] = None,
                  runner: Optional[Runner] = None,
-                 which: Optional[Which] = None):
+                 which: Optional[Which] = None,
+                 proc_root: Optional[Path] = None,
+                 uid: Optional[int] = None,
+                 runtime_owner_uid: int = 0):
         self._environ = dict(os.environ if environ is None else environ)
         self._home = Path(home).expanduser() if home is not None else Path.home()
         self._runner = runner or _run
         self._which = which or shutil.which
+        self._proc_root = Path(proc_root) if proc_root is not None else Path("/proc")
+        self._uid = os.getuid() if uid is None else int(uid)
         self.session = session if session is not None else detect_session(self._environ)
         config_home = _config_home(self._environ, self._home)
         self.backend = _select_backend(
             self.session, config_home=config_home, runner=self._runner,
             which=self._which, environ=self._environ,
+            proc_root=self._proc_root, uid=self._uid,
+            runtime_owner_uid=runtime_owner_uid,
         )
 
     def status(self) -> RuleStatus:
@@ -997,6 +1419,10 @@ def main(argv=None) -> int:
         print(f"configured: {'yes' if status.configured else 'no'}")
         print(f"verified:   {'yes' if status.verified else 'no'}")
         print(f"detail:     {status.detail}")
+        if status.backend == "gnome":
+            print(f"deployed:   {'yes' if status.deployed else 'no'}")
+            print(f"active:     {'yes' if status.runtime_active else 'no'}")
+            print(f"restart:    {'yes' if status.restart_required else 'no'}")
         if status.path:
             print(f"path:       {status.path}")
         if status.guidance:

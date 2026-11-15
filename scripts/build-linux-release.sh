@@ -37,6 +37,9 @@ for ui_module in "$ROOT"/apps/socket_stream_desktop/ui/*.py; do
 done
 cp "$ROOT/security-lab/overlay_probe.py" "$PKG/security-lab/overlay_probe.py"
 cp "$ROOT/security-lab/README.md" "$PKG/security-lab/README.md"
+for page in screen-share-test.html screen-share-test.js capture-verification.js; do
+  cp "$ROOT/security-lab/$page" "$PKG/security-lab/$page"
+done
 cp "$ROOT/scripts/linux-accessibility.py" "$PKG/scripts/linux-accessibility.py"
 cp "$ROOT/scripts/linux-portal-capture.py" "$PKG/scripts/linux-portal-capture.py"
 cp "$ROOT/scripts/linux-check-dependencies.sh" "$PKG/check-dependencies.sh"

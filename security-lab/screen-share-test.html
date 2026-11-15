@@ -65,7 +65,7 @@
         </div>
         <label><input type="checkbox" id="locally-visible"> I can still see the SocketStream probe marker locally when capturing the after frame.</label>
         <div class="result" id="result" data-verdict="inconclusive" role="status" aria-live="polite">Choose the entire monitor in the sharing dialog to begin.</div>
-        <p class="hint">For GNOME 50 Wayland, the current SocketStream rule manager correctly reports capture exclusion as unsupported. An unmodified GNOME monitor stream is expected to include the overlay.</p>
+        <p class="hint">Stock GNOME whole-monitor capture includes the overlay. The custom Mutter filter requires a compatible deployed runtime, explicit activation, and a full desktop logout/login. Check that the app reports <strong>runtime active</strong> before testing it. A login restart ends the old share; frames from different sessions are not a same-stream comparison.</p>
       </section>
       <section class="card">
         <h2>Live captured stream</h2>
@@ -85,4 +85,3 @@
   <canvas id="frame" hidden></canvas>
 </body>
 </html>
-

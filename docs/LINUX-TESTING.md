@@ -149,9 +149,9 @@ Best-effort exclusion is Linux-only and cannot guarantee invisibility:
   panel the X11 **dock** type, which mutter keeps above fullscreen windows without
   focusing it. Verified on the target over a fullscreen window. Set
   `GDK_BACKEND=wayland` to opt out; the panel is then a normal toplevel and can be
-  covered. GNOME Shell 50 / mutter 18 and sway have no per-window
-  capture-exclusion rule; sharing a single application window is the reliable
-  option there.
+  covered. Stock GNOME Shell 50 / mutter 18 and sway have no per-window
+  capture-exclusion rule. GNOME's custom Mutter runtime is a separate deployment
+  and must be loaded by a fresh desktop login before it can filter a share.
 - KDE, niri and Hyprland stay on Wayland so their capture rules keep applying.
   niri, Hyprland 0.53+ and KDE Plasma/KWin 6.7+ document a per-window rule. Use
   **Set up exclusion** (or `python3 capture_rules.py install`) to write it; this
@@ -160,9 +160,9 @@ Best-effort exclusion is Linux-only and cannot guarantee invisibility:
 - Focus changes and detected ScreenCast sessions do not hide the panel. It may be
   present in a full-screen capture when no rule applies.
 
-**Linux has no guaranteed per-window exclusion from full-screen capture.** On
-X11, GNOME and sway a full-screen capture records the visible panel. A configured
-rule is not proof: verify it with a real share before reporting exclusion.
+**Capture coverage depends on the compositor and capture path.** Stock X11,
+GNOME and sway whole-screen capture includes the visible panel. A configured
+rule or deployed runtime is not proof: verify the browser's captured video.
 
 Check the current state without changing anything:
 
@@ -176,6 +176,7 @@ The supported writers are:
 | niri | `~/.config/niri/config.kdl` | `block-out-from "screen-capture"` |
 | Hyprland 0.53+ | `~/.config/hypr/hyprland.conf` (or `.lua`) | `no_screen_share = true` |
 | KDE Plasma/KWin 6.7+ Wayland | `~/.config/kwinrulesrc` | `[General] rules/count` registration, `excludefromcapture=true`, `excludefromcapturerule=2` |
+| GNOME Wayland with validated custom Mutter runtime | Detected GNOME Shell user service's `90-socket_stream-capture.conf` drop-in | Immutable guarded runtime launcher; active after full desktop logout/login |
 
 For GNOME, the custom Mutter 50.1 implementation and isolated synthetic capture
 checks are documented in [`native/mutter-capture-filter/README.md`](../native/mutter-capture-filter/README.md).
@@ -188,8 +189,41 @@ Upstream KWin's rule filters output/region streams but does not cover explicitly
 selecting the panel as a window stream. The custom Mutter patch filters those
 window streams; generic GNOME Shell screenshots require separate integration.
 
-GNOME, X11, sway and unknown compositors return "unsupported" and no file is
-written.
+GNOME without a validated compatible custom runtime, X11, sway and unknown
+compositors return "unsupported". Existing managed GNOME activation can still be
+removed if its runtime is missing or the session type changes.
+
+### GNOME activation status
+
+The **Capture exclusion** row distinguishes:
+
+- **Deployed:** runtime files, hashes, ownership and package pins validate.
+- **Configured:** the detected Shell service's managed override and effective
+  command match the selected immutable runtime.
+- **Restart required:** the current Shell has not loaded that configuration, or
+  is still running a runtime whose activation was removed.
+- **Runtime active:** the live Shell process has the compositor opt-in and all
+  four matching custom Mutter library mappings.
+- **Verified:** separate received-pixel evidence from an actual share; neither
+  configuration nor process activation sets this automatically.
+
+On the tested Ubuntu desktop the service is `org.gnome.Shell@ubuntu.service`.
+**Set up exclusion** first requires a successful isolated full-Shell startup
+probe, then reloads and verifies its configuration before arming a durable
+one-shot guard. A full **Log Out → sign in** loads the compositor. Closing
+SocketStream or locking/unlocking the screen does not restart GNOME. The guarded
+same-PID launcher falls back to stock when the runtime is missing, modified,
+incompatible, or its startup attempt is no longer armed. After a consumed
+failure, use setup again; another login alone does not rearm it.
+
+The schema-2 runtime `50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3` passed the
+production startup probe on the Lenovo (3.021 seconds of stable readiness, four
+private mappings, clean exit 0 and cleanup). All eight disposable real-systemd
+lifecycle cases passed, including exit 1 treated as successful by systemd but
+refused by the guard. The desktop is still on stock GNOME pending a coordinated
+login; the normal desktop logout tuple and live Chrome exclusion remain
+unverified. Full evidence and the recovered earlier login failure are documented
+in [`VERIFICATION.md`](../native/mutter-capture-filter/VERIFICATION.md).
 
 Verify on a real Linux desktop with the interactive probe:
 
@@ -323,17 +357,17 @@ mutter 18 / GTK 3.24.52 by running the real module:
   override-redirect, centred at (700, 355) on 1920×1080, and **visually above a
   fullscreen window** in a real screenshot while staying translucent.
 
-What remains unverified is capture exclusion: GNOME 50/mutter 18 has no
-per-window whole-screen exclusion, so the panel is visible in a whole-screen
-share. Confirm that on the target with the probe before reporting otherwise.
+These observations concern the stock compositor. Custom Mutter deployment and
+live-capture results are tracked separately in
+[`../native/mutter-capture-filter/VERIFICATION.md`](../native/mutter-capture-filter/VERIFICATION.md).
 
 The niri, Hyprland and KDE capture rules are unit-tested and their files are
 validated with `niri validate`, `Hyprland --verify-config` or KWin's rule parser
 where available, but they have **not** been run on those compositors. A real
 whole-screen share is required to confirm that the panel is excluded. The
-available Ubuntu 26.04 target is GNOME Shell 50.1 / mutter 18, which has no
-per-window exclusion API; only sharing a single application window excludes the
-panel there.
+available Ubuntu 26.04 target uses GNOME Shell 50.1 / mutter 18, whose stock build
+has no per-window exclusion API. The custom runtime adds capture-render filtering
+for that pinned distribution build.
 
 ## Microphone and system-audio practice
 

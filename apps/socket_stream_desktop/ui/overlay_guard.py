@@ -9,8 +9,9 @@ Honest scope: Linux has no public API equivalent to Windows
 ``NSWindow.sharingType = .none``. Window hints below are best effort. Three
 Wayland compositors document a per-window exclusion *rule* the user can
 install (niri, Hyprland, KWin 6.7+); :mod:`capture_rules` writes it.
-GNOME Shell / mutter, X11 and sway have no such rule. The floating panel
-remains visible during screen shares and may be captured.
+Stock GNOME Shell has no such rule; a separately deployed custom Mutter runtime
+can filter its capture renderer. Runtime activation and capture verification
+are reported separately. The floating panel remains visible during shares.
 """
 from __future__ import annotations
 
@@ -48,6 +49,7 @@ _COMPOSITOR_RULE_HINT = {
     "niri": 'add a niri window rule: block-out-from "screen-capture"',
     "hyprland": "add a Hyprland window rule: no_screen_share = true",
     "kde": "use KWin 6.7+ on Wayland: Window Rules → Hide from Screencast",
+    "gnome": "install and activate the matching custom Mutter capture runtime",
 }
 _RULE_COMPOSITORS = frozenset(_COMPOSITOR_RULE_HINT)
 
@@ -188,7 +190,7 @@ def display_is_x11(display_name: Optional[str]) -> bool:
 
 def build_plan(
     session: SessionInfo, *, compositor_skip_capture: bool = False,
-    xwayland_dock: bool = False,
+    xwayland_dock: bool = False, runtime_active: bool = False,
 ) -> ExclusionPlan:
     """Return the best-effort exclusion plan for ``session``.
 
@@ -200,6 +202,9 @@ def build_plan(
     ``xwayland_dock`` requests the X11 dock-layer overlay used on GNOME
     Wayland, where a Wayland toplevel cannot stay above fullscreen windows.
     It changes stacking, not capture exclusion.
+
+    ``runtime_active`` is the capture backend's observation of the custom
+    GNOME compositor process. It does not establish pixel-level exclusion.
     """
     if session.session_type == SESSION_X11:
         states = list(_X11_STATES)
@@ -232,14 +237,18 @@ def build_plan(
             notes = [
                 "The panel runs through XWayland so mutter can place it in the dock layer.",
                 "The dock layer stays above fullscreen windows and does not take focus.",
-                "X11 has no per-window capture exclusion; a whole-screen share still includes the panel.",
+                "Dock stacking alone does not exclude the panel from captures.",
             ]
-            if compositor_skip_capture:
+            if session.compositor == "gnome" and runtime_active:
+                notes.append("Custom Mutter capture runtime is active; browser capture is unverified.")
+            elif session.compositor == "gnome" and compositor_skip_capture:
+                notes.append("Custom Mutter activation is configured; the running compositor must load it.")
+            elif compositor_skip_capture:
                 notes.append("Compositor exclusion rule is configured for this window.")
             elif session.compositor == "gnome":
                 notes.append(
-                    "GNOME Shell has no per-window capture exclusion; share a "
-                    "single application window instead of the whole screen."
+                    "Stock GNOME includes the panel in whole-screen shares. "
+                    "Capture filtering requires the custom Mutter runtime."
                 )
             return ExclusionPlan(
                 strategy="xwayland-dock",
@@ -260,17 +269,16 @@ def build_plan(
             "compositor decides stacking. Use the window menu (GNOME: Always on "
             "Top) if the panel must stay above other windows.",
         ]
-        if compositor_skip_capture:
+        if session.compositor == "gnome" and runtime_active:
+            notes.append("Custom Mutter capture runtime is active; browser capture is unverified.")
+        elif session.compositor == "gnome" and compositor_skip_capture:
+            notes.append("Custom Mutter activation is configured; the running compositor must load it.")
+        elif compositor_skip_capture:
             notes.append("Compositor exclusion rule is configured for this window.")
         else:
             hint = _COMPOSITOR_RULE_HINT.get(session.compositor)
             if hint:
                 notes.append(f"On {session.compositor}, {hint}.")
-            elif session.compositor == "gnome":
-                notes.append(
-                    "GNOME Shell has no per-window capture exclusion; share a "
-                    "single application window instead of the whole screen."
-                )
         return ExclusionPlan(
             strategy="wayland-toplevel",
             guaranteed=False,
@@ -300,17 +308,21 @@ def capability_report(
     session: SessionInfo, *, compositor_skip_capture: bool = False,
     xwayland_dock: bool = False,
     capture_rule_supported: Optional[bool] = None,
+    runtime_deployed: bool = False, runtime_active: bool = False,
+    restart_required: bool = False,
 ) -> dict:
     """Honest, human-readable verdict for the current session.
 
     ``compositor_skip_capture`` means a compositor rule for this window is
     already installed; :mod:`capture_rules` is the only supported setup path.
-    ``runtime_verified`` is always False here: proving exclusion needs a real
-    screen share, which the application cannot perform on the user's behalf.
+    GNOME's deployment, process activation and restart state come from the
+    capture backend. ``runtime_verified`` stays False: proving exclusion needs
+    a real screen share.
     """
     plan = build_plan(
         session, compositor_skip_capture=compositor_skip_capture,
         xwayland_dock=xwayland_dock,
+        runtime_active=runtime_active,
     )
     compositor = session.compositor
     rule_backend = (
@@ -318,7 +330,8 @@ def capability_report(
         and session.session_type == SESSION_WAYLAND else ""
     )
     rule_supported = bool(rule_backend) and (
-        capture_rule_supported if capture_rule_supported is not None else compositor != "kde"
+        capture_rule_supported if capture_rule_supported is not None
+        else compositor not in ("kde", "gnome")
     )
     limitations = [
         "Linux has no per-window exclusion API equivalent to Windows WDA_EXCLUDEFROMCAPTURE.",
@@ -328,14 +341,42 @@ def capability_report(
     ]
     if compositor == "gnome":
         limitations.append(
-            "GNOME Shell 50 / mutter 18 has no per-window capture-exclusion rule."
+            "Stock GNOME has no per-window exclusion rule; custom Mutter filtering "
+            "depends on the deployed build and capture path."
         )
     elif session.session_type == SESSION_WAYLAND and not rule_backend:
         limitations.append(
             f"{compositor or 'This compositor'} has no documented per-window "
             "capture-exclusion rule."
         )
-    if compositor_skip_capture and rule_supported and session.session_type == SESSION_WAYLAND:
+    if compositor == "gnome" and session.session_type == SESSION_WAYLAND:
+        if runtime_active and rule_supported:
+            mechanism = "custom Mutter capture runtime active; capture pixels unverified"
+            recommended = (
+                "Check the received video in a real whole-screen share while the "
+                "panel stays visible locally. Test panel movement and underlying animation."
+            )
+        elif restart_required:
+            mechanism = "custom Mutter activation changed; fresh GNOME login required"
+            recommended = "Log out and back in, then check runtime status and a real whole-screen share."
+        elif compositor_skip_capture:
+            mechanism = "custom Mutter activation configured; running runtime not confirmed active"
+            recommended = "Check the capture backend details and runtime compatibility before testing a share."
+        elif rule_supported:
+            mechanism = "custom Mutter runtime available; activation not configured"
+            recommended = "Use Set up exclusion, log out and back in, then verify a real whole-screen share."
+        else:
+            mechanism = (
+                "XWayland dock layer; capture exclusion unavailable"
+                if plan.strategy == "xwayland-dock" else "Wayland toplevel; capture exclusion unavailable"
+            )
+            recommended = (
+                "Stock GNOME cannot exclude one window from entire-screen shares. "
+                "Install the matching custom Mutter runtime and use Set up exclusion. "
+                "Share a single application window while the runtime is unavailable. "
+                "SocketStream does not auto-hide the panel."
+            )
+    elif compositor_skip_capture and rule_supported and session.session_type == SESSION_WAYLAND:
         mechanism = f"compositor exclusion rule configured for this window ({compositor})"
         recommended = (
             "Keep the compositor rule installed and confirm it with a real screen "
@@ -348,18 +389,6 @@ def capability_report(
             "application window, or use niri, Hyprland, or KWin 6.7+ on "
             "Wayland with a compositor rule. SocketStream does not auto-hide the panel."
         )
-    elif session.session_type == SESSION_WAYLAND and plan.strategy == "xwayland-dock":
-        mechanism = (
-            "XWayland dock layer (stays above fullscreen windows); panel remains "
-            "visible during shares"
-        )
-        recommended = (
-            "GNOME cannot exclude one window from an entire-screen share. The panel "
-            "does stay above other windows and fullscreen apps. Share a single "
-            "application window to keep the panel out of the capture, or use niri, "
-            "Hyprland, or KWin 6.7+ with a compositor rule. SocketStream does "
-            "not auto-hide the panel."
-        )
     elif session.session_type == SESSION_WAYLAND:
         mechanism = "Wayland toplevel hints; panel remains visible during shares"
         if rule_backend:
@@ -369,12 +398,6 @@ def capability_report(
                 "(or use Set up exclusion in the app) to add it. Until then the "
                 "visible panel may appear in a whole-screen capture. SocketStream "
                 "does not auto-hide the panel."
-            )
-        elif compositor == "gnome":
-            recommended = (
-                "GNOME cannot exclude one window from an entire-screen share. Share "
-                "a single application window instead; the panel is then not part of "
-                "the capture. SocketStream does not auto-hide the panel."
             )
         else:
             recommended = (
@@ -399,6 +422,9 @@ def capability_report(
             "backend": rule_backend,
             "supported": rule_supported,
             "configured": bool(compositor_skip_capture),
+            "deployed": bool(runtime_deployed),
+            "runtime_active": bool(runtime_active and rule_supported),
+            "restart_required": bool(restart_required),
             "runtime_verified": False,
             "setup": "python3 capture_rules.py install" if rule_supported else "",
         },

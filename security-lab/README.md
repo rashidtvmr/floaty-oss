@@ -16,6 +16,8 @@ Read that first.
 | `serve.py` / `web/` | Local, loopback-only browser lab. Uses `getDisplayMedia` to show exactly what an approved browser capture includes. |
 | `probe_overlay.py` | Clearly visible control marker (no stealth). |
 | `overlay_probe.py` | Applies the real `ExclusionPlan` from `overlay_guard` and reports share status; the marker stays visible. |
+| `screen-share-test.html` | Entire-monitor preview, marker comparison and explicit local evidence exports. |
+| `demo_answer_panel.py` | Actual answer-panel class with synthetic Q&A and a color marker. |
 | `run.sh` | Launcher: `./run.sh` serves the browser lab; `./run.sh probe` runs `overlay_probe.py`. |
 
 ## Prerequisites
@@ -113,10 +115,20 @@ the overlay is invisible in general.
 - **A missing marker only proves the scope of the selected capture surface.**
   It says nothing about native clients, other capture tools, or a different
   share mode.
-- **A configured rule is not runtime proof.** `capture_rules.status()` reports
-  `verified` only when the compositor's own validator accepted the file. Confirm
-  exclusion with a real whole-screen share before recording a "no" in the
-  capture column.
+- **A configured rule is not runtime proof.** `config_validated` records a
+  configuration check. GNOME additionally reports runtime deployment, live
+  activation and whether a fresh login is needed. `verified` stays false without
+  separate capture evidence. Confirm exclusion in the browser's video before
+  recording a "no" in the capture column.
+
+The custom GNOME runtime is documented in
+[`../native/mutter-capture-filter/README.md`](../native/mutter-capture-filter/README.md).
+Its activation takes a full desktop logout/login, which ends an existing share.
+Do not label frames from different sessions a same-stream A/B comparison. For an
+already active filter, use a distinct, ordinary control window to establish that
+the chosen monitor and live capture work, then compare with the locally visible
+answer panel and moving content underneath it. `--no-stealth` only disables
+client-side hints; it does not disable an installed compositor identity rule.
 
 Do not claim universal invisibility anywhere, in code comments or in reports.
 
@@ -142,4 +154,5 @@ Copy this into your report and fill one row per trial.
 - No hidden capture.
 - No third-party dependencies.
 - No network access.
-- Honest labelling everywhere: this is a QA marker, not an answer panel.
+- Honest labelling: distinguish the standalone marker from tests using the actual
+  installed answer-panel class, and retain the tested runtime/app versions.

@@ -141,6 +141,7 @@ def main():
     plan = build_plan(
         session, compositor_skip_capture=initial_capture_status.configured,
         xwayland_dock=panel_x11,
+        runtime_active=initial_capture_status.runtime_active,
     )
 
     class SocketStream(Gtk.Window):
@@ -158,6 +159,7 @@ def main():
             self.share_polls = 0
             self.capture_exclusion = capture_exclusion
             self.capture_rules = initial_capture_status
+            self.capture_busy = False
             self.share_watcher = ScreenShareWatcher(interval=2.0)
             self.floating = FloatingOverlay(
                 plan=plan, session=session, stealth=True,
@@ -202,6 +204,12 @@ def main():
             self.capture_remove_button = self.add_button(
                 capture_row, "Remove rule", self.remove_capture_exclusion)
             self.add_button(capture_row, "Details", self.show_capture_details)
+            self.capture_restart = Gtk.Label(label="")
+            self.capture_restart.set_xalign(0)
+            self.capture_restart.set_line_wrap(True)
+            self.capture_restart.set_no_show_all(True)
+            self.capture_restart.set_visible(False)
+            main_box.pack_start(self.capture_restart, False, False, 0)
 
             choices = Gtk.Box(spacing=8)
             main_box.pack_start(choices, False, False, 0)
@@ -469,6 +477,9 @@ def main():
                 detect_session(), compositor_skip_capture=status.configured,
                 capture_rule_supported=status.supported,
                 xwayland_dock=panel_x11,
+                runtime_deployed=status.deployed,
+                runtime_active=status.runtime_active,
+                restart_required=status.restart_required,
             )
             guaranteed = "yes" if report.get("guaranteed") else "no"
             self.write("Stealth overlay capability report:\n")
@@ -482,7 +493,16 @@ def main():
                 "  compositor capture rule: "
                 f"supported={'yes' if rule.get('supported') else 'no'} · "
                 f"configured={'yes' if rule.get('configured') else 'no'} · "
-                "runtime-verified=no\n")
+                f"runtime-verified={'yes' if status.verified else 'no'}\n")
+            if status.backend == "gnome":
+                # Deployment, activation, guard phase and restart are separate facts.
+                self.write(
+                    "  custom Mutter runtime: "
+                    f"deployed={'yes' if status.deployed else 'no'} · "
+                    f"active={'yes' if status.runtime_active else 'no'} · "
+                    f"guard={status.startup_guard or 'unknown'} · "
+                    f"fallback-latched={'yes' if status.fallback_latched else 'no'} · "
+                    f"restart={'yes' if status.restart_required else 'no'}\n")
             for limitation in report.get("limitations", ()):
                 self.write(f"  limitation: {limitation}\n")
             self.write(f"  recommended: {report.get('recommended')}\n")
@@ -494,7 +514,9 @@ def main():
             """Read the compositor rule state and keep the row/buttons in sync."""
             status = self.capture_exclusion.status()
             self.capture_rules = status
-            if status.configured:
+            if status.backend == "gnome":
+                text = self._gnome_capture_text(status)
+            elif status.configured:
                 text = f"Capture exclusion: {status.backend} rule installed"
                 if status.config_validated:
                     text += " · config validated"
@@ -510,7 +532,43 @@ def main():
             self.capture_setup_button.set_sensitive(bool(status.can_install))
             self.capture_setup_button.set_tooltip_text(status.guidance or status.detail)
             self.capture_remove_button.set_sensitive(bool(status.can_remove))
+            self.capture_restart.set_visible(bool(status.restart_required))
+            if status.restart_required:
+                if status.configured:
+                    self.capture_restart.set_text(
+                        "Restart needed: log out and back in so GNOME Shell loads the "
+                        "capture-exclusion runtime. SocketStream never restarts your "
+                        "desktop or your session."
+                    )
+                else:
+                    self.capture_restart.set_text(
+                        "Activation changed: log out and back in so GNOME Shell restarts "
+                        "with the current setup. SocketStream never restarts your desktop "
+                        "or your session."
+                    )
             return status
+
+        @staticmethod
+        def _gnome_capture_text(status):
+            """One line for the GNOME row; the detail stays in the tooltip."""
+            # The guard latched the stock fallback: logging out again cannot fix
+            # it, so the row asks for a rearm instead of another restart.
+            if status.fallback_latched:
+                return "Capture exclusion: stock fallback latched · Set up to rearm"
+            # The running shell and the on-disk setup disagree, so the restart
+            # hint outranks whatever the current process happens to have
+            # loaded: after logging out the setup itself changes.
+            if status.restart_required:
+                if status.configured:
+                    return "Capture exclusion: activation installed · log out and back in"
+                return "Capture exclusion: activation changed · log out and back in"
+            if status.runtime_active:
+                return "Capture exclusion: custom renderer enabled · capture unverified"
+            if status.deployed and status.can_install:
+                return "Capture exclusion: custom runtime installed · not set up"
+            if not status.deployed:
+                return "Capture exclusion: unavailable (gnome) · custom runtime not installed"
+            return "Capture exclusion: unavailable (gnome)"
 
         def _apply_capture_plan(self):
             """Recompute the plan after a rule is installed or removed."""
@@ -518,41 +576,78 @@ def main():
             self.floating.plan = build_plan(
                 detect_session(), compositor_skip_capture=status.configured,
                 xwayland_dock=panel_x11,
+                runtime_active=status.runtime_active,
             )
 
-        def setup_capture_exclusion(self, _button=None):
-            try:
-                status = self.capture_exclusion.install()
-            except CaptureRuleError as exc:
-                self.write(f"Capture exclusion was not installed: {exc}\n")
-                self.refresh_capture_status()
+        def _run_capture_action(self, action):
+            """Run install/remove off the main loop; the startup check is slow.
+
+            The isolated startup probe can take up to a minute, so the action
+            runs on a worker thread and the row is updated back on the main
+            loop.  The buttons are disabled while it runs so a second click
+            cannot start a concurrent transaction.
+            """
+            if getattr(self, "capture_busy", False):
                 return
-            note = self.capture_exclusion.note()
-            self.write(f"Capture exclusion: {status.detail}\n")
-            if note:
-                self.write(f"  {note}\n")
-            if status.path:
-                self.write(f"  rule file: {status.path}\n")
-            self.write(
-                "  The panel stays visible. Verify with a real whole-screen share; "
-                "runtime exclusion is not asserted.\n")
-            self._apply_capture_plan()
-            self.report_capabilities()
+            self.capture_busy = True
+            self.capture_setup_button.set_sensitive(False)
+            self.capture_remove_button.set_sensitive(False)
+            if action == "install":
+                self.write(
+                    "Capture exclusion: running the isolated startup check; this can "
+                    "take up to a minute...\n")
+            else:
+                self.write("Capture exclusion: removing the managed rule...\n")
+
+            def worker():
+                try:
+                    status = getattr(self.capture_exclusion, action)()
+                    note = self.capture_exclusion.note()
+                    error = None
+                except CaptureRuleError as exc:
+                    status, note, error = None, "", str(exc)
+                except Exception as exc:  # noqa: BLE001 - never crash the UI thread
+                    status, note, error = None, "", f"{type(exc).__name__}: {exc}"
+                GLib.idle_add(finish, status, note, error)
+                return False
+
+            def finish(status, note, error):
+                self.capture_busy = False
+                if error is not None:
+                    self.write(f"Capture exclusion was not {action}ed: {error}\n")
+                    self.refresh_capture_status()
+                    return False
+                self.refresh_capture_status()
+                if action == "install":
+                    self.write(f"Capture exclusion: {status.detail}\n")
+                    if note:
+                        self.write(f"  {note}\n")
+                    if status.path:
+                        self.write(f"  rule file: {status.path}\n")
+                    self.write(
+                        "  The panel stays visible. Verify with a real whole-screen "
+                        "share; runtime exclusion is not asserted.\n")
+                else:
+                    self.write("Capture exclusion rule removed.\n")
+                    if note:
+                        self.write(f"  {note}\n")
+                    self.write(f"  {status.detail}\n")
+                    if status.restart_required:
+                        self.write(
+                            "  Activation changed: the running shell still uses the "
+                            "previous setup, so log out and back in. SocketStream never "
+                            "restarts your desktop or your session.\n")
+                self._apply_capture_plan()
+                self.report_capabilities()
+                return False
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def setup_capture_exclusion(self, _button=None):
+            self._run_capture_action("install")
 
         def remove_capture_exclusion(self, _button=None):
-            try:
-                status = self.capture_exclusion.remove()
-            except CaptureRuleError as exc:
-                self.write(f"Capture exclusion was not removed: {exc}\n")
-                self.refresh_capture_status()
-                return
-            note = self.capture_exclusion.note()
-            self.write("Capture exclusion rule removed.\n")
-            if note:
-                self.write(f"  {note}\n")
-            self.write(f"  {status.detail}\n")
-            self._apply_capture_plan()
-            self.report_capabilities()
+            self._run_capture_action("remove")
 
         def show_capture_details(self, _button=None):
             status = self.refresh_capture_status()
@@ -560,10 +655,20 @@ def main():
                 f"Backend: {status.backend}",
                 f"Supported: {'yes' if status.supported else 'no'}",
                 f"Configured: {'yes' if status.configured else 'no'}",
-                f"Config validated: {'yes' if status.verified else 'no'}",
-                "Runtime verified: no (a real screen share is required)",
-                f"Detail: {status.detail}",
+                f"Config validated: {'yes' if status.config_validated else 'no'}",
+                f"Runtime verified: {'yes' if status.verified else 'no'} "
+                "(a real screen share is required)",
             ]
+            if status.backend == "gnome":
+                lines.extend([
+                    f"Custom runtime deployed: {'yes' if status.deployed else 'no'}",
+                    f"Runtime active in GNOME Shell: "
+                    f"{'yes' if status.runtime_active else 'no'}",
+                    f"Startup guard: {status.startup_guard or 'unknown'}",
+                    f"Stock fallback latched: {'yes' if status.fallback_latched else 'no'}",
+                    f"Restart required: {'yes' if status.restart_required else 'no'}",
+                ])
+            lines.append(f"Detail: {status.detail}")
             if status.path:
                 lines.append(f"Rule file: {status.path}")
             if status.guidance:

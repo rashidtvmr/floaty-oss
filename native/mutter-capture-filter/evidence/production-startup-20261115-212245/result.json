@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "ready": true,
+  "runtime": "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3",
+  "mode": "ubuntu",
+  "ready_pid": 77340,
+  "starttime": 634583,
+  "mutter_mappings": [
+    "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/lib/libmutter-18.so.0",
+    "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/lib/libmutter-clutter-18.so.0",
+    "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/lib/libmutter-cogl-18.so.0",
+    "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/lib/libmutter-mtk-18.so.0"
+  ],
+  "stable_seconds": 3.021,
+  "elapsed_seconds": 3.59,
+  "cleanup_complete": true,
+  "shutdown_returncode": 0,
+  "log_bytes": 12213
+}
