@@ -14,5 +14,6 @@ session-data/
 __pycache__/
 *.pyc
 /models/*.bin
+!/models/ggml-tiny.en.bin
 /models/*.bin.part
 /dist/

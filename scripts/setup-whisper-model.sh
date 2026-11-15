@@ -1,6 +1,8 @@
 #!/bin/sh
 # Downloads the public ggml tiny English model for local whisper.cpp transcription.
-# Models are not committed to Git and audio never leaves the machine.
+# The model is committed to Git; this script is the fallback for a missing local
+# copy (fresh archives ship it, shallow checkouts may not). Audio never leaves
+# the machine.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 MODEL="$ROOT/models/ggml-tiny.en.bin"
