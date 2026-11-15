@@ -951,6 +951,13 @@ def main():
             )):
                 grid.attach(Gtk.Label(label=label), 0, row, 1, 1)
                 grid.attach(widget, 1, row, 1, 1)
+            hint = Gtk.Label(
+                label="microphone captures your voice; system captures audio the "
+                "machine plays (YouTube, videos, calls)."
+            )
+            hint.set_line_wrap(True)
+            hint.set_xalign(0)
+            grid.attach(hint, 0, 3, 2, 1)
             dialog.get_content_area().add(grid)
             dialog.show_all()
             confirmed = dialog.run() == Gtk.ResponseType.OK

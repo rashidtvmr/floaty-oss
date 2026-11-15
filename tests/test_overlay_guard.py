@@ -297,5 +297,30 @@ class Watcher(unittest.TestCase):
                 os.environ["SOCKET_STREAM_SCREEN_SHARE"] = previous
 
 
+class ManualDrag(unittest.TestCase):
+    """Drag math for unmanaged (override-redirect / dock) panels."""
+
+    def test_manual_drag_position_keeps_grab_offset(self):
+        # Press at root (100, 80) while the panel sits at (640, 360); moving
+        # the pointer to (160, 130) must shift the panel by the same delta.
+        x, y = guard.manual_drag_position(640, 360, 100, 80, 160, 130)
+        self.assertEqual((x, y), (700, 410))
+
+    def test_manual_drag_position_stationary_pointer(self):
+        x, y = guard.manual_drag_position(640, 360, 100, 80, 100, 80)
+        self.assertEqual((x, y), (640, 360))
+
+    def test_manual_drag_position_negative_coords(self):
+        # A panel dragged partly off-screen keeps integer math.
+        x, y = guard.manual_drag_position(-10, -20, 5, 5, -3, -1)
+        self.assertEqual((x, y), (-18, -26))
+
+    def test_needs_manual_drag(self):
+        self.assertTrue(guard.needs_manual_drag(True, False))
+        self.assertTrue(guard.needs_manual_drag(False, True))
+        self.assertTrue(guard.needs_manual_drag(True, True))
+        self.assertFalse(guard.needs_manual_drag(False, False))
+
+
 if __name__ == "__main__":
     unittest.main()

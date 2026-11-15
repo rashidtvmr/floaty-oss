@@ -38,6 +38,8 @@ from overlay_guard import (  # noqa: E402  (path set above)
     detect_session,
     display_is_x11,
     ensure_panel_backend,
+    manual_drag_position,
+    needs_manual_drag,
     should_hide,
 )
 
@@ -243,6 +245,9 @@ class FloatingOverlay:
         self._watch_timeout = None
         self._child = None
         self._applied = []
+        self._drag_manual = False
+        self._drag_origin = (0, 0)
+        self._drag_grab = (0, 0)
 
         self.window = self._with_panel_identity(self._create_window)
         self.window.set_default_size(*(360, 250) if self.compact else (520, 370))
@@ -257,11 +262,17 @@ class FloatingOverlay:
         layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.window.add(layout)
         self.drag_handle = Gtk.EventBox()
-        self.drag_handle.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.drag_handle.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON1_MOTION_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+        )
         drag_label = Gtk.Label(label="Drag SocketStream panel to move")
         drag_label.set_xalign(0)
         self.drag_handle.add(drag_label)
         self.drag_handle.connect("button-press-event", self._on_drag_start)
+        self.drag_handle.connect("motion-notify-event", self._on_drag_motion)
+        self.drag_handle.connect("button-release-event", self._on_drag_release)
         layout.pack_start(self.drag_handle, False, False, 0)
 
         self.status = Gtk.Label(label="Waiting for a practice question")
@@ -331,14 +342,79 @@ class FloatingOverlay:
         if self.stealth:
             self._apply_plan()
 
+    def _window_is_unmanaged(self):
+        """True when the window manager will not move this window for us.
+
+        Override-redirect windows are unmanaged by definition, and the dock
+        (plus popup-menu) type hints ask the WM to treat the window as a
+        panel — mutter refuses ``begin_move_drag`` for both.
+        """
+        is_override = False
+        try:
+            gdk_window = self._gdk_window()
+            if gdk_window is not None:
+                is_override = bool(gdk_window.get_override_redirect())
+        except Exception:  # noqa: BLE001 - backend without the attribute
+            is_override = False
+        hint_is_dock = False
+        try:
+            hint = self.window.get_type_hint()
+            dock = getattr(self._Gdk.WindowTypeHint, "DOCK", None)
+            popup = getattr(self._Gdk.WindowTypeHint, "POPUP_MENU", None)
+            hint_is_dock = dock is not None and hint in (dock, popup)
+        except Exception:  # noqa: BLE001
+            hint_is_dock = False
+        return needs_manual_drag(is_override, hint_is_dock)
+
     def _on_drag_start(self, _widget, event):
         if getattr(event, "button", None) != 1:
             return False
+        if self._window_is_unmanaged() and display_is_x11(self.display_name):
+            # Unmanaged windows get no window-manager move support, so the
+            # panel moves itself while the button is held: keep the
+            # pointer-to-origin offset from the press constant. Wayland
+            # clients cannot self-move; there the WM path stays the honest
+            # fallback (managed windows keep using it everywhere).
+            try:
+                self._drag_origin = tuple(int(v) for v in self.window.get_position())
+                self._drag_grab = (int(event.x_root), int(event.y_root))
+                self._drag_manual = True
+                Gtk.grab_add(self.drag_handle)
+                return True
+            except Exception:  # noqa: BLE001 - fall through to the WM path
+                self._drag_manual = False
         try:
             self.window.begin_move_drag(1, int(event.x_root), int(event.y_root), event.time)
             return True
         except Exception:
             return False
+
+    def _on_drag_motion(self, _widget, event):
+        if not self._drag_manual:
+            return False
+        try:
+            new_x, new_y = manual_drag_position(
+                self._drag_origin[0],
+                self._drag_origin[1],
+                self._drag_grab[0],
+                self._drag_grab[1],
+                int(event.x_root),
+                int(event.y_root),
+            )
+            self.window.move(new_x, new_y)
+        except Exception:  # noqa: BLE001 - keep the drag alive on odd events
+            pass
+        return True
+
+    def _on_drag_release(self, _widget, _event):
+        if not self._drag_manual:
+            return False
+        self._drag_manual = False
+        try:
+            Gtk.grab_remove(self.drag_handle)
+        except Exception:  # noqa: BLE001
+            pass
+        return True
 
     # ---- exclusion plan -------------------------------------------------
 

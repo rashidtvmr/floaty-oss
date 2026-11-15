@@ -415,6 +415,32 @@ def should_hide(plan: Optional[ExclusionPlan], share_active: bool, user_hidden: 
     return bool(user_hidden)
 
 
+def manual_drag_position(
+    win_x: int,
+    win_y: int,
+    grab_root_x: int,
+    grab_root_y: int,
+    pointer_root_x: int,
+    pointer_root_y: int,
+) -> tuple:
+    """Panel origin after a manual (unmanaged-window) drag.
+
+    Override-redirect and dock-type windows get no window-manager move
+    support, so the panel moves itself: keep the pointer-to-window offset
+    from the button press constant while the pointer moves. Pure math so
+    the GTK layer and the QA probe share one tested implementation.
+    """
+    return (
+        int(win_x) + int(pointer_root_x) - int(grab_root_x),
+        int(win_y) + int(pointer_root_y) - int(grab_root_y),
+    )
+
+
+def needs_manual_drag(is_override_redirect: bool, type_hint_is_dock: bool) -> bool:
+    """Manual dragging is required when the window manager will not move the window."""
+    return bool(is_override_redirect or type_hint_is_dock)
+
+
 def _forced_state() -> Optional[bool]:
     """QA/test override: SOCKET_STREAM_SCREEN_SHARE=1|0 forces the probe result."""
     value = (os.environ.get("SOCKET_STREAM_SCREEN_SHARE") or "").strip().lower()
