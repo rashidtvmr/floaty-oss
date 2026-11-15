@@ -229,14 +229,18 @@ pub async fn list_models(provider: &Provider) -> Result<Vec<String>, AiError> {
         ));
     };
     let (_, url) = endpoint_urls(base_url)?;
+    let url_for_error = url.clone();
     let mut request = http_client()?.get(url);
     if !api_key.trim().is_empty() {
         request = request.bearer_auth(api_key.trim());
     }
-    let response = request
-        .send()
-        .await
-        .map_err(|_| AiError::Provider("cannot reach configured provider".into()))?;
+    let response = request.send().await.map_err(|_| {
+        AiError::Provider(format!(
+            "cannot reach provider at {url_for_error} — is it running? \
+                 For Ollama run `ollama serve` (or use Start local AI), \
+                 or pick another provider in Settings"
+        ))
+    })?;
     let value = bounded_json(response).await?;
     let data = value
         .get("data")
@@ -522,6 +526,7 @@ pub async fn answer(provider: &Provider, question: &str) -> Result<String, AiErr
                 return Err(AiError::Provider("model is missing".to_owned()));
             }
             let (url, _) = endpoint_urls(base_url)?;
+            let url_for_error = url.clone();
             let instructions = system_instructions();
             let request = ChatRequest {
                 model,
@@ -542,10 +547,13 @@ pub async fn answer(provider: &Provider, question: &str) -> Result<String, AiErr
             if !api_key.trim().is_empty() {
                 req = req.bearer_auth(api_key.trim());
             }
-            let response = req
-                .send()
-                .await
-                .map_err(|_| AiError::Provider("cannot reach configured provider".into()))?;
+            let response = req.send().await.map_err(|_| {
+                AiError::Provider(format!(
+                    "cannot reach provider at {url_for_error} — is it running? \
+                         For Ollama run `ollama serve` (or use Start local AI), \
+                         or pick another provider in Settings"
+                ))
+            })?;
             let decoded: ChatResponse = serde_json::from_value(bounded_json(response).await?)
                 .map_err(|_| {
                     AiError::Provider("invalid chat-completions response structure".into())

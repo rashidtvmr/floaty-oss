@@ -26,6 +26,11 @@ from shortcuts import (  # noqa: E402  (path set just above)
     from_config_file,
     platform_note,
 )
+from provider_settings import (  # noqa: E402  (path set just above)
+    clear_provider_settings,
+    load_provider_settings,
+    save_provider_settings,
+)
 
 
 def capture_status(proc, stopping=False):
@@ -170,6 +175,9 @@ def main():
                     "SOCKET_STREAM_OLLAMA_MODEL": "qwen2.5-coder:1.5b",
                 }.items()
             }
+            # Saved provider settings (API base/model/key) restore into memory;
+            # the file is written with user-only permissions (0600).
+            self.env.update(load_provider_settings())
 
             main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             self.add(main_box)
@@ -897,7 +905,7 @@ def main():
 
         def settings(self, _button):
             dialog = Gtk.Dialog(
-                title="AI provider settings (kept in memory only)",
+                title="AI provider settings",
                 transient_for=self, flags=0)
             dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                                Gtk.STOCK_APPLY, Gtk.ResponseType.OK)
@@ -920,12 +928,35 @@ def main():
                 entries[key] = control
                 grid.attach(Gtk.Label(label=label), 0, row, 1, 1)
                 grid.attach(control, 1, row, 1, 1)
+            persist = Gtk.CheckButton(
+                label="Keep these settings for future runs (saved with user-only permissions)")
+            persist.set_active(True)
+            grid.attach(persist, 0, len(form), 2, 1)
+            note = Gtk.Label(
+                label="The API key is stored unencrypted in your home directory, "
+                "readable only by your user. Clear saved settings removes the file.")
+            note.set_line_wrap(True)
+            note.set_xalign(0)
+            grid.attach(note, 0, len(form) + 1, 2, 1)
+            clear_button = Gtk.Button(label="Clear saved settings")
+            clear_button.connect(
+                "clicked", lambda _b: self.write(
+                    "Saved provider settings removed.\n" if clear_provider_settings()
+                    else "No saved provider settings found.\n"))
+            grid.attach(clear_button, 0, len(form) + 2, 2, 1)
             dialog.get_content_area().add(grid)
             dialog.show_all()
             if dialog.run() == Gtk.ResponseType.OK:
                 for key, control in entries.items():
                     self.env[key] = control.get_text().strip()
-                self.write("Provider settings updated in memory; key was not logged.\n")
+                if persist.get_active():
+                    try:
+                        path = save_provider_settings(self.env)
+                        self.write(f"Provider settings saved to {path} (0600).\n")
+                    except OSError as exc:
+                        self.write(f"Could not save provider settings: {exc}\n")
+                else:
+                    self.write("Provider settings updated in memory only; key was not logged.\n")
             dialog.destroy()
 
         def listen_audio(self, _button):

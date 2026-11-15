@@ -17,7 +17,7 @@ use socket_stream_core::audio::{
 use socket_stream_core::capture::{PortalFrameSource, capture_to, requires_linux_portal};
 use socket_stream_core::context::{Deduplicator, ScreenContext};
 use socket_stream_core::ocr::{extract_text, quality_warnings};
-use socket_stream_core::platform::{capture_capabilities, display_name};
+use socket_stream_core::platform::{capability_groups, display_name};
 use socket_stream_core::session::PracticeSession;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -245,13 +245,19 @@ async fn run(args: &[String]) -> Result<(), String> {
                 display_name(),
                 std::env::consts::ARCH
             );
-            for (name, found) in capture_capabilities() {
-                println!(
-                    "  {}: {}",
-                    name,
-                    if found { "available" } else { "not available" }
-                );
+            for (group, entries) in capability_groups() {
+                println!("{group}:");
+                for (name, found) in entries {
+                    println!(
+                        "  {}: {}",
+                        name,
+                        if found { "available" } else { "not available" }
+                    );
+                }
             }
+            println!(
+                "Info: entries under 'optional / other platforms' are expected to be missing."
+            );
             println!("Info: screen and microphone capture require explicit user permission.");
             Ok(())
         }

@@ -364,7 +364,53 @@ class FloatingOverlay:
             hint_is_dock = dock is not None and hint in (dock, popup)
         except Exception:  # noqa: BLE001
             hint_is_dock = False
+        self._drag_debug(
+            f"unmanaged check: override={is_override} hint_dock={hint_is_dock}"
+        )
         return needs_manual_drag(is_override, hint_is_dock)
+
+    def _drag_debug(self, message):
+        """Stderr trace for drag decisions; enabled with SOCKET_STREAM_DEBUG=1."""
+        if os.environ.get("SOCKET_STREAM_DEBUG"):
+            print(f"[drag] {message}", file=sys.stderr, flush=True)
+
+    def _grab_pointer(self, event):
+        """Grab the pointer globally so motion outside the panel still tracks.
+
+        The implicit button grab usually covers this, but an explicit seat
+        grab with ``owner_events=True`` keeps motion events flowing to the
+        drag handle when the pointer leaves the (small) panel — important
+        for override-redirect windows that some compositors treat oddly.
+        """
+        try:
+            display = self._Gdk.Display.get_default()
+            seat = display.get_default_seat()
+            if seat is None:
+                return False
+            status = seat.grab(
+                self.drag_handle.get_window(),
+                self._Gdk.SeatCapabilities.ALL_POINTING,
+                True,  # owner_events: keep receiving events anywhere
+                None,  # default cursor
+                event,
+                None,
+                None,
+            )
+            ok = status == getattr(self._Gdk.GrabStatus, "SUCCESS", status)
+            self._drag_debug(f"seat grab status={status}")
+            return ok
+        except Exception as exc:  # noqa: BLE001 - grabbing is best effort
+            self._drag_debug(f"seat grab failed: {exc}")
+            return False
+
+    def _ungrab_pointer(self):
+        try:
+            display = self._Gdk.Display.get_default()
+            seat = display.get_default_seat()
+            if seat is not None:
+                seat.ungrab()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _on_drag_start(self, _widget, event):
         if getattr(event, "button", None) != 1:
@@ -379,11 +425,21 @@ class FloatingOverlay:
                 self._drag_origin = tuple(int(v) for v in self.window.get_position())
                 self._drag_grab = (int(event.x_root), int(event.y_root))
                 self._drag_manual = True
-                Gtk.grab_add(self.drag_handle)
+                grabbed = self._grab_pointer(event)
+                try:
+                    self._Gtk.grab_add(self.drag_handle)
+                except Exception:  # noqa: BLE001 - not in every PyGObject build
+                    pass
+                self._drag_debug(
+                    f"manual drag start origin={self._drag_origin} "
+                    f"grab={self._drag_grab} seat_grab={grabbed}"
+                )
                 return True
-            except Exception:  # noqa: BLE001 - fall through to the WM path
+            except Exception as exc:  # noqa: BLE001 - fall through to the WM path
+                self._drag_debug(f"manual drag setup failed: {exc}")
                 self._drag_manual = False
         try:
+            self._drag_debug("WM drag (begin_move_drag)")
             self.window.begin_move_drag(1, int(event.x_root), int(event.y_root), event.time)
             return True
         except Exception:
@@ -411,9 +467,11 @@ class FloatingOverlay:
             return False
         self._drag_manual = False
         try:
-            Gtk.grab_remove(self.drag_handle)
-        except Exception:  # noqa: BLE001
+            self._Gtk.grab_remove(self.drag_handle)
+        except Exception:  # noqa: BLE001 - not in every PyGObject build
             pass
+        self._ungrab_pointer()
+        self._drag_debug("manual drag end")
         return True
 
     # ---- exclusion plan -------------------------------------------------

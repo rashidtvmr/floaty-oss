@@ -16,13 +16,24 @@ pub fn display_name() -> &'static str {
 }
 
 pub fn capture_capabilities() -> Vec<(&'static str, bool)> {
+    capability_groups()
+        .into_iter()
+        .flat_map(|(_, entries)| entries)
+        .collect()
+}
+
+/// Capabilities grouped by relevance, so `doctor` can label what actually
+/// matters on the running platform. Missing entries in later groups are
+/// expected and are not problems.
+pub fn capability_groups() -> Vec<(&'static str, Vec<(&'static str, bool)>)> {
     let root = crate::paths::project_root();
-    vec![
-        ("tesseract", command_exists("tesseract")),
-        ("ffmpeg", command_exists("ffmpeg")),
-        ("whisper-cli", command_exists("whisper-cli")),
-        ("codex", command_exists("codex")),
-        ("ollama", command_exists("ollama")),
+    let core = vec![
+        ("tesseract (OCR)", command_exists("tesseract")),
+        ("ffmpeg (audio capture)", command_exists("ffmpeg")),
+        (
+            "local English speech model",
+            root.join("models/ggml-tiny.en.bin").exists(),
+        ),
         (
             "macOS Vision OCR",
             cfg!(target_os = "macos")
@@ -37,12 +48,23 @@ pub fn capture_capabilities() -> Vec<(&'static str, bool)> {
                     .join("target/native-helpers/socket_stream_system_audio")
                     .exists(),
         ),
+    ];
+    let providers = vec![
+        ("codex", command_exists("codex")),
+        ("ollama", command_exists("ollama")),
+    ];
+    let optional = vec![
         (
-            "local English speech model",
-            root.join("models/ggml-tiny.en.bin").exists(),
+            "whisper-cli (legacy STT fallback)",
+            command_exists("whisper-cli"),
         ),
-        ("screencapture (macOS)", cfg!(target_os = "macos")),
-        ("grim (Wayland)", command_exists("grim")),
-        ("import (X11)", command_exists("import")),
+        ("screencapture (macOS only)", cfg!(target_os = "macos")),
+        ("grim (Wayland screenshot)", command_exists("grim")),
+        ("import (X11 screenshot)", command_exists("import")),
+    ];
+    vec![
+        ("core capture (this platform)", core),
+        ("AI providers", providers),
+        ("optional / other platforms (safe to miss)", optional),
     ]
 }
