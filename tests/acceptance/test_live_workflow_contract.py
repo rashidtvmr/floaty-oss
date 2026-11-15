@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTROLLER = ROOT / "apps/context-desktop/ui/live_state.py"
+CONTROLLER = ROOT / "apps/socket_stream_desktop/ui/live_state.py"
 
 
 class LiveWorkflowContract(unittest.TestCase):

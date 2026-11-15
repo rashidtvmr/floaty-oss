@@ -1,5 +1,7 @@
 """Mocked Linux adapter tests; no GUI or live accessibility session."""
 import importlib.util
+import ast
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,8 +17,31 @@ def load(name, path):
 
 
 ACCESS = load("access", "scripts/linux-accessibility.py")
-GTK = load("gtk_shell", "apps/context-desktop/ui/linux-gtk.py")
+GTK = load("gtk_shell", "apps/socket_stream_desktop/ui/linux-gtk.py")
 ATSPI = SimpleNamespace(StateType=SimpleNamespace(ACTIVE="ACTIVE", FOCUSED="FOCUSED", PROTECTED="PROTECTED"))
+
+
+class LiveHandoffTests(unittest.TestCase):
+    def test_real_delivery_closure_bounds_callbacks_and_stops_on_saturation(self):
+        tree = ast.parse((ROOT / "apps/socket_stream_desktop/ui/linux-gtk.py").read_text())
+        function = next(node for node in ast.walk(tree)
+                        if isinstance(node, ast.FunctionDef) and node.name == "deliver")
+        queued, delivered, stopped = [], [], []
+        slots = threading.BoundedSemaphore(32)
+        scope = dict(pending_ui=slots,
+                     proc=SimpleNamespace(terminate=lambda: stopped.append(True)),
+                     GLib=SimpleNamespace(idle_add=lambda callback: queued.append(callback)))
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "live-handoff", "exec"), scope)
+        send = scope["deliver"]
+        for index in range(32):
+            self.assertTrue(send(delivered.append, index))
+        self.assertFalse(send(delivered.append, "overflow"))
+        self.assertEqual(len(queued), 32)
+        self.assertEqual(stopped, [True])
+        self.assertFalse(queued.pop(0)())
+        self.assertEqual(delivered, [0])
+        self.assertTrue(send(delivered.append, "reused"))
+        self.assertEqual(len(queued), 32)
 
 
 class Node:
@@ -64,7 +89,7 @@ class LinuxAdapterTests(unittest.TestCase):
         self.assertEqual(ACCESS.extract(Node(kids=[Node(kids=[Node("text", "secret")])]), ATSPI), "")
 
     def test_own_gui_is_not_treated_as_question(self):
-        active = Node(states=["ACTIVE"], name="ContextLens", kids=[Node("text", "generated answer")])
+        active = Node(states=["ACTIVE"], name="SocketStream", kids=[Node("text", "generated answer")])
         with self.assertRaises(ACCESS.OwnWindowError):
             ACCESS.extract(Node(kids=[active]), ATSPI)
 
@@ -103,6 +128,17 @@ class LinuxAdapterTests(unittest.TestCase):
     def test_floating_panel_compact_mode_keeps_normal_visible_window_sizes(self):
         self.assertEqual(GTK.floating_panel_size(False), (520, 370))
         self.assertEqual(GTK.floating_panel_size(True), (360, 250))
+
+    def test_minimize_iconifies_main_window_without_touching_panel(self):
+        class Window:
+            iconified = False
+
+            def iconify(self):
+                self.iconified = True
+
+        window = Window()
+        GTK.minimize_app_window(window)
+        self.assertTrue(window.iconified)
 
     def test_observation_interval_validation(self):
         self.assertEqual(GTK.observe_args("mock", 7)[3], "7")

@@ -1,10 +1,10 @@
-# ContextLens (Rust)
+# SocketStream (Rust)
 
 Latest endpoint update: base and full completion URLs, model discovery, confirmed test requests, redirect blocking and bounded responses are implemented. A native Codex/ChatGPT device-authorization flow is implemented (no Codex CLI required); a real-account sign-in and independent security review are still outstanding. See `docs/AUTH-AND-ENDPOINTS.md` for the exact verified status.
 
 A permission-based, lightweight screen-text and audio assistant for **coding practice and authorized work**.
 
-**Status:** Rust CLI, native macOS GUI and real offline Ollama/Whisper tests pass. Linux GTK and Wayland portal backends are implemented but require Linux desktop E2E validation. A Linux floating overlay with best-effort capture exclusion and a behavioural auto-hide is implemented; exclusion from full-screen capture is never guaranteed. Structured accessibility-tree reading with a token budget, region OCR of image/graphic nodes, a JSON config file and twelve configurable global shortcuts are implemented but need real-desktop E2E validation. A native Codex/ChatGPT device-authorization flow is implemented; a real-account sign-in is still pending. No proctoring-evasion features.
+**Status:** Rust CLI, native macOS GUI and real offline Ollama/Whisper tests pass. The installed macOS bundle was exercised end-to-end with real Accessibility/Screen Recording grants, a live answer panel, fullscreen/minimize persistence, panel controls and `screencapture` exclusion. Linux GTK and Wayland portal backends are implemented but require Linux desktop E2E validation. The Linux floating overlay uses best-effort capture-exclusion hints and stays visible across focus changes and screen shares; full-screen capture exclusion is not guaranteed. Structured accessibility-tree reading with a token budget, region OCR of image/graphic nodes, a JSON config file and twelve configurable global shortcuts are implemented; macOS trees are verified, Linux desktop trees are not. A native Codex/ChatGPT device-authorization flow is implemented; a real-account sign-in is still pending. No proctoring-evasion features.
 
 ## Approach
 1. Read accessible text from the selected application via native OS accessibility APIs where authorized.
@@ -19,17 +19,17 @@ No vision LLM is required for the OCR path; it works by sending extracted text.
 
 - Install Rust stable. macOS OCR uses Apple's built-in Vision framework; no Tesseract needed. Linux OCR uses distro Tesseract plus AT-SPI2/GTK Python bindings.
 - `cargo test`
-- `cargo run -p context-cli -- doctor`
-- `cargo run -p context-cli -- analyze-file --file examples/sample-question.txt --provider mock`
-- macOS GUI: `./scripts/start-macos.sh` (native AppKit window, compiled helper binaries).
+- `cargo run -p socket_stream -- doctor`
+- `cargo run -p socket_stream -- analyze-file --file examples/sample-question.txt --provider mock`
+- macOS GUI: `./scripts/start-macos.sh` opens the installed `~/Applications/SocketStream.app` (the bundle has the stable TCC identity). Build or refresh it with `./scripts/build-macos-app.sh`; use `./scripts/start-macos.sh --dev` for the raw development GUI. See `docs/MACOS-TESTING.md`.
 - Linux GUI: `./scripts/start-linux.sh` (native GTK3; requires `python3-gi`, `gir1.2-gtk-3.0`).
-- `cargo run -p context-cli -- observe --authorized --provider mock` (explicit on-screen session required).
-- `cargo run -p context-cli -- observe --authorized --force-ocr --provider mock` to skip accessibility for canvas-based editors.
-- `cargo run -p context-cli -- a11y --authorized` to inspect current foreground app accessible text (after OS authorization).
-- `cargo run -p context-cli -- record-audio --authorized --device 0 --duration 30 --file practice.wav` for explicit macOS microphone capture; on Linux use a named PulseAudio source instead of `0`. Requires FFmpeg.
-- `cargo run -p context-cli -- transcribe --file practice.wav --model /path/to/whisper-model.bin` requires installed whisper-cli and a local model.
+- `cargo run -p socket_stream -- observe --authorized --provider mock` (explicit on-screen session required).
+- `cargo run -p socket_stream -- observe --authorized --force-ocr --provider mock` to skip accessibility for canvas-based editors.
+- `cargo run -p socket_stream -- a11y --authorized` to inspect current foreground app accessible text (after OS authorization).
+- `cargo run -p socket_stream -- record-audio --authorized --device 0 --duration 30 --file practice.wav` for explicit macOS microphone capture; on Linux use a named PulseAudio source instead of `0`. Requires FFmpeg.
+- `cargo run -p socket_stream -- transcribe --file practice.wav --model /path/to/whisper-model.bin` requires installed whisper-cli and a local model.
 
-For a cloud OpenAI-compatible endpoint set `CONTEXT_LENS_BASE_URL`, `CONTEXT_LENS_MODEL`, `CONTEXT_LENS_API_KEY` in the environment; see `.env.example`. For a subscribed Codex installation use `--provider codex` after `codex login`. Codex CLI is invoked in read-only mode; this is **not** a generic OpenAI API token and plan limits apply. On the development Mac, the CLI was signed in but returned an **out-of-credits** error during a test; the provider cannot succeed until eligible credits are available.
+For a cloud OpenAI-compatible endpoint set `SOCKET_STREAM_BASE_URL`, `SOCKET_STREAM_MODEL`, `SOCKET_STREAM_API_KEY` in the environment; see `.env.example`. For a subscribed Codex installation use `--provider codex` after `codex login`. Codex CLI is invoked in read-only mode; this is **not** a generic OpenAI API token and plan limits apply. On the development Mac, the CLI was signed in but returned an **out-of-credits** error during a test; the provider cannot succeed until eligible credits are available.
 
 ## Platform support
 
@@ -46,31 +46,39 @@ Contributions welcome. Actual lightweight native UI shells are AppKit and GTK3; 
 
 ## What is not complete
 - Native shells exist but are not yet fully interactive-tested on real Linux/GUI sessions.
-- Finite macOS ScreenCaptureKit and Linux Pulse system-audio recording are implemented, but real device permission tests remain. Streaming speech, speaker diarization, VAD and OS accessibility events are pending.
+- Finite recordings and built-in Moonshine streaming speech are implemented; real audio-device permission tests, speaker diarization and OS accessibility events remain pending.
 - Linux XDG ScreenCast/PipeWire source is implemented; the real GNOME/KDE portal session needs Linux E2E testing.
 - Native Mac screenshot/Accessibility permissions need to be granted by the user; never bypass them.
 - OpenAI-compatible BYOK passed a local HTTP mock. Offline Ollama with `qwen2.5-coder:1.5b` passed a real Two Sum answer test. Real cloud provider credentials were not accessed.
 - Codex CLI authentication alone does not guarantee available plan credits.
-- Structured accessibility-tree rendering, region OCR of image/graphic nodes, the JSON config file and the global shortcut registry are implemented and unit tested, but they have not been exercised on a real Linux or macOS desktop.
+- Structured accessibility-tree rendering, region OCR of image/graphic nodes, the JSON config file and the global shortcut registry are implemented and unit tested. The macOS tree path has been exercised against real Terminal and Chrome windows from the installed bundle; the Linux desktop tree path has not.
 - In-app shortcuts work while the window is focused; out-of-focus global shortcuts require the desktop's own hotkey tool and are never installed silently.
-- The native Codex/ChatGPT device flow uses official OpenAI endpoints and stores credentials `0600` in ContextLens's own config directory, but no real account has signed in yet and independent security review is outstanding.
-- The Linux floating overlay implements best-effort capture exclusion (X11/Wayland window hints) plus a behavioural auto-hide while a ScreenCast session is detected. Linux cannot exclude a window from full-screen capture, and no OS permission prompt is bypassed; universal invisibility is not claimed.
+- The native Codex/ChatGPT device flow uses official OpenAI endpoints and stores credentials `0600` in SocketStream's own config directory, but no real account has signed in yet and independent security review is outstanding.
+- The Linux floating overlay implements best-effort capture-exclusion hints (X11/Wayland) and remains visible during screen shares. Linux cannot guarantee exclusion from full-screen capture; the panel may be visible to participants. No OS permission prompt is bypassed.
 
 ## Measured limitations and observed behavior
 
-- Native Apple Vision OCR fast mode passed the test-image smoke test, but the resulting source text may misread code punctuation or indentation. Set `CONTEXT_LENS_OCR_ACCURATE=1` to opt in to the slower/more accurate recognizer, which may stall or fail on some macOS versions.
+- Native Apple Vision OCR fast mode passed the test-image smoke test, but the resulting source text may misread code punctuation or indentation. Set `SOCKET_STREAM_OCR_ACCURATE=1` to opt in to the slower/more accurate recognizer, which may stall or fail on some macOS versions.
 - The Codex CLI is logged in with ChatGPT on the connected Mac, but a live request returned **workspace out of credits**. Subscription authentication does not guarantee an available request allowance.
-- Rust/Python regressions pass. Offline whisper.cpp transcribed synthetic speech correctly. Real Linux capture, Mac screen/audio permission UX and continuous speech streaming have not been exercised.
+- Rust/Python regressions and synthetic Moonshine speech-to-answer checks pass. Offline whisper.cpp transcribed synthetic speech correctly. The macOS screen-permission flow, accessibility reading, live panel, panel controls and `screencapture` exclusion have been exercised from the installed bundle; real Linux desktop capture and real macOS system-audio/microphone permission UX remain unverified.
 - Launchers: `./scripts/start-macos.sh` and `./scripts/start-linux.sh`. No autorun is configured. The system process retains its normal identity.
+
+## Built-in streaming speech
+
+Choose **Listen · Moonshine** on macOS or **Listen to audio** on Linux. The app
+bundles local English speech recognition and streams finalized speech to your
+selected AI provider. Microphone/system playback selection, rolling transcripts,
+Pause/Resume and Stop are integrated into the answer panel.
+See [build instructions and tested platform limits](docs/MOONSHINE.md).
 
 ## Offline local inference and audio quickstart
 
 The connected Mac has Ollama, local `qwen2.5-coder:1.5b`, whisper.cpp and `models/ggml-tiny.en.bin` installed. The speech model is excluded from Git. In the native Mac GUI choose **ollama** and click **Start local AI**. For other machines, install these providers and run `./scripts/setup-whisper-model.sh` to download the small English speech model.
 
 ```bash
-cargo run -p context-cli -- analyze-image --file tests/fixtures/sample-code.png --provider ollama
-cargo run -p context-cli -- record-system-audio --authorized --duration 15 --file authorized.wav
-cargo run -p context-cli -- audio-practice --authorized --source system --duration 15 --model models/ggml-tiny.en.bin --provider ollama
+cargo run -p socket_stream -- analyze-image --file tests/fixtures/sample-code.png --provider ollama
+cargo run -p socket_stream -- record-system-audio --authorized --duration 15 --file authorized.wav
+cargo run -p socket_stream -- audio-practice --authorized --source system --duration 15 --model models/ggml-tiny.en.bin --provider ollama
 ```
 
 System audio requires a user-approved OS capture permission. Explicitly exported WAV files persist until deleted; temporary `audio-practice` recordings are removed.
@@ -80,10 +88,10 @@ System audio requires a user-approved OS capture permission. Explicitly exported
 On recent Ubuntu/Debian install `python3-dbus`, `python3-gi`, `gir1.2-atspi-2.0`, `gir1.2-gtk-3.0`, `gir1.2-gstreamer-1.0`, `gstreamer1.0-pipewire`, `gstreamer1.0-plugins-good`, `xdg-desktop-portal`, `tesseract-ocr`, `ffmpeg` and `imagemagick`. The `--portal` flag explicitly selects the XDG ScreenCast chooser for authorized OCR:
 
 ```bash
-cargo run -p context-cli -- observe --authorized --portal --force-ocr --provider mock
+cargo run -p socket_stream -- observe --authorized --portal --force-ocr --provider mock
 ```
 
-**Linux portal runtime is unverified** until a real GNOME/KDE Wayland GUI test can be completed. macOS Vision OCR fast mode sometimes misreads code punctuation; try `CONTEXT_LENS_OCR_ACCURATE=1` for slower experimental accurate recognition.
+**Linux portal runtime is unverified** until a real GNOME/KDE Wayland GUI test can be completed. macOS Vision OCR fast mode sometimes misreads code punctuation; try `SOCKET_STREAM_OCR_ACCURATE=1` for slower experimental accurate recognition.
 
 ## Explicit development agents
 
@@ -101,7 +109,7 @@ The project can cross-compile Linux musl binaries from macOS using Zig:
 
     rustup target add x86_64-unknown-linux-musl
     cargo install cargo-zigbuild --locked
-    cargo zigbuild --release --locked -p context-cli --target x86_64-unknown-linux-musl
+    cargo zigbuild --release --locked -p socket_stream --target x86_64-unknown-linux-musl
     ./scripts/build-linux-release.sh x86_64
 
 ARM64 uses aarch64-unknown-linux-musl and the aarch64 package argument.

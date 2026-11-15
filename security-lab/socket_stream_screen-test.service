@@ -1,0 +1,14 @@
+[Unit]
+Description=SocketStream local screen-share verification page
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m http.server 18765 --bind 127.0.0.1 --directory /home/rashid/SocketStream-Screen-Test
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

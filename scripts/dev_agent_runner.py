@@ -131,7 +131,7 @@ def main(argv=None):
     parser.add_argument("--auto-ready", action="store_true")
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--execute", action="store_true")
-    parser.add_argument("--worktrees", type=Path, default=ROOT.parent / "context-lens-worktrees")
+    parser.add_argument("--worktrees", type=Path, default=ROOT.parent / "socket_stream_worktrees")
     args = parser.parse_args(argv)
     try:
         data = json.loads(args.backlog.read_text(encoding="utf-8"))
@@ -149,7 +149,7 @@ def main(argv=None):
         if not (root / ".git").is_dir():
             parser.error("backlog must be in a Git repository")
         worktrees = args.worktrees.resolve()
-        with (root / ".git" / "contextlens-runner.lock").open("a+") as lock:
+        with (root / ".git" / "socket_stream_runner.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             preflight(root, selected, worktrees)
             worktrees.mkdir(parents=True, exist_ok=True)

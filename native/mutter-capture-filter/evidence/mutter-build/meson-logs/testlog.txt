@@ -1,0 +1,366 @@
+Log of Meson test suite run on 2026-11-14T20:16:10.803567
+
+Inherited environment: HOME=/root INVOCATION_ID=807b1a48097546e481032a4c765c8171 JOURNAL_STREAM=10:79642 LANG=en_US.UTF-8 LOGNAME=root MEMORY_PRESSURE_WATCH=/sys/fs/cgroup/system.slice/nomad.service/memory.pressure MEMORY_PRESSURE_WRITE=c29tZSAyMDAwMDAgMjAwMDAwMAA= NOMAD_ALLOC_DIR=/opt/nomad/data/alloc/a68d444f-d2b2-21ac-fbe4-ce187dd20521/alloc NOMAD_ALLOC_ID=a68d444f-d2b2-21ac-fbe4-ce187dd20521 NOMAD_ALLOC_INDEX=0 NOMAD_ALLOC_NAME='socket_stream_linux-test-runner.test[0]' NOMAD_CPU_CORES=' ' NOMAD_CPU_LIMIT=100 NOMAD_DC=dc1 NOMAD_GROUP_NAME=test NOMAD_JOB_ID=socket_stream_linux-test-runner NOMAD_JOB_NAME=socket_stream_linux-test-runner NOMAD_MEMORY_LIMIT=128 NOMAD_NAMESPACE=default NOMAD_PARENT_CGROUP=nomad.slice NOMAD_REGION=global NOMAD_SECRETS_DIR=/opt/nomad/data/alloc/a68d444f-d2b2-21ac-fbe4-ce187dd20521/runner/secrets NOMAD_SHORT_ALLOC_ID=a68d444f NOMAD_TASK_DIR=/opt/nomad/data/alloc/a68d444f-d2b2-21ac-fbe4-ce187dd20521/runner/local NOMAD_TASK_NAME=runner NOTIFY_SOCKET=/run/systemd/notify PATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/build-deps/root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin SHELL=/bin/bash SYSTEMD_EXEC_PID=10981 USER=root LD_LIBRARY_PATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/build-deps/root/usr/lib/x86_64-linux-gnu PKG_CONFIG_PATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/build-deps/root/usr/share/pkgconfig PYTHONPATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/build-deps/root/usr/lib/python3/dist-packages LIBGL_ALWAYS_SOFTWARE=1 META_DBUS_RUNNER_DISABLE_LOGIND_PASSTHROUGH=1 
+
+==================================== 1/4 =====================================
+test:         clutter+clutter/conform - mutter:socket_stream_capture
+start time:   14:46:10
+duration:     2.17s
+result:       exit status 0
+command:      G_ENABLE_DIAGNOSTIC=0 G_TEST_BUILDDIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests MESON_TEST_ITERATION=1 CLUTTER_ENABLE_DIAGNOSTIC=0 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 MALLOC_PERTURB_=183 LD_LIBRARY_PATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/mtk/mtk:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/cogl/cogl:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/clutter/clutter:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/build-deps/root/usr/lib/x86_64-linux-gnu G_TEST_SRCDIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests MUTTER_TEST_LOG_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/meson-logs MSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 ASAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1 GSETTINGS_SCHEMA_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/data TEST_DATADIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests/meta-dbus-runner.py -- /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests/clutter/conform/socket_stream_capture
+----------------------------------- stdout -----------------------------------
+TAP version 14
+# random seed: R02Se3665da94fb0f8f6ceb20486365f303b
+# GLib-GIO-DEBUG: _g_io_module_get_default: Found default implementation memory (GMemorySettingsBackend) for ‘gsettings-backend’
+# GLib-DEBUG: setenv()/putenv() are not thread-safe and should not be used after threads are created
+# libmutter-MESSAGE: Running Mutter Test (using mutter 50.1) as a Wayland display server
+# libmutter-MESSAGE: Created surfaceless renderer without GPU
+# GVFS-DEBUG: org.gtk.vfs.MountTracker.listMountableInfo call failed: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.gtk.vfs.Daemon was not provided by any .service files (g-dbus-error-quark, 2)
+# 
+# GLib-GIO-DEBUG: _g_io_module_get_default: Found default implementation local (GLocalVfs) for ‘gio-vfs’
+# libmutter-MESSAGE: Using Wayland display name 'mutter-test-display'
+# libmutter-MESSAGE: Added virtual monitor Meta-0
+1..1
+# Start of socket_stream tests
+# Start of capture tests
+ok 1 /socket_stream/capture/filter-pixels
+# End of capture tests
+# End of socket_stream tests
+# libmutter-MESSAGE: Removed virtual monitor Meta-0
+# DEBUG: umockdev.vala:154: Removing test bed /tmp/mutter-testroot-zaa7abu9/tmpdir/umockdev.T9DMY3
+# GLib-DEBUG: unsetenv() is not thread-safe and should not be used after threads are created
+----------------------------------- stderr -----------------------------------
+Setup HOME as /tmp/mutter-testroot-zaa7abu9/home
+Setup TMPDIR as /tmp/mutter-testroot-zaa7abu9/tmpdir
+Setup XDG_CACHE_HOME as /tmp/mutter-testroot-zaa7abu9/xdg_cache_home
+Setup XDG_CONFIG_HOME as /tmp/mutter-testroot-zaa7abu9/xdg_config_home
+Setup XDG_DATA_HOME as /tmp/mutter-testroot-zaa7abu9/xdg_data_home
+Setup XDG_RUNTIME_DIR as /tmp/mutter-testroot-zaa7abu9/xdg_runtime_dir
+Starting D-Bus daemons (session & system)...
+Binding /tmp/mutter-testroot-zaa7abu9/xdg_runtime_dir/pipewire-0 for socket activation
+Binding /tmp/mutter-testroot-zaa7abu9/xdg_runtime_dir/pipewire-0-manager for socket activation
+Launching required services...
+Starting mocked services...
+Running test case...
+Process ['umockdev-wrapper', '/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests/clutter/conform/socket_stream_capture'] started with pid 1786889
+Closing PipeWire socket...
+Terminating services...
+==============================================================================
+
+==================================== 2/4 =====================================
+test:         clutter+clutter/conform - mutter:actor-clone
+start time:   14:46:12
+duration:     1.98s
+result:       exit status 0
+command:      G_ENABLE_DIAGNOSTIC=0 G_TEST_BUILDDIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests MESON_TEST_ITERATION=1 CLUTTER_ENABLE_DIAGNOSTIC=0 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 LD_LIBRARY_PATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/mtk/mtk:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/cogl/cogl:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/clutter/clutter:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/build-deps/root/usr/lib/x86_64-linux-gnu G_TEST_SRCDIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests MUTTER_TEST_LOG_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/meson-logs MSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 ASAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1 GSETTINGS_SCHEMA_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/data MALLOC_PERTURB_=95 TEST_DATADIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests/meta-dbus-runner.py -- /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests/clutter/conform/actor-clone
+----------------------------------- stdout -----------------------------------
+TAP version 14
+# random seed: R02S206ba781485e4769ff8d2c0f6087b127
+# GLib-GIO-DEBUG: _g_io_module_get_default: Found default implementation memory (GMemorySettingsBackend) for ‘gsettings-backend’
+# GLib-DEBUG: setenv()/putenv() are not thread-safe and should not be used after threads are created
+# libmutter-MESSAGE: Running Mutter Test (using mutter 50.1) as a Wayland display server
+# libmutter-MESSAGE: Created surfaceless renderer without GPU
+# GVFS-DEBUG: org.gtk.vfs.MountTracker.listMountableInfo call failed: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.gtk.vfs.Daemon was not provided by any .service files (g-dbus-error-quark, 2)
+# 
+# GLib-GIO-DEBUG: _g_io_module_get_default: Found default implementation local (GLocalVfs) for ‘gio-vfs’
+# libmutter-MESSAGE: Using Wayland display name 'mutter-test-display'
+# libmutter-MESSAGE: Added virtual monitor Meta-0
+1..1
+# Start of actor tests
+# Start of clone tests
+ok 1 /actor/clone/unmapped
+# End of clone tests
+# End of actor tests
+# libmutter-MESSAGE: Removed virtual monitor Meta-0
+# DEBUG: umockdev.vala:154: Removing test bed /tmp/mutter-testroot-r2skti4r/tmpdir/umockdev.S4SQY3
+# GLib-DEBUG: unsetenv() is not thread-safe and should not be used after threads are created
+----------------------------------- stderr -----------------------------------
+Setup HOME as /tmp/mutter-testroot-r2skti4r/home
+Setup TMPDIR as /tmp/mutter-testroot-r2skti4r/tmpdir
+Setup XDG_CACHE_HOME as /tmp/mutter-testroot-r2skti4r/xdg_cache_home
+Setup XDG_CONFIG_HOME as /tmp/mutter-testroot-r2skti4r/xdg_config_home
+Setup XDG_DATA_HOME as /tmp/mutter-testroot-r2skti4r/xdg_data_home
+Setup XDG_RUNTIME_DIR as /tmp/mutter-testroot-r2skti4r/xdg_runtime_dir
+Starting D-Bus daemons (session & system)...
+Binding /tmp/mutter-testroot-r2skti4r/xdg_runtime_dir/pipewire-0 for socket activation
+Binding /tmp/mutter-testroot-r2skti4r/xdg_runtime_dir/pipewire-0-manager for socket activation
+Launching required services...
+Starting mocked services...
+Running test case...
+Process ['umockdev-wrapper', '/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests/clutter/conform/actor-clone'] started with pid 1787020
+Closing PipeWire socket...
+Terminating services...
+==============================================================================
+
+==================================== 3/4 =====================================
+test:         clutter+clutter/conform - mutter:actor-offscreen-redirect
+start time:   14:46:14
+duration:     2.67s
+result:       exit status 0
+command:      G_ENABLE_DIAGNOSTIC=0 G_TEST_BUILDDIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests MESON_TEST_ITERATION=1 CLUTTER_ENABLE_DIAGNOSTIC=0 MALLOC_PERTURB_=76 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 LD_LIBRARY_PATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/mtk/mtk:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/cogl/cogl:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/clutter/clutter:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/build-deps/root/usr/lib/x86_64-linux-gnu G_TEST_SRCDIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests MUTTER_TEST_LOG_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/meson-logs MSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 ASAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1 GSETTINGS_SCHEMA_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/data TEST_DATADIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests/meta-dbus-runner.py -- /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests/clutter/conform/actor-offscreen-redirect
+----------------------------------- stdout -----------------------------------
+TAP version 14
+# random seed: R02S711c545e31727678aec37c3696da8c13
+# GLib-GIO-DEBUG: _g_io_module_get_default: Found default implementation memory (GMemorySettingsBackend) for ‘gsettings-backend’
+# GLib-DEBUG: setenv()/putenv() are not thread-safe and should not be used after threads are created
+# libmutter-MESSAGE: Running Mutter Test (using mutter 50.1) as a Wayland display server
+# libmutter-MESSAGE: Created surfaceless renderer without GPU
+# GVFS-DEBUG: org.gtk.vfs.MountTracker.listMountableInfo call failed: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.gtk.vfs.Daemon was not provided by any .service files (g-dbus-error-quark, 2)
+# 
+# GLib-GIO-DEBUG: _g_io_module_get_default: Found default implementation local (GLocalVfs) for ‘gio-vfs’
+# libmutter-MESSAGE: Using Wayland display name 'mutter-test-display'
+# libmutter-MESSAGE: Added virtual monitor Meta-0
+1..1
+# Start of actor tests
+# Start of offscreen tests
+ok 1 /actor/offscreen/redirect
+# slow test /actor/offscreen/redirect executed in 0.62 secs
+# End of offscreen tests
+# End of actor tests
+# libmutter-MESSAGE: Removed virtual monitor Meta-0
+# DEBUG: umockdev.vala:154: Removing test bed /tmp/mutter-testroot-73majg65/tmpdir/umockdev.C5UQY3
+# GLib-DEBUG: unsetenv() is not thread-safe and should not be used after threads are created
+----------------------------------- stderr -----------------------------------
+Setup HOME as /tmp/mutter-testroot-73majg65/home
+Setup TMPDIR as /tmp/mutter-testroot-73majg65/tmpdir
+Setup XDG_CACHE_HOME as /tmp/mutter-testroot-73majg65/xdg_cache_home
+Setup XDG_CONFIG_HOME as /tmp/mutter-testroot-73majg65/xdg_config_home
+Setup XDG_DATA_HOME as /tmp/mutter-testroot-73majg65/xdg_data_home
+Setup XDG_RUNTIME_DIR as /tmp/mutter-testroot-73majg65/xdg_runtime_dir
+Starting D-Bus daemons (session & system)...
+Binding /tmp/mutter-testroot-73majg65/xdg_runtime_dir/pipewire-0 for socket activation
+Binding /tmp/mutter-testroot-73majg65/xdg_runtime_dir/pipewire-0-manager for socket activation
+Launching required services...
+Starting mocked services...
+Running test case...
+Process ['umockdev-wrapper', '/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests/clutter/conform/actor-offscreen-redirect'] started with pid 1787111
+Closing PipeWire socket...
+Terminating services...
+==============================================================================
+
+==================================== 4/4 =====================================
+test:         core+mutter/backends/native - mutter:native-screen-cast
+start time:   14:46:17
+duration:     3.96s
+result:       exit status 0
+command:      G_TEST_BUILDDIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests MESON_TEST_ITERATION=1 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 MUTTER_REF_TEST_RESULT_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/meson-logs/tests/ref-tests G_TEST_SRCDIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests MUTTER_TEST_LOG_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/meson-logs MSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 XDG_CONFIG_HOME=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/.config MUTTER_GDCTL_TEST_RESULT_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/meson-logs/tests/gdctl GSETTINGS_SCHEMA_DIR=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/data MUTTER_TEST_PLUGIN_PATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/compositor/plugins/libdefault.so ASAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1 MALLOC_PERTURB_=49 LD_LIBRARY_PATH=/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/mtk/mtk:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/cogl/cogl:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/clutter/clutter:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/compositor/plugins:/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/build-deps/root/usr/lib/x86_64-linux-gnu /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests/meta-dbus-runner.py -- /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests/mutter-native-screen-cast
+----------------------------------- stdout -----------------------------------
+TAP version 14
+# random seed: R02Sd3e84cbe1b0250dce29058721ccd5fbc
+# GLib-GIO-DEBUG: _g_io_module_get_default: Found default implementation memory (GMemorySettingsBackend) for ‘gsettings-backend’
+# GLib-DEBUG: setenv()/putenv() are not thread-safe and should not be used after threads are created
+# libmutter-MESSAGE: Running Mutter Test (using mutter 50.1) as a Wayland display server
+# libmutter-MESSAGE: Created surfaceless renderer without GPU
+# GVFS-DEBUG: org.gtk.vfs.MountTracker.listMountableInfo call failed: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.gtk.vfs.Daemon was not provided by any .service files (g-dbus-error-quark, 2)
+# 
+# GLib-GIO-DEBUG: _g_io_module_get_default: Found default implementation local (GLocalVfs) for ‘gio-vfs’
+# libmutter-MESSAGE: Using Wayland display name 'mutter-test-display'
+1..2
+# Start of backends tests
+# Start of native tests
+# Start of screen-cast tests
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRX_8888 with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRA_8888_PRE with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (4294967295) state changed from unconnected to connecting
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (4294967295) state changed from connecting to paused
+# libmutter-DEBUG: SCREEN_CAST: Video format changed to 50x40 (framerate: 0/1 (max: 1/1))
+# libmutter-DEBUG: SCREEN_CAST: Updated PipeWire stream format, format: Spa:Enum:VideoFormat:BGRx, size: 50x40, color primaries: Spa:Enum:VideoColorPrimaries:bt709, transfer function: Spa:Enum:VideoTransferFunction:gamma22
+# libmutter-DEBUG: SCREEN_CAST: Not advertising explicit sync support for pw_stream 36
+# libmutter-MESSAGE: Added virtual monitor Meta-0
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRX_8888 with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRA_8888_PRE with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Updated PipeWire stream format, format: Spa:Enum:VideoFormat:BGRx, size: 50x40, color primaries: Spa:Enum:VideoColorPrimaries:bt709, transfer function: Spa:Enum:VideoTransferFunction:gamma22
+# libmutter-DEBUG: SCREEN_CAST: Not advertising explicit sync support for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (36) state changed from paused to streaming
+# libmutter-DEBUG: SCREEN_CAST: Enabling stream 36 (driving: yes)
+# libmutter-DEBUG: SCREEN_CAST: Recording full frame on stream 36
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #1 (0x57d6419ba910)
+# libmutter-DEBUG: SCREEN_CAST: Recording cursor frame on stream 36
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #2 (0x57d641c63d40)
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (36) state changed from streaming to paused
+# libmutter-DEBUG: SCREEN_CAST: Video format changed to 70x60 (framerate: 0/1 (max: 60/1))
+# libmutter-DEBUG: SCREEN_CAST: Updated PipeWire stream format, format: Spa:Enum:VideoFormat:BGRx, size: 70x60, color primaries: Spa:Enum:VideoColorPrimaries:bt709, transfer function: Spa:Enum:VideoTransferFunction:gamma22
+# libmutter-DEBUG: SCREEN_CAST: Not advertising explicit sync support for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRX_8888 with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRA_8888_PRE with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Updated PipeWire stream format, format: Spa:Enum:VideoFormat:BGRx, size: 70x60, color primaries: Spa:Enum:VideoColorPrimaries:bt709, transfer function: Spa:Enum:VideoTransferFunction:gamma22
+# libmutter-DEBUG: SCREEN_CAST: Not advertising explicit sync support for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 36
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (36) state changed from paused to streaming
+# libmutter-DEBUG: SCREEN_CAST: Enabling stream 36 (driving: yes)
+# libmutter-DEBUG: SCREEN_CAST: Recording full frame on stream 36
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #3 (0x57d641b40180)
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (36) state changed from streaming to paused
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (36) state changed from paused to unconnected
+# libmutter-MESSAGE: Removed virtual monitor Meta-0
+ok 1 /backends/native/screen-cast/record-virtual
+# slow test /backends/native/screen-cast/record-virtual executed in 2.13 secs
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRX_8888 with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRA_8888_PRE with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (4294967295) state changed from unconnected to connecting
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (4294967295) state changed from connecting to paused
+# libmutter-DEBUG: SCREEN_CAST: Video format changed to 50x40 (framerate: 0/1 (max: 1/1))
+# libmutter-DEBUG: SCREEN_CAST: Updated PipeWire stream format, format: Spa:Enum:VideoFormat:BGRx, size: 50x40, color primaries: Spa:Enum:VideoColorPrimaries:bt709, transfer function: Spa:Enum:VideoTransferFunction:gamma22
+# libmutter-DEBUG: SCREEN_CAST: Not advertising explicit sync support for pw_stream 39
+# libmutter-MESSAGE: Added virtual monitor Meta-0
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRX_8888 with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRA_8888_PRE with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Updated PipeWire stream format, format: Spa:Enum:VideoFormat:BGRx, size: 50x40, color primaries: Spa:Enum:VideoColorPrimaries:bt709, transfer function: Spa:Enum:VideoTransferFunction:gamma22
+# libmutter-DEBUG: SCREEN_CAST: Not advertising explicit sync support for pw_stream 39
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 39
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 39
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (39) state changed from paused to streaming
+# libmutter-DEBUG: SCREEN_CAST: Enabling stream 39 (driving: no)
+# libmutter-DEBUG: SCREEN_CAST: Processing stream 39
+# libmutter-DEBUG: SCREEN_CAST: Recording full frame on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #1 (0x57d641974f00)
+# libmutter-DEBUG: SCREEN_CAST: Processing stream 39
+# libmutter-DEBUG: SCREEN_CAST: Recording cursor frame on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #2 (0x57d641b43c90)
+# libmutter-DEBUG: SCREEN_CAST: Processing stream 39
+# libmutter-DEBUG: SCREEN_CAST: Recording cursor frame on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #3 (0x57d641974f00)
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (39) state changed from streaming to paused
+# libmutter-DEBUG: SCREEN_CAST: Video format changed to 70x60 (framerate: 0/1 (max: 60/1))
+# libmutter-DEBUG: SCREEN_CAST: Updated PipeWire stream format, format: Spa:Enum:VideoFormat:BGRx, size: 70x60, color primaries: Spa:Enum:VideoColorPrimaries:bt709, transfer function: Spa:Enum:VideoTransferFunction:gamma22
+# libmutter-DEBUG: SCREEN_CAST: Not advertising explicit sync support for pw_stream 39
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRX_8888 with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Not advertising support for format BGRA_8888_PRE with modifiers
+# libmutter-DEBUG: SCREEN_CAST: Updated PipeWire stream format, format: Spa:Enum:VideoFormat:BGRx, size: 70x60, color primaries: Spa:Enum:VideoColorPrimaries:bt709, transfer function: Spa:Enum:VideoTransferFunction:gamma22
+# libmutter-DEBUG: SCREEN_CAST: Not advertising explicit sync support for pw_stream 39
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 39
+# libmutter-DEBUG: SCREEN_CAST: Allocating MemFd buffer for pw_stream 39
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (39) state changed from paused to streaming
+# libmutter-DEBUG: SCREEN_CAST: Enabling stream 39 (driving: no)
+# libmutter-DEBUG: SCREEN_CAST: Request processing on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Processing stream 39
+# libmutter-DEBUG: SCREEN_CAST: Recording full frame on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #4 (0x57d6411b8a60)
+# libmutter-DEBUG: SCREEN_CAST: Processing stream 39
+# libmutter-DEBUG: SCREEN_CAST: Recording cursor frame on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #5 (0x57d641c68f20)
+# libmutter-DEBUG: SCREEN_CAST: Processing stream 39
+# libmutter-DEBUG: SCREEN_CAST: Recording cursor frame on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #6 (0x57d6411b8a60)
+# mutter-native-screen-cast-test-DEBUG: Posting damage
+# libmutter-DEBUG: SCREEN_CAST: Request processing on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Processing stream 39
+# libmutter-DEBUG: SCREEN_CAST: Recording full frame on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #7 (0x57d6411b8a60)
+# libmutter-DEBUG: SCREEN_CAST: Request processing on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Processing stream 39
+# libmutter-DEBUG: SCREEN_CAST: Recording cursor frame on stream 39
+# libmutter-DEBUG: SCREEN_CAST: Queuing PipeWire buffer #8 (0x57d641c68f20)
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (39) state changed from streaming to paused
+# libmutter-DEBUG: SCREEN_CAST: Pipewire stream (39) state changed from paused to unconnected
+# libmutter-MESSAGE: Removed virtual monitor Meta-0
+ok 2 /backends/native/screen-cast/record-virtual-driver
+# End of screen-cast tests
+# End of native tests
+# End of backends tests
+# DEBUG: umockdev.vala:154: Removing test bed /tmp/mutter-testroot-661_u8jn/tmpdir/umockdev.5SJJY3
+# GLib-DEBUG: unsetenv() is not thread-safe and should not be used after threads are created
+----------------------------------- stderr -----------------------------------
+Setup HOME as /tmp/mutter-testroot-661_u8jn/home
+Setup TMPDIR as /tmp/mutter-testroot-661_u8jn/tmpdir
+Setup XDG_CACHE_HOME as /tmp/mutter-testroot-661_u8jn/xdg_cache_home
+Setup XDG_CONFIG_HOME as /tmp/mutter-testroot-661_u8jn/xdg_config_home
+Setup XDG_DATA_HOME as /tmp/mutter-testroot-661_u8jn/xdg_data_home
+Setup XDG_RUNTIME_DIR as /tmp/mutter-testroot-661_u8jn/xdg_runtime_dir
+Starting D-Bus daemons (session & system)...
+Binding /tmp/mutter-testroot-661_u8jn/xdg_runtime_dir/pipewire-0 for socket activation
+Binding /tmp/mutter-testroot-661_u8jn/xdg_runtime_dir/pipewire-0-manager for socket activation
+Launching required services...
+Starting mocked services...
+Running test case...
+Process ['umockdev-wrapper', '/opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/src/tests/mutter-native-screen-cast'] started with pid 1787244
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.073: Initializing PipeWire
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.074: Creating screen cast session
+Noticed activity on a PipeWire socket, launching services...
+  - Launching /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests/socket-launch.sh pipewire (log file: /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/meson-logs/session-1787170-service-_opt_nomad_data_alloc_13da3766-beff-7852-8cb5-9acb91ba3463_runner_local_mutter-source_src_tests_socket-launch.sh_pipewire.log)
+  - Launching wireplumber (log file: /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-build/meson-logs/session-1787170-service-wireplumber.log)
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.078: Starting screen cast stream
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.081: Waiting for stream to be established
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.090: New PipeWire stream (36) state 'connecting'
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.091: Waiting for stream to stream
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.091: New PipeWire stream (36) state 'paused'
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.377: New PipeWire stream (36) state 'streaming'
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:19.377: Waiting for new buffer
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:20.172: Dequeued buffer, queue previous
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:20.175: Waiting for frame
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:20.175: Waiting for new buffer
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.169: Dequeued buffer, queue previous
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.169: Resizing stream
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.169: Waiting for new buffer
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.170: New PipeWire stream (36) state 'paused'
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.180: New PipeWire stream (36) state 'streaming'
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.189: Dequeued buffer, queue previous
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.189: Stopping session
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.195: New PipeWire stream (36) state 'paused'
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.195: New PipeWire stream (36) state 'unconnected'
+(process:1787274): mutter-screen-cast-client-DEBUG: 20:16:21.196: Done
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.204: Initializing PipeWire
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.205: Creating screen cast session
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.208: Starting screen cast stream
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.210: Waiting for stream to be established
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.211: New PipeWire stream (39) state 'connecting'
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.212: New PipeWire stream (39) state 'paused'
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.217: New PipeWire stream (39) state 'streaming'
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.217: Triggering a few frames
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.217: Triggering process
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: Received buffer #1
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: Releasing active buffer
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: Triggering process
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: Received buffer #2
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: Releasing active buffer
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: Triggering process
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: Received buffer #3
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: Resizing stream
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.218: New PipeWire stream (39) state 'paused'
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: New PipeWire stream (39) state 'streaming'
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Ignored triggering requested process: should ignore: yes, state: streaming, requested buffer: no
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Triggering frames with the new size
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Triggering process
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Received buffer #4
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Releasing active buffer
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Triggering process
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Received buffer #5
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Releasing active buffer
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Triggering process
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Received buffer #6
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Trigger compositor side damage
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Releasing active buffer
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Triggering requested process
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Received buffer #7
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.220: Trigger pointer movement
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.221: Releasing active buffer
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.221: Triggering requested process
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.221: Received buffer #8
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.221: Stopping session
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.222: New PipeWire stream (39) state 'paused'
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.222: New PipeWire stream (39) state 'unconnected'
+(process:1787348): mutter-screen-cast-client-driver-DEBUG: 20:16:21.222: Done
+Closing PipeWire socket...
+Terminating services...
+  - Terminating /opt/nomad/data/alloc/13da3766-beff-7852-8cb5-9acb91ba3463/runner/local/mutter-source/src/tests/socket-launch.sh pipewire
+  - Terminating wireplumber
+==============================================================================
+
+
+Ok:                4   
+Fail:              0   

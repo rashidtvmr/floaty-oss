@@ -32,7 +32,7 @@ until the end-to-end evidence below exists.
 
 ## 1. Required user journey (P0)
 
-1. User extracts the Linux archive and launches `./contextlens` from a normal desktop session.
+1. User extracts the Linux archive and launches `./socket_stream` from a normal desktop session.
 2. A clean, minimal launcher shows provider status, the selected capture source(s), an explicit
    **Start practice** button, and a clearly visible session state. The current diagnostic log is
    moved to an expandable diagnostics area, not the product's main screen.
@@ -88,7 +88,7 @@ Example wire events:
 ### 2.2 Accessibility-first reading; opt-in fallback
 
 - Primary: AT-SPI2 foreground accessible text. Use bounds, focus state and existing
-  protected-field filters. Do not recursively analyze ContextLens's own floating panel.
+  protected-field filters. Do not recursively analyze SocketStream's own floating panel.
 - Run OCR **only** if accessibility data is unavailable or too incomplete to interpret
   the question; do not automatically force OCR whenever an answer is needed.
 - For GNOME/KDE Wayland, the screenshot fallback requires a user-approved XDG ScreenCast
@@ -145,7 +145,7 @@ Example wire events:
 
 | ID | Requirement | Verifiable pass condition |
 | --- | --- | --- |
-| A01 | Linux GUI starts | `./contextlens` opens without Cargo or editing source paths on Ubuntu GNOME Wayland and one X11 desktop |
+| A01 | Linux GUI starts | `./socket_stream` opens without Cargo or editing source paths on Ubuntu GNOME Wayland and one X11 desktop |
 | A02 | Real answer panel | Separate floating GTK answer panel opens from Start, has question/answer/status/Stop/Copy; logs not the main UX |
 | A03 | Screen reader priority | AT-SPI fixture returns readable question, exactly **zero** OCR/portal requests |
 | A04 | OCR fallback | Blank AT-SPI triggers local OCR after explicit OS approval; portal denial fails closed |
@@ -183,7 +183,7 @@ Tests may expose previously missing features; fix the implementation instead.
 
 A new import-safe, GTK-independent Python module MUST be placed at:
 
-`apps/context-desktop/ui/live_state.py`
+`apps/socket_stream_desktop/ui/live_state.py`
 
 It must expose:
 
@@ -229,8 +229,8 @@ create a false CI regression.** Do not mark task done while it is red.
 
 ```bash
 ./check-dependencies.sh
-./contextlens doctor
-./contextlens
+./socket_stream doctor
+./socket_stream
 ```
 
 - Focus a permitted simple HTML problem whose accessible text can be read by AT-SPI.
@@ -241,12 +241,12 @@ create a false CI regression.** Do not mark task done while it is red.
   and validate the OCR fallback. Deny and retry to validate failure behavior.
 - Enable mic with a known synthetic speaker recording, then actual mic; confirm
   bounded transcripts, response updates, no lingering audio after Stop.
-- Switch focus to ContextLens's own panel; it must not recursively answer itself.
+- Switch focus to SocketStream's own panel; it must not recursively answer itself.
 - Collect CPU/RSS and child-process counts before, during and after Stop.
 - Repeat with an external mock provider whose responses are deliberately delayed.
 
 Provide user-facing evidence: a brief screen recording, sanitized event trace,
-`./contextlens doctor` output and checked acceptance IDs. Do not collect secrets.
+`./socket_stream doctor` output and checked acceptance IDs. Do not collect secrets.
 
 ## 7. Important scope exclusions
 

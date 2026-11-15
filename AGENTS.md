@@ -1,4 +1,4 @@
-# ContextLens development agent contract
+# SocketStream development agent contract
 
 This repository builds a permission-based Rust accessibility, OCR, audio and AI desktop assistant for practice and legitimate development workflows.
 

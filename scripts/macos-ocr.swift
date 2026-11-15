@@ -23,7 +23,7 @@ func recognize(_ mode: VNRequestTextRecognitionLevel) throws -> [VNRecognizedTex
 }
 do {
     let results: [VNRecognizedTextObservation]
-    if ProcessInfo.processInfo.environment["CONTEXT_LENS_OCR_ACCURATE"] == "1" {
+    if ProcessInfo.processInfo.environment["SOCKET_STREAM_OCR_ACCURATE"] == "1" {
         do {
             results = try recognize(.accurate)
         } catch {

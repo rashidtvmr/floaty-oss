@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SHORTCUTS_PATH = ROOT / "apps/context-desktop/ui/shortcuts.py"
+SHORTCUTS_PATH = ROOT / "apps/socket_stream_desktop/ui/shortcuts.py"
 
 
 def load(name, path):
@@ -168,15 +168,26 @@ class ConfigFileTests(unittest.TestCase):
 
     def test_default_config_path_honours_env(self):
         import os
-        saved = os.environ.get("CONTEXT_LENS_CONFIG")
+        saved = os.environ.get("SOCKET_STREAM_CONFIG")
         try:
-            os.environ["CONTEXT_LENS_CONFIG"] = "/tmp/ctxlens.json"
+            os.environ["SOCKET_STREAM_CONFIG"] = "/tmp/ctxlens.json"
             self.assertEqual(str(SHORTCUTS.default_config_path()), "/tmp/ctxlens.json")
         finally:
             if saved is None:
-                os.environ.pop("CONTEXT_LENS_CONFIG", None)
+                os.environ.pop("SOCKET_STREAM_CONFIG", None)
             else:
-                os.environ["CONTEXT_LENS_CONFIG"] = saved
+                os.environ["SOCKET_STREAM_CONFIG"] = saved
+
+
+class PlatformNoteTests(unittest.TestCase):
+    def test_platform_note_is_honest_per_platform(self):
+        self.assertIn("sxhkd", SHORTCUTS.platform_note("x11"))
+        self.assertIn("GlobalShortcuts", SHORTCUTS.platform_note("wayland"))
+        self.assertTrue(SHORTCUTS.platform_note("unknown").strip())
+        self.assertTrue(SHORTCUTS.platform_note().strip())
+
+    def test_detect_platform_reads_env(self):
+        self.assertIn(SHORTCUTS.detect_platform(), ("wayland", "x11", "unknown"))
 
 
 class ImportIsolationTests(unittest.TestCase):

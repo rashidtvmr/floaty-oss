@@ -1,0 +1,35 @@
+[
+  {
+    "backend": "wayland",
+    "enabled": true,
+    "source": "monitor",
+    "green": 54000,
+    "magenta": 0,
+    "size": [
+      1280,
+      720
+    ]
+  },
+  {
+    "backend": "wayland",
+    "enabled": true,
+    "source": "area",
+    "green": 54000,
+    "magenta": 0,
+    "size": [
+      1280,
+      720
+    ]
+  },
+  {
+    "backend": "wayland",
+    "enabled": true,
+    "source": "window",
+    "green": 0,
+    "magenta": 0,
+    "size": [
+      1280,
+      720
+    ]
+  }
+]

@@ -1,0 +1,4 @@
+{"schema":1,"type":"question_detected","session_id":"mock-soak","request_id":"q1","sequence":1,"source":"accessibility","timestamp":"2026-11-03T00:00:01Z","text":"How do you reverse a linked list?"}
+{"schema":1,"type":"answer_delta","session_id":"mock-soak","request_id":"q1","sequence":2,"source":"system","timestamp":"2026-11-03T00:00:02Z","text":"Use previous, current and next pointers."}
+{"schema":1,"type":"question_detected","session_id":"mock-soak","request_id":"q2","sequence":3,"source":"accessibility","timestamp":"2026-11-03T00:00:03Z","text":"What is the time complexity of binary search?"}
+{"schema":1,"type":"answer_delta","session_id":"mock-soak","request_id":"q2","sequence":4,"source":"system","timestamp":"2026-11-03T00:00:04Z","text":"It is O(log n) on a sorted array."}

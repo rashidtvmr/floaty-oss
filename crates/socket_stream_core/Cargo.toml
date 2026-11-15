@@ -1,0 +1,18 @@
+[package]
+name = "socket_stream_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Authentication transport is not wired into the desktop application yet.
+codex-auth-experimental = []
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true

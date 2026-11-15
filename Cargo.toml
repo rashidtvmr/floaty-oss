@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/context-core", "apps/context-cli"]
-exclude = ["apps/context-desktop"]
-default-members = ["crates/context-core", "apps/context-cli"]
+members = ["crates/socket_stream_core", "apps/socket_stream"]
+exclude = ["apps/socket_stream_desktop"]
+default-members = ["crates/socket_stream_core", "apps/socket_stream"]
 
 [workspace.package]
 edition = "2024"

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-echo "ContextLens Linux dependency check ($(uname -s)/$(uname -m))"
+echo "SocketStream Linux dependency check ($(uname -s)/$(uname -m))"
 missing=0
 for tool in python3 tesseract ffmpeg pactl; do
   if command -v "$tool" >/dev/null 2>&1; then echo "[OK] $tool"

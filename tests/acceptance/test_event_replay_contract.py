@@ -9,16 +9,16 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CLI = ROOT / "target/debug/context-cli"
+CLI = ROOT / "target/debug/socket_stream"
 FIXTURE = ROOT / "tests/fixtures/live_practice/events.jsonl"
 
 
 class ReplayContract(unittest.TestCase):
     def test_replay_outputs_valid_jsonl_without_os_capture(self):
-        self.assertTrue(CLI.is_file(), "Build the Rust CLI first: cargo build -p context-cli")
+        self.assertTrue(CLI.is_file(), "Build the Rust CLI first: cargo build -p socket_stream")
         env = os.environ.copy()
-        env["CONTEXT_LENS_BASE_URL"] = "http://127.0.0.1:9/v1"
-        env["CONTEXT_LENS_API_KEY"] = "should-not-appear-in-output"
+        env["SOCKET_STREAM_BASE_URL"] = "http://127.0.0.1:9/v1"
+        env["SOCKET_STREAM_API_KEY"] = "should-not-appear-in-output"
         process = subprocess.run(
             [str(CLI), "replay-events", "--file", str(FIXTURE)],
             cwd=ROOT, env=env, capture_output=True, text=True, timeout=12,
@@ -34,11 +34,11 @@ class ReplayContract(unittest.TestCase):
         self.assertNotIn("should-not-appear-in-output", process.stdout + process.stderr)
 
     def test_live_provider_preflight_fails_before_capture_with_ui_event(self):
-        self.assertTrue(CLI.is_file(), "Build the Rust CLI first: cargo build -p context-cli")
+        self.assertTrue(CLI.is_file(), "Build the Rust CLI first: cargo build -p socket_stream")
         env = os.environ.copy()
-        env["CONTEXT_LENS_BASE_URL"] = "http://127.0.0.1:9/v1"
-        env["CONTEXT_LENS_MODEL"] = ""
-        env["CONTEXT_LENS_API_KEY"] = "must-not-be-logged"
+        env["SOCKET_STREAM_BASE_URL"] = "http://127.0.0.1:9/v1"
+        env["SOCKET_STREAM_MODEL"] = ""
+        env["SOCKET_STREAM_API_KEY"] = "must-not-be-logged"
         process = subprocess.run(
             [str(CLI), "observe-live", "--authorized", "--provider", "openai-compatible"],
             cwd=ROOT, env=env, capture_output=True, text=True, timeout=12,

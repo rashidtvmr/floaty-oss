@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SocketStream Real App
+Comment=Full SocketStream settings and floating answer panel
+Exec=/home/rashid/SocketStream-Real-App/security-lab/launch-real-app.sh
+Icon=applications-development
+Terminal=false
+Categories=Development;

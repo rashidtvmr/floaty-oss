@@ -1,0 +1,9 @@
+[package]
+name = "socket_stream_desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+socket_stream_core = { path = "../../crates/socket_stream_core" }
+slint = "1.18"

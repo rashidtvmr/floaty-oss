@@ -64,7 +64,7 @@ Rules:
 `--mode text` keeps the existing plain-text behaviour byte-for-byte so nothing that already
 depends on it breaks.
 
-### 1.3 Rust contract — `crates/context-core/src/a11y.rs` (new)
+### 1.3 Rust contract — `crates/socket_stream_core/src/a11y.rs` (new)
 
 ```rust
 pub const A11Y_SCHEMA: u32 = 1;
@@ -104,9 +104,11 @@ pub struct A11yTree {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadMode {
-    /// Focused subtree only; cheapest and the default.
+    /// Focused subtree only; cheapest.
     Focused,
-    /// Whole tree as an indented outline.
+    /// Whole tree as an indented outline. The default: a browser's focused
+    /// subtree is the address bar or toolbar, so `Focused`/`Auto` never reach
+    /// the page content where a question lives.
     Tree,
     /// Flat text of text-bearing nodes (legacy behaviour).
     Text,
@@ -122,7 +124,7 @@ pub struct TokenBudget {
     pub max_chars: usize,
 }
 
-impl Default for TokenBudget { /* max_tokens 1200, max_nodes 250, max_depth 8, max_chars 12_000 */ }
+impl Default for TokenBudget { /* max_tokens 4000, max_nodes 800, max_depth 20, max_chars 32_000 */ }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct A11yReading {
@@ -176,12 +178,12 @@ Rendering rules (must be unit tested):
   set `truncated = true`.
 - Duplicate identical `(role, text)` pairs are emitted at most once (cheap dedup, bounded set).
 
-### 1.4 Config — `crates/context-core/src/config.rs` (new)
+### 1.4 Config — `crates/socket_stream_core/src/config.rs` (new)
 
 A JSON config file, no new dependencies (`serde_json` already present).
 
-- Path resolution: `$CONTEXT_LENS_CONFIG`, else `$XDG_CONFIG_HOME/contextlens/config.json`,
-  else `~/.config/contextlens/config.json`, else `~/.contextlens.json`.
+- Path resolution: `$SOCKET_STREAM_CONFIG`, else `$XDG_CONFIG_HOME/socket_stream/config.json`,
+  else `~/.config/socket_stream/config.json`, else `~/.socket_stream.json`.
 - A missing file yields `Config::default()`. A malformed file yields
   `Err(ConfigError::Malformed)` and callers MUST report it, never silently ignore it.
 
@@ -244,10 +246,10 @@ impl Config {
 }
 ```
 
-`Config::default()` uses `mode = "auto"`, `ocr.enabled = false` (explicit opt-in, matching the
+`Config::default()` uses `mode = "tree"`, `ocr.enabled = false` (explicit opt-in, matching the
 existing OCR policy), `shortcuts.enabled = true` and the default bindings from section 3.
 
-### 1.5 Region OCR — `crates/context-core/src/ocr.rs` (extend)
+### 1.5 Region OCR — `crates/socket_stream_core/src/ocr.rs` (extend)
 
 ```rust
 /// OCR a sub-rectangle of a screenshot. Crops with the platform tool, then runs
@@ -276,7 +278,7 @@ pub fn extract_regions_text(
 - Results are cached by `(screenshot path, region)` in a small bounded map so repeated
   observations of the same frame do not re-run Tesseract.
 
-### 1.6 Capture region helper — `crates/context-core/src/capture.rs` (extend)
+### 1.6 Capture region helper — `crates/socket_stream_core/src/capture.rs` (extend)
 
 ```rust
 /// Crop `source` to `region` and write it to `destination`.
@@ -288,7 +290,7 @@ tool exists.
 
 ---
 
-## 2. Observation wiring (`apps/context-cli/src/live_observe.rs`)
+## 2. Observation wiring (`apps/socket_stream/src/live_observe.rs`)
 
 - New flags: `--a11y-mode auto|focused|tree|text`, `--max-tokens N`, `--ocr-images`,
   `--no-ocr-images`, `--config PATH`. Flags override the config file; the config file overrides
@@ -314,10 +316,12 @@ tool exists.
 `start`, `stop`, `pause_resume`, `toggle_overlay`, `show_overlay`, `hide_overlay`,
 `copy_answer`, `compact_toggle`, `toggle_stealth`, `open_settings`, `refresh_question`, `quit`.
 
-`hide_overlay` is the "hide the app from screen" action: it hides the floating panel immediately
-and marks it user-hidden so the behavioural guard does not restore it.
+`hide_overlay` is the "hide the app from screen" action. In the Linux GTK shell,
+the shortcut is intentionally show-only/reminder behavior: closing requires
+clicking the panel's Close control.
+Focus and screen-share state never automatically hide or restore it.
 
-### 3.2 Rust contract — `crates/context-core/src/shortcuts.rs` (new)
+### 3.2 Rust contract — `crates/socket_stream_core/src/shortcuts.rs` (new)
 
 ```rust
 pub const ACTIONS: [&str; 12] = [ ... ]; // the names above, in order
@@ -381,9 +385,9 @@ Default bindings (also written to a fresh config file):
 | refresh_question | `ctrl+alt+r` |
 | quit | `ctrl+alt+q` |
 
-### 3.3 CLI — `apps/context-cli/src/hotkeys.rs` (new)
+### 3.3 CLI — `apps/socket_stream/src/hotkeys.rs` (new)
 
-`context-cli hotkeys` subcommands:
+`socket_stream hotkeys` subcommands:
 
 - `hotkeys list` — print the resolved bindings and the platform.
 - `hotkeys init [--force]` — write a default config file, refusing to overwrite without `--force`.
@@ -393,7 +397,7 @@ Default bindings (also written to a fresh config file):
 
 ### 3.4 Desktop integration
 
-- `apps/context-desktop/ui/shortcuts.py` (new, pure stdlib): parse accelerators, hold the
+- `apps/socket_stream_desktop/ui/shortcuts.py` (new, pure stdlib): parse accelerators, hold the
   action -> callback map, and dispatch a key event. GTK-agnostic so it is unit testable.
 - `linux-gtk.py`: register GTK accelerators (`Gtk.AccelGroup`) for every action, add a
   `Shortcuts` help dialog listing them, and wire `hide_overlay` to the floating overlay's
@@ -413,7 +417,7 @@ to be installed. This ticket adds a **native device-authorization flow** so sign
 without it, modelled on the reference implementation at
 `/Users/mymac/Projects/opencode-rk-recovery-20261005/crates/providers/src/openai_device_auth.rs`.
 
-### 4.1 `crates/context-core/src/openai_device_auth.rs` (new)
+### 4.1 `crates/socket_stream_core/src/openai_device_auth.rs` (new)
 
 ```rust
 pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -463,14 +467,14 @@ Rules:
 - A `for_local_test` endpoint override is allowed **only** under `#[cfg(test)]` or behind an
   explicit `--device-auth-test-url` used exclusively by tests against a local mock server.
 
-### 4.2 Credential store — `crates/context-core/src/auth_store.rs` (new)
+### 4.2 Credential store — `crates/socket_stream_core/src/auth_store.rs` (new)
 
-- Stores the credential as JSON at `$XDG_CONFIG_HOME/contextlens/credentials.json` (macOS:
-  `~/Library/Application Support/contextlens/`), created with mode `0600` on Unix.
+- Stores the credential as JSON at `$XDG_CONFIG_HOME/socket_stream/credentials.json` (macOS:
+  `~/Library/Application Support/socket_stream/`), created with mode `0600` on Unix.
 - Never reads the official Codex CLI's files. Never logs a token. `Debug` redacts.
 - `load()`, `save(credential)`, `clear()`.
 
-### 4.3 CLI — extend `apps/context-cli/src/auth_commands.rs`
+### 4.3 CLI — extend `apps/socket_stream/src/auth_commands.rs`
 
 - `codex-login --method device|browser [--native]` — `--native` uses the device flow above
   instead of the Codex CLI. Prints the verification URL and user code, polls, stores the

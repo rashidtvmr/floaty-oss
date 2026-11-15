@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>SocketStream — Screen sharing verification</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif}
+    *{box-sizing:border-box}
+    body{margin:0;background:#0b1120;color:#eff5ff;line-height:1.5}
+    main{max-width:1140px;margin:0 auto;padding:42px 22px 60px}
+    h1{font-size:clamp(1.8rem,4vw,2.8rem);letter-spacing:-.035em;margin:.3rem 0}
+    h2{font-size:1.15rem;margin:0 0 12px}
+    p{color:#bac9de}
+    .top{display:flex;align-items:center;gap:12px;color:#80cffe;font-weight:700}
+    .chip{border:1px solid #345477;border-radius:99px;padding:3px 10px;font-size:.74rem;color:#a8c9eb}
+    .layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;margin-top:25px}
+    .card{background:#131d30;border:1px solid #293e5b;border-radius:16px;padding:22px}
+    .buttons{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+    button{background:#3999ef;color:#061525;border:0;border-radius:9px;padding:11px 14px;font-weight:700;cursor:pointer}
+    button:hover:not(:disabled){filter:brightness(1.12)}
+    button:disabled{cursor:not-allowed;opacity:.36}
+    button.secondary{background:#263752;color:#d6e8fc}
+    button.danger{background:#743542;color:#fff}
+    .guide{padding:0 0 0 20px;color:#bac9de}
+    .guide li{margin:9px 0}
+    .hint{font-size:.86rem;color:#a1b6ce}
+    video{display:block;max-width:100%;width:100%;border-radius:10px;background:#080e18;min-height:230px;object-fit:contain;aspect-ratio:16/9}
+    .readout{font-variant-numeric:tabular-nums;font-size:.86rem;margin-top:12px;overflow-wrap:anywhere}
+    .result{border:1px solid #45617f;background:#0b1628;border-radius:10px;padding:14px;margin-top:18px}
+    .result[data-verdict=visible]{border-color:#e67b7b;color:#ffb6b6}
+    .result[data-verdict=candidate]{border-color:#f8c878;color:#ffe29d}
+    .result[data-verdict=inconclusive]{color:#cad7e6}
+    label{display:flex;gap:9px;align-items:flex-start;margin-top:15px;color:#d0e0f4;font-size:.95rem}
+    input{margin-top:5px;accent-color:#4eb5ff}
+    .evidence{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}
+    .evidence button{font-size:.82rem}
+    code{color:#b1e0ff}
+    @media(max-width:790px){.layout{grid-template-columns:1fr}}
+  </style>
+  <script src="./capture-verification.js" defer></script>
+  <script src="./screen-share-test.js" defer></script>
+</head>
+<body>
+  <main>
+    <div class="top">SOCKET_STREAM <span class="chip">Local QA / No uploads</span></div>
+    <h1>Screen-sharing exclusion test</h1>
+    <p>Check what a real browser receives from the Linux screen-capture portal. This page does not upload, transmit, or automatically save your screen. You explicitly choose when to share and when to download evidence.</p>
+    <div class="layout">
+      <section class="card">
+        <h2>Controlled A/B verification</h2>
+        <ol class="guide">
+          <li>Run <code>python3 security-lab/overlay_probe.py</code> and verify the three-color marker is visible on your monitor.</li>
+          <li>With exclusion <strong>off</strong>, click Share screen and select the <strong>entire monitor</strong> containing the marker.</li>
+          <li>Capture the baseline. It must detect the color marker before any exclusion claim is meaningful.</li>
+          <li>Enable a supported compositor rule, keeping the same monitor and live share; verify the marker remains visible to you locally.</li>
+          <li>Capture the after frame. Review both images and export the local report.</li>
+        </ol>
+        <div class="buttons">
+          <button id="share">1. Share entire monitor</button>
+          <button id="stop" class="danger" disabled>Stop sharing</button>
+          <button id="baseline" class="secondary" disabled>2. Baseline frame</button>
+          <button id="after" class="secondary" disabled>3. After frame</button>
+        </div>
+        <label><input type="checkbox" id="locally-visible"> I can still see the SocketStream probe marker locally when capturing the after frame.</label>
+        <div class="result" id="result" data-verdict="inconclusive" role="status" aria-live="polite">Choose the entire monitor in the sharing dialog to begin.</div>
+        <p class="hint">For GNOME 50 Wayland, the current SocketStream rule manager correctly reports capture exclusion as unsupported. An unmodified GNOME monitor stream is expected to include the overlay.</p>
+      </section>
+      <section class="card">
+        <h2>Live captured stream</h2>
+        <video id="preview" autoplay muted playsinline aria-label="Browser-captured monitor preview"></video>
+        <div class="readout" id="stream-info">Not sharing.</div>
+        <div class="readout" id="baseline-info">Baseline: not captured.</div>
+        <div class="readout" id="after-info">After: not captured.</div>
+        <div class="evidence">
+          <button id="save-baseline" class="secondary" disabled>Save baseline PNG</button>
+          <button id="save-after" class="secondary" disabled>Save after PNG</button>
+          <button id="save-report" class="secondary" disabled>Save JSON report</button>
+        </div>
+        <p class="hint">A missing marker is <strong>inconclusive</strong> unless the baseline detected it, the same entire-monitor stream stayed active, and you verified the probe was still locally visible. Even then, a positive result requires independent verification with another recorder.</p>
+      </section>
+    </div>
+  </main>
+  <canvas id="frame" hidden></canvas>
+</body>
+</html>
+

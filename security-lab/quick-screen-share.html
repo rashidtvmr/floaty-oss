@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ubuntu screen-sharing capture test</title>
+<style>
+  body { max-width: 850px; margin: 35px auto; padding: 16px;
+         background: #101827; color: #e6edf8; font: 16px system-ui; }
+  video { width: 100%; min-height: 250px; background: black; margin-top: 20px; }
+  button { padding: 12px; margin: 5px; cursor: pointer; }
+</style>
+<h1>Ubuntu screen-sharing capture test</h1>
+<p>Select the <b>entire monitor</b> in the browser's permission dialog.
+   The preview shows exactly what the browser receives. Nothing is uploaded.</p>
+<button id="share">Share screen</button>
+<button id="snap" disabled>Save screenshot</button>
+<button id="stop" disabled>Stop sharing</button>
+<p id="status" role="status">Not sharing.</p>
+<video id="preview" autoplay muted playsinline></video>
+<canvas id="frame" hidden></canvas>
+<script>
+  const $ = id => document.getElementById(id);
+  let stream = null;
+  function stop() {
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    stream = null;
+    $('preview').srcObject = null;
+    $('share').disabled = false;
+    $('snap').disabled = $('stop').disabled = true;
+    $('status').textContent = 'Sharing stopped.';
+  }
+  $('share').onclick = async () => {
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {displaySurface: 'monitor'}, audio: false
+      });
+      $('preview').srcObject = stream;
+      const track = stream.getVideoTracks()[0];
+      track.addEventListener('ended', stop, {once: true});
+      $('share').disabled = true;
+      $('snap').disabled = $('stop').disabled = false;
+      $('status').textContent = 'Capturing: ' +
+        (track.getSettings().displaySurface || 'unknown source');
+    } catch (err) {
+      $('status').textContent = 'No screen selected: ' + err.message;
+    }
+  };
+  $('stop').onclick = stop;
+  $('snap').onclick = () => {
+    const video = $('preview'), canvas = $('frame');
+    if (!video.videoWidth) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'ubuntu-screen-capture.png';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }, 'image/png');
+  };
+</script>
+</html>

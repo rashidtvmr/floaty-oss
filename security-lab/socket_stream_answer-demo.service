@@ -1,0 +1,11 @@
+[Unit]
+Description=SocketStream real floating answer panel (sample content, no capture)
+After=graphical-session.target
+
+[Service]
+Type=simple
+Environment=GDK_BACKEND=x11
+ExecStart=/usr/bin/python3 /home/rashid/SocketStream-Screen-Test/security-lab/demo_answer_panel.py
+Restart=no
+NoNewPrivileges=true
+

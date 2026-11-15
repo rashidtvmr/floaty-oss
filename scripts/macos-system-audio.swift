@@ -20,7 +20,7 @@ final class AudioSink: NSObject, SCStreamOutput, SCStreamDelegate {
         ]
         input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
-        guard writer.canAdd(input) else { throw NSError(domain: "ContextLensAudio", code: 1) }
+        guard writer.canAdd(input) else { throw NSError(domain: "SocketStreamAudio", code: 1) }
         writer.add(input)
     }
 
@@ -37,7 +37,7 @@ final class AudioSink: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func finish() async throws {
         guard started else {
-            throw NSError(domain: "ContextLensAudio", code: 2,
+            throw NSError(domain: "SocketStreamAudio", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "No audio samples received"])
         }
         input.markAsFinished()
@@ -45,7 +45,7 @@ final class AudioSink: NSObject, SCStreamOutput, SCStreamDelegate {
             writer.finishWriting { continuation.resume() }
         }
         guard writer.status == .completed else {
-            throw writer.error ?? NSError(domain: "ContextLensAudio", code: 3)
+            throw writer.error ?? NSError(domain: "SocketStreamAudio", code: 3)
         }
     }
 }
@@ -56,7 +56,7 @@ struct SystemAudioRecorder {
         guard CommandLine.arguments.count == 3,
               let duration = UInt64(CommandLine.arguments[1]),
               (1...900).contains(duration) else {
-            fputs("Usage: context-lens-system-audio SECONDS OUTPUT.m4a (1-900)\n", stderr)
+            fputs("Usage: socket_stream_system_audio SECONDS OUTPUT.m4a (1-900)\n", stderr)
             exit(2)
         }
         let url = URL(fileURLWithPath: CommandLine.arguments[2])
@@ -68,7 +68,7 @@ struct SystemAudioRecorder {
             let content = try await SCShareableContent.excludingDesktopWindows(false,
                                                        onScreenWindowsOnly: true)
             guard let display = content.displays.first else {
-                throw NSError(domain: "ContextLensAudio", code: 4)
+                throw NSError(domain: "SocketStreamAudio", code: 4)
             }
             let filter = SCContentFilter(display: display, excludingWindows: [])
             let config = SCStreamConfiguration()
@@ -82,7 +82,7 @@ struct SystemAudioRecorder {
             let sink = try AudioSink(output: url)
             let stream = SCStream(filter: filter, configuration: config, delegate: sink)
             try stream.addStreamOutput(sink, type: .audio,
-                                      sampleHandlerQueue: DispatchQueue(label: "contextlens.audio"))
+                                      sampleHandlerQueue: DispatchQueue(label: "socket_stream.audio"))
             try await stream.startCapture()
             try await Task.sleep(for: .seconds(duration))
             try await stream.stopCapture()

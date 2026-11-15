@@ -3,6 +3,21 @@
   "max_parallel_agents": 4,
   "tasks": [
     {
+      "id": "MOONSHINE-001",
+      "title": "Bundle local Moonshine streaming STT and connect finalized speech to live LLM answers",
+      "state": "in_review",
+      "dependencies": ["CORE-001"],
+      "acceptance": [
+        "Bundled runtime and English model with no runtime download",
+        "Microphone/system input selected explicitly",
+        "Bounded rolling transcript and streamed answers",
+        "Pause/Stop destroy capture and speech workers",
+        "Independent capture lifecycle review and synthetic E2E"
+      ],
+      "owner": "audio",
+      "notes": "Bundled runtimes built for macOS arm64 and Ubuntu x86_64. Six synthetic E2E cases cover speech/answers, control EOF, full pipe, shared terminal, startup Stop and authorization. Rust/Python gates and GUI self-test pass. Review findings addressed and confirmed by narrow follow-up: terminal flags preserved, reader-to-UI queues bounded, E2E deadlines absolute, Swift reader switched to a POSIX readiness read with a self-test regression. Linux packaged execution is verified on Ubuntu 26.04.1 x86_64 (CLI smoke tests, bundled runtime `--check`, GTK import, capture-rule suites); real audio-device permissions and live desktop-session use remain unverified. STREAM-STT-003 includes separate speaker-separation work. See docs/MOONSHINE.md."
+    },
+    {
       "id": "CORE-001",
       "title": "Screen text normalization and bounded deduplication",
       "state": "done",
@@ -103,7 +118,13 @@
         "Model selector",
         "Keyboard-first access"
       ],
-      "owner": "ui"
+      "owner": "ui",
+      "verification": {
+        "date": "2026-11-04",
+        "target": "macOS 27 arm64, installed ~/Applications/SocketStream.app (ad-hoc signed)",
+        "verified": "Main window, permission labels, consent alert, mock observe-live session with real Accessibility and Screen Recording grants, live panel, Compact/Pause/Resume/Copy/Close/Main/Stop, minimized-window and fullscreen persistence, screencapture exclusion with sharingType=.none",
+        "not_verified": "Linux GTK runtime; real remote screen-share exclusion; Developer ID signing/notarization"
+      }
     },
     {
       "id": "TEST-001",
@@ -209,7 +230,12 @@
         "Stop capture",
         "No keys logged"
       ],
-      "owner": "ui"
+      "owner": "ui",
+      "verification": {
+        "date": "2026-11-04",
+        "macOS": "complete: installed bundle launched, granted both permissions, ran a mock observation, updated the panel, and stopped without logging keys",
+        "linux": "pending real GNOME/KDE desktop run"
+      }
     },
     {
       "id": "RELEASE-SIGN-003",
@@ -272,12 +298,20 @@
       "spec": "docs/STEALTH-OVERLAY.md",
       "acceptance": [
         "overlay_guard.py session detection, ExclusionPlan and capability_report implemented and unit tested",
-        "floating_overlay.py renders live JSONL events and never steals focus",
-        "Behavioural auto-hide while a ScreenCast session is detected, with manual hide preserved",
-        "context-cli overlay launches the overlay without performing capture itself",
+        "floating_overlay.py renders live JSONL events, never steals focus, and stays visible across focus changes and screen shares",
+        "Panel stays visible on any share state; only an explicit user hide/close changes visibility",
+        "Compositor capture rules (niri, Hyprland 0.53+, KDE Plasma/KWin 6.7+) are explicit, reversible and validated; configured is reported separately from runtime-verified",
+        "socket_stream overlay launches the overlay without performing capture itself",
         "Capability matrix documented honestly; no claim of universal invisibility",
-        "security-lab/overlay_probe.py allows real desktop verification"
-      ]
+        "security-lab/overlay_probe.py allows real desktop verification",
+        "On GNOME Wayland the panel uses the XWayland dock layer so it stays above fullscreen windows without taking focus"
+      ],
+      "verification": {
+        "date": "2026-11-04",
+        "target": "Ubuntu 26.04.1, GNOME Shell 50.1, mutter 18, GTK 3.24.52, Wayland",
+        "panel": "app_id=socket_stream_overlay (xdg_toplevel.set_app_id); GNOME default uses GDK_BACKEND=x11 and _NET_WM_WINDOW_TYPE_DOCK + SKIP_TASKBAR/SKIP_PAGER/ABOVE, centred, above a fullscreen window, no override-redirect, opacity 0.94 with RGBA visual; native X11 keeps WM_CLASS=socket_stream_overlay, Override Redirect State=yes, notification type",
+        "not_verified": "per-window whole-screen capture exclusion on GNOME 50/mutter 18 (no such API); niri/Hyprland/KWin rules are unit-tested and config-validated only"
+      }
     },
     {
       "id": "A11Y-TREE-006",
@@ -296,7 +330,12 @@
         "Token budget bounds max_tokens, max_nodes, max_depth and max_chars and sets truncated",
         "Protected nodes are skipped and their text is never rendered",
         "image_regions returns image/graphic nodes largest first"
-      ]
+      ],
+      "verification": {
+        "date": "2026-11-04",
+        "macOS": "installed bundle read real Terminal and Google Chrome trees through the focused-window root; the global menu bar is filtered; auto rendering falls back to tree mode when only the window is focused. Regression tests added in crates/socket_stream_core/src/a11y.rs.",
+        "linux": "AT-SPI runtime verification still pending"
+      }
     },
     {
       "id": "OCR-REGION-007",
@@ -348,7 +387,7 @@
       "spec": "docs/A11Y-TREE-SHORTCUTS.md",
       "acceptance": [
         "Device flow uses only official HTTPS auth.openai.com endpoints with redirects disabled",
-        "Credentials are stored 0600 in ContextLens's own config dir, never the Codex CLI's files",
+        "Credentials are stored 0600 in SocketStream's own config dir, never the Codex CLI's files",
         "Tokens and user codes are never logged; Debug redacts them",
         "Polling is bounded by MAX_POLLS and response bodies by MAX_RESPONSE_BYTES",
         "codex-login --native, codex-status --native and codex-logout --native --confirm work without the CLI",

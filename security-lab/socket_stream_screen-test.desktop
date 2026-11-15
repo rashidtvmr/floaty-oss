@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SocketStream Screen Share Test
+Comment=Open a local screen-share verifier and an overlay test marker
+Exec=/home/rashid/SocketStream-Screen-Test/security-lab/launch-screen-test.sh
+Icon=video-display
+Terminal=false
+Categories=Development;

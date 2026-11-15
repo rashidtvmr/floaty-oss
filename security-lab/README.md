@@ -1,7 +1,7 @@
 # Capture boundary lab — QA runbook
 
 This directory is a **manual security-QA harness**, not a product feature.
-It helps a human verify, on a real Linux desktop, how the ContextLens floating
+It helps a human verify, on a real Linux desktop, how the SocketStream floating
 overlay behaves with respect to an explicitly approved screen share. Nothing
 here starts automatically, reads the screen, or uploads anything.
 
@@ -15,7 +15,7 @@ Read that first.
 |---|---|
 | `serve.py` / `web/` | Local, loopback-only browser lab. Uses `getDisplayMedia` to show exactly what an approved browser capture includes. |
 | `probe_overlay.py` | Clearly visible control marker (no stealth). |
-| `overlay_probe.py` | Applies the real `ExclusionPlan` from `overlay_guard` and runs the behavioural guard. |
+| `overlay_probe.py` | Applies the real `ExclusionPlan` from `overlay_guard` and reports share status; the marker stays visible. |
 | `run.sh` | Launcher: `./run.sh` serves the browser lab; `./run.sh probe` runs `overlay_probe.py`. |
 
 ## Prerequisites
@@ -25,7 +25,7 @@ Read that first.
 - GTK3 bindings: `python3-gi` + `gir1.2-gtk-3.0` (Debian/Ubuntu) or
   `python3-gobject` + `gtk3` (Fedora/Arch).
 - The frozen `overlay_guard` module at
-  `apps/context-desktop/ui/overlay_guard.py`. `overlay_probe.py` prints a clear
+  `apps/socket_stream_desktop/ui/overlay_guard.py`. `overlay_probe.py` prints a clear
   message and exits if it is missing — that is expected until the overlay
   implementation lands.
 
@@ -41,8 +41,11 @@ Browser capture lab (default):
 Stealth overlay probe:
 
 ```sh
-python3 overlay_probe.py               # guard enabled (the real behaviour)
-python3 overlay_probe.py --no-stealth  # A/B control: guard disabled
+python3 overlay_probe.py               # apply hints; marker never hides
+python3 overlay_probe.py --no-stealth  # A/B control: no hints
+python3 overlay_probe.py --exclusion-status   # rule status, then exit
+python3 overlay_probe.py --setup-exclusion    # install the managed rule
+python3 overlay_probe.py --remove-exclusion   # remove the managed rule
 ```
 
 `./run.sh probe [--no-stealth]` is an equivalent shortcut.
@@ -59,9 +62,10 @@ Run one trial per share mode. Keep the browser lab open on the same desktop.
 
 1. Start the browser lab: `./run.sh`, then open `http://127.0.0.1:8765`.
 2. Start the overlay probe on the same desktop: `python3 overlay_probe.py`.
-   Read the **Capability report** panel and note the session, compositor and
-   whether exclusion is reported as guaranteed (it will say **NO** on stock
-   Linux X11/Wayland).
+   Read the **Capability report** panel and note the session, compositor, the
+   capture-rule state (supported/configured/config-validated) and that runtime
+   verification is always reported separately. A rule is only "configured" if
+   you explicitly ran `--setup-exclusion` or used the app's Set up exclusion.
 3. In the browser lab, click **Start screen-share test** and choose a source:
    - **Tab** share,
    - **Application window** share, then pick the probe window,
@@ -73,11 +77,10 @@ Run one trial per share mode. Keep the browser lab open on the same desktop.
    in capture, notes) and click **Record observation**. Use the table below as
    the offline template if you prefer paper.
 6. Repeat for each share mode, and repeat once with `--no-stealth` as the A/B
-   control. With the guard enabled, the probe should report
-   *"Screen share: detected — hiding"* and hide itself while the share is
-   active; with `--no-stealth` it should stay visible and appear in the capture.
+   control for window hints. The probe stays visible in both modes; note whether
+   the selected capture surface includes it.
 7. Leave the share (click **Stop**). The probe should report
-   *"Screen share: none detected"* and restore the marker.
+   *"Screen share: none detected"*; no visibility change is expected.
 
 ## Interpreting results
 
@@ -87,9 +90,8 @@ Run one trial per share mode. Keep the browser lab open on the same desktop.
 - **Marker visible locally = yes, in capture = no** → the selected capture
   surface does not include this window. This is a statement about *that*
   capture surface only.
-- **Guard enabled, marker disappears while sharing** → the behavioural guard is
-  working. This is the only mechanism that reliably keeps the panel out of a
-  full-screen capture.
+- The app no longer auto-hides the panel during a share. A visible marker in
+  full-screen capture is expected unless a compositor exclusion rule applies.
 
 ## What a passing result does NOT prove
 
@@ -102,18 +104,19 @@ the overlay is invisible in general.
   (`_NET_WM_STATE_SKIP_TASKBAR`, `_NET_WM_WINDOW_TYPE_NOTIFICATION`,
   override-redirect, and even `_NET_WM_STATE_SKIP_CAPTURE` where a compositor
   exposes it) are **best effort** and compositor-dependent.
-- **Wayland portal screencast captures whole outputs.** The `wlr-layer-shell`
-  overlay layer does not remove the surface from an output capture. The portal
-  lists toplevels to the picker; a compositor rule (for example niri's
-  `block-out-from=screencast`) is required to exclude it, and only after the
-  user adds that rule.
+- **Wayland portal screencast captures whole outputs.** GTK3 creates a normal
+  toplevel, not a layer-shell surface, and the portal lists toplevels to the
+  picker. A documented compositor rule is required to exclude it: niri
+  `block-out-from "screen-capture"`, Hyprland 0.53+ `no_screen_share = true`, or
+  KDE Plasma/KWin 6.7+ `excludefromcapture`. Stock GNOME Shell 50/mutter 18, X11 and sway
+  have no such rule.
 - **A missing marker only proves the scope of the selected capture surface.**
   It says nothing about native clients, other capture tools, or a different
   share mode.
-- **The only reliable mitigation is detection-based auto-hide.** The guard is a
-  behavioural mechanism, not a protocol guarantee: it depends on the share
-  being detectable (`ScreenShareWatcher` reports `checked: false` when it
-  cannot tell, and then nothing is hidden).
+- **A configured rule is not runtime proof.** `capture_rules.status()` reports
+  `verified` only when the compositor's own validator accepted the file. Confirm
+  exclusion with a real whole-screen share before recording a "no" in the
+  capture column.
 
 Do not claim universal invisibility anywhere, in code comments or in reports.
 
@@ -125,10 +128,12 @@ Copy this into your report and fill one row per trial.
 |---|---|---|---|---|---|---|
 | x11 | x11 | entire screen | yes | yes | hints only | expected: X11 full-screen capture sees all windows |
 | x11 | x11 | window | yes | no | override-redirect + skip-taskbar | picker did not list the window |
-| wayland | gnome | entire screen | yes | yes | layer-shell (n/a here) | portal captures whole output |
-| wayland | gnome | window | yes | no | notification type | toplevel not offered for this source |
-| wayland | niri | entire screen | yes | no | compositor block-out rule | only after user adds the rule |
-| any | any | any | yes → hidden | no | behavioural auto-hide | guard detected the share and hid the marker |
+| wayland | gnome | entire screen | yes | yes | toplevel hints only | GNOME 50 has no per-window rule |
+| wayland | gnome | window | yes | no | toplevel not selected | only because it is not the shared window |
+| wayland | niri | entire screen | yes | no | compositor block-out rule | after `--setup-exclusion` and a real share |
+| wayland | hyprland | entire screen | yes | no | `no_screen_share` rule | after `--setup-exclusion` and a real share |
+| wayland | kde | entire screen | yes | no | `excludefromcapture` rule | KWin 6.7+, after `--setup-exclusion` and a real share |
+| any | any | any | yes | yes | panel remains visible | no auto-hide on any share state |
 
 ## Hard rules for this lab
 

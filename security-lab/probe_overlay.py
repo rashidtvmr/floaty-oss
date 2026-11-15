@@ -11,7 +11,7 @@ def main():
     except (ImportError, ValueError) as error:
         raise SystemExit(f"Install python3-gi and gir1.2-gtk-3.0: {error}")
 
-    window = Gtk.Window(title="ContextLens Capture Test — Visible Marker")
+    window = Gtk.Window(title="SocketStream Capture Test — Visible Marker")
     window.set_default_size(460, 210)
     window.set_resizable(False)
     window.set_keep_above(True)

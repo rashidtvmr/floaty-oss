@@ -1,0 +1,15 @@
+[Unit]
+Description=SocketStream full Linux settings and real answer panel
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/rashid/SocketStream-Real-App
+Environment=SOCKET_STREAM_HOME=/home/rashid/SocketStream-Real-App
+Environment=SOCKET_STREAM_CLI=/home/rashid/SocketStream-Real-App/bin/socket_stream
+Environment=SOCKET_STREAM_PREVIEW_DEMO=1
+Environment=GDK_BACKEND=x11
+ExecStart=/usr/bin/python3 /home/rashid/SocketStream-Real-App/apps/socket_stream_desktop/ui/linux-gtk.py
+Restart=no
+NoNewPrivileges=true
+

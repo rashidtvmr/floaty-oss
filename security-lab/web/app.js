@@ -91,7 +91,7 @@
   }
   function exportReport() {
     const report = {
-      title: "ContextLens browser screen capture test",
+      title: "SocketStream browser screen capture test",
       createdAt: new Date().toISOString(),
       limitation: "Self-reported selected capture surfaces, not proof of universal detection.",
       observations: state.rows.map((row) => Object.assign({}, row, { interpretation: interpretation(row) }))
