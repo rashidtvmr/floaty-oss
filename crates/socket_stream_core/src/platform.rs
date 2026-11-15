@@ -27,28 +27,27 @@ pub fn capture_capabilities() -> Vec<(&'static str, bool)> {
 /// expected and are not problems.
 pub fn capability_groups() -> Vec<(&'static str, Vec<(&'static str, bool)>)> {
     let root = crate::paths::project_root();
-    let core = vec![
+    let macos = cfg!(target_os = "macos");
+    let mut core = vec![
         ("tesseract (OCR)", command_exists("tesseract")),
         ("ffmpeg (audio capture)", command_exists("ffmpeg")),
         (
             "local English speech model",
             root.join("models/ggml-tiny.en.bin").exists(),
         ),
-        (
-            "macOS Vision OCR",
-            cfg!(target_os = "macos")
-                && root
-                    .join("target/native-helpers/socket_stream_ocr")
-                    .exists(),
-        ),
-        (
-            "macOS system audio",
-            cfg!(target_os = "macos")
-                && root
-                    .join("target/native-helpers/socket_stream_system_audio")
-                    .exists(),
-        ),
     ];
+    if macos {
+        core.push((
+            "macOS Vision OCR",
+            root.join("target/native-helpers/socket_stream_ocr")
+                .exists(),
+        ));
+        core.push((
+            "macOS system audio",
+            root.join("target/native-helpers/socket_stream_system_audio")
+                .exists(),
+        ));
+    }
     let providers = vec![
         ("codex", command_exists("codex")),
         ("ollama", command_exists("ollama")),
