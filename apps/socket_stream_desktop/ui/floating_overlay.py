@@ -163,6 +163,13 @@ class FloatingOverlay:
             self._with_panel_identity(self.window.show_all)
         except Exception:  # noqa: BLE001 - retry without the identity swap
             self.window.show_all()
+        try:
+            self._drag_debug(
+                f"shown at position={self.window.get_position()} "
+                f"size={self.window.get_size()}"
+            )
+        except Exception:  # noqa: BLE001 - diagnostics only
+            pass
 
     def _with_panel_identity(self, action):
         """Run ``action`` while the process advertises the panel identity."""
@@ -274,6 +281,10 @@ class FloatingOverlay:
         self.drag_handle.connect("motion-notify-event", self._on_drag_motion)
         self.drag_handle.connect("button-release-event", self._on_drag_release)
         layout.pack_start(self.drag_handle, False, False, 0)
+        # Diagnostics: trace every press that reaches the panel at all, so a
+        # silent no-drag (stacking, geometry, focus) is visible in the log.
+        self.window.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.window.connect("button-press-event", self._on_any_press)
 
         self.status = Gtk.Label(label="Waiting for a practice question")
         self.status.set_xalign(0)
@@ -412,6 +423,18 @@ class FloatingOverlay:
         except Exception:  # noqa: BLE001
             pass
 
+    def _on_any_press(self, _widget, event):
+        """Log every press that reaches the panel (diagnostics only)."""
+        try:
+            alloc = self.drag_handle.get_allocation()
+            self._drag_debug(
+                f"press on panel at ({int(event.x_root)},{int(event.y_root)}) "
+                f"handle alloc={alloc.x},{alloc.y} {alloc.width}x{alloc.height}"
+            )
+        except Exception:  # noqa: BLE001 - diagnostics only
+            self._drag_debug("press on panel (allocation unavailable)")
+        return False
+
     def _on_drag_start(self, _widget, event):
         if getattr(event, "button", None) != 1:
             return False
@@ -512,6 +535,7 @@ class FloatingOverlay:
             else:
                 applied.append("override-redirect unavailable")
         self._applied = applied
+        self._drag_debug(f"apply_plan: {applied}")
         return applied
 
     def _clear_plan(self):
@@ -554,16 +578,21 @@ class FloatingOverlay:
         """Place the panel at the centre of the primary monitor."""
         try:
             screen = self.window.get_screen()
-            monitor = screen.get_monitor_geometry(screen.get_primary_monitor())
+            primary = screen.get_primary_monitor()
+            monitor = screen.get_monitor_geometry(primary)
             width, height = self.window.get_size()
             if width <= 1 or height <= 1:
                 width, height = self.window.get_default_size()
-            self.window.move(
-                monitor.x + max(0, (monitor.width - width) // 2),
-                monitor.y + max(0, (monitor.height - height) // 2),
+            x = monitor.x + max(0, (monitor.width - width) // 2)
+            y = monitor.y + max(0, (monitor.height - height) // 2)
+            self.window.move(x, y)
+            self._drag_debug(
+                f"center: primary={primary} monitor={monitor.x},{monitor.y} "
+                f"{monitor.width}x{monitor.height} size={width}x{height} "
+                f"-> move({x}, {y})"
             )
-        except Exception:  # noqa: BLE001 - placement is best effort
-            pass
+        except Exception as exc:  # noqa: BLE001 - placement is best effort
+            self._drag_debug(f"center failed: {exc}")
 
     def _try_override_redirect(self):
         """Make the X11 toplevel unmanaged (override-redirect).
