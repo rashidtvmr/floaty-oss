@@ -29,12 +29,12 @@ mkdir -p "$PKG/bin" "$PKG/apps/socket_stream_desktop/ui" "$PKG/scripts" "$PKG/mo
 cp "$BINARY" "$PKG/bin/socket_stream"
 mkdir -p "$PKG/target/native-helpers/moonshine"
 cp -R "$SPEECH" "$PKG/target/native-helpers/moonshine/socket_stream_moonshine"
-cp "$ROOT/apps/socket_stream_desktop/ui/linux-gtk.py" "$PKG/apps/socket_stream_desktop/ui/linux-gtk.py"
-cp "$ROOT/apps/socket_stream_desktop/ui/live_state.py" "$PKG/apps/socket_stream_desktop/ui/live_state.py"
-cp "$ROOT/apps/socket_stream_desktop/ui/overlay_guard.py" "$PKG/apps/socket_stream_desktop/ui/overlay_guard.py"
-cp "$ROOT/apps/socket_stream_desktop/ui/capture_rules.py" "$PKG/apps/socket_stream_desktop/ui/capture_rules.py"
-cp "$ROOT/apps/socket_stream_desktop/ui/floating_overlay.py" "$PKG/apps/socket_stream_desktop/ui/floating_overlay.py"
-cp "$ROOT/apps/socket_stream_desktop/ui/shortcuts.py" "$PKG/apps/socket_stream_desktop/ui/shortcuts.py"
+# Ship every Python module in the UI directory so a new helper module can
+# never be missed by packaging again (mac-app.swift is macOS-only and stays
+# out of the Linux archive).
+for ui_module in "$ROOT"/apps/socket_stream_desktop/ui/*.py; do
+  cp "$ui_module" "$PKG/apps/socket_stream_desktop/ui/$(basename "$ui_module")"
+done
 cp "$ROOT/security-lab/overlay_probe.py" "$PKG/security-lab/overlay_probe.py"
 cp "$ROOT/security-lab/README.md" "$PKG/security-lab/README.md"
 cp "$ROOT/scripts/linux-accessibility.py" "$PKG/scripts/linux-accessibility.py"
