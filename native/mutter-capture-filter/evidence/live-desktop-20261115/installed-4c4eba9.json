@@ -1,0 +1,15 @@
+{
+  "installed_root": "/opt/socket_stream",
+  "source_commit": "4c4eba9fe7769ea2e808438abf70bf53b02f90b1",
+  "backup": "/opt/socket_stream-releases/a74adaa-installed-20261115-215444",
+  "archive": "/opt/socket_stream-releases/4c4eba9.tar.gz",
+  "verified_source_files": 11,
+  "configuration_preserved": true,
+  "configuration_files": {},
+  "moonshine_check": {
+    "returncode": 0,
+    "stdout": "{\"type\": \"ready\", \"text\": \"\"}\n",
+    "stderr": "Running as unit: socket-stream-release-stt-4c4eba9.service; invocation ID: 6e91aac83309454fa44aa0af0eeadded\n          Finished with result: success\nMain processes terminated with: code=exited, status=0/SUCCESS\n               Service runtime: 410ms\n             CPU time consumed: 933ms\n                   Memory peak: 166.2M (swap: 0B)\n"
+  },
+  "at": "2026-11-15T21:54:44.025331+05:30"
+}

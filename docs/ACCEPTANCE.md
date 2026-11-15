@@ -26,5 +26,9 @@ short events are not delayed. Both UI state machines cover repeated requests aft
 transcript updates. The runtime builds/initializes on macOS arm64 and Ubuntu
 26.04.1 x86_64; real audio-device permission/latency tests remain pending. See
 `MOONSHINE.md`. Custom Mutter passes headless native/static/animated capture
-tests; KDE configuration tests pass, but deployed GNOME/Meet and KDE sharing
-remain unverified. See `../native/mutter-capture-filter/VERIFICATION.md`.
+tests; KDE configuration tests pass. The installed GTK app subsequently configured
+the private GNOME runtime, and a normal logout/sign-in activated it with all four
+matching mappings, opt-in and a ready guard. The user confirmed the live sharing
+result works. Automated live received-frame verification, custom-desktop normal
+logout/rearm and KDE sharing remain incomplete. See
+`GNOME-CAPTURE-EXCLUSION.md` and `../native/mutter-capture-filter/VERIFICATION.md`.

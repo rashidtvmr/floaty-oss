@@ -1,0 +1,24 @@
+{
+  "source_commit": "4c4eba9fe7769ea2e808438abf70bf53b02f90b1",
+  "verified_files": {
+    "apps/socket_stream_desktop/ui/provider_settings.py": "637f8ff7c94102354c62b9d3fc7398780277bc79d6c3e7ffb3ed4242f244a6bd",
+    "apps/socket_stream_desktop/ui/floating_overlay.py": "43c6d4a7009ce73d2c8498e2c2d9baf1d3f665f82038037f37c1b7f25d70ae0e",
+    "apps/socket_stream_desktop/ui/live_state.py": "28a9735d58dad3a82ac89760bca448eb4339fb8757b27b7e4ec2892a40983271",
+    "apps/socket_stream_desktop/ui/overlay_guard.py": "9b72a97f5bd5d43747dbd61121a2d8bcb65cdd36b91e2fa1dfa661bed25bd93b",
+    "apps/socket_stream_desktop/ui/shortcuts.py": "277b98a9bfca433dca0d80e701715b06e08bbcc3c0fa352abedbdd7e6d2c3ed7",
+    "apps/socket_stream_desktop/ui/capture_rules.py": "455d99e88e1f16fd8e0a3f80e7c9ef034f0291c39ab00dd51c4c0fe7380d6786",
+    "apps/socket_stream_desktop/ui/mutter_capture.py": "99067d58480f3963e1d3b74b1077983966f7e2e0c3b10273ea60386f277245b0",
+    "apps/socket_stream_desktop/ui/linux-gtk.py": "b8868070322be9c50e2f1522b0b561af2df86ac81f6b0a09ca656b67449db766",
+    "security-lab/screen-share-test.html": "7b331de830411d5a31881cf55464ff3a810fc026e5a0be0df421e0de66dda63f",
+    "security-lab/screen-share-test.js": "04baeea7db4cd75046b44f3ef4b42b67eb59cf26d477282d0ecb1133db976ff9",
+    "security-lab/capture-verification.js": "6af1d01239512ca5485967c0ac0b93c445723ddffb122ef8539238860f21512d"
+  },
+  "linux_binary": "ELF",
+  "moonshine": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "moonshine_voice": "0.1.6",
+    "model": "English TINY_STREAMING",
+    "python": "3.14.4"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "at": "2026-11-15T21:59:04.832423+05:30",
+  "installed_status": {
+    "backend": "gnome",
+    "can_install": false,
+    "can_remove": true,
+    "config_validated": true,
+    "configured": true,
+    "deployed": true,
+    "detail": "capture-exclusion activation is configured for org.gnome.Shell@ubuntu.service, but the running shell has not loaded the validated runtime",
+    "fallback_latched": false,
+    "guidance": "Log out and back in so GNOME Shell starts from the configured runtime. SocketStream never restarts your desktop or your session.",
+    "path": "/home/rashid/.config/systemd/user/org.gnome.Shell@ubuntu.service.d/90-socket_stream-capture.conf",
+    "restart_required": true,
+    "runtime_active": false,
+    "startup_guard": "armed",
+    "supported": true,
+    "verified": false
+  },
+  "shell_service": {
+    "ActiveState": "active",
+    "DropInPaths": "/home/rashid/.config/systemd/user/org.gnome.Shell@ubuntu.service.d/90-socket_stream-capture.conf",
+    "InvocationID": "b6c0f31214244e37af9f77f350ce4389",
+    "Type": "notify",
+    "NotifyAccess": "main",
+    "SuccessExitStatus": "1",
+    "MainPID": "11136"
+  },
+  "shell_executable": "/usr/bin/gnome-shell",
+  "shell_libraries": [
+    "/usr/lib/x86_64-linux-gnu/libmutter-18.so.0.0.0",
+    "/usr/lib/x86_64-linux-gnu/mutter-18/libmutter-clutter-18.so.0.0.0",
+    "/usr/lib/x86_64-linux-gnu/mutter-18/libmutter-cogl-18.so.0.0.0",
+    "/usr/lib/x86_64-linux-gnu/mutter-18/libmutter-mtk-18.so.0.0.0"
+  ],
+  "application_overrides": {
+    "SOCKET_STREAM_HOME": "/opt/socket_stream",
+    "SOCKET_STREAM_CLI": "/opt/socket_stream/bin/socket_stream"
+  },
+  "guards": [
+    {
+      "path": "/home/rashid/.config/socket_stream/mutter-startup/c5277e0908ebf36268ad72a36a2ad3c3.json",
+      "record": {
+        "mode": "ubuntu",
+        "phase": "armed",
+        "runtime": "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3",
+        "schema": 1
+      }
+    }
+  ]
+}

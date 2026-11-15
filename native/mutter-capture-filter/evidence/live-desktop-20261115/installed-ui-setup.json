@@ -1,0 +1,38 @@
+{
+  "pid": 98252,
+  "actions": [
+    {
+      "name": "Advanced tools and diagnostics",
+      "dispatched": true
+    },
+    {
+      "name": "Replay demo",
+      "dispatched": true
+    },
+    {
+      "name": "Set up exclusion",
+      "dispatched": true
+    }
+  ],
+  "elapsed_seconds": 4.518,
+  "setup_configured_label": true,
+  "setup_button_enabled": false,
+  "labels": [
+    "Authorized practice only. No screen or audio capture runs until you start it.",
+    "Capture status: Stopped \u2014 Command finished",
+    "Screen share: none detected \u00b7 no screencast detected",
+    "Restart needed: log out and back in so GNOME Shell loads the capture-exclusion runtime. SocketStream never restarts your desktop or your session.",
+    "Error: Synthetic provider status example",
+    "What is the time complexity of binary search?",
+    "Capture exclusion: activation installed \u00b7 log out and back in",
+    "Provider:",
+    "Poll every (s):",
+    "Drag SocketStream panel to move",
+    "ScreenCast permission is requested by your desktop. Stop ends the capture session.",
+    "Model listing sends no captured content."
+  ],
+  "frames": [
+    "SocketStream \u2014 Stopped",
+    "SocketStream \u2014 Practice Answer"
+  ]
+}

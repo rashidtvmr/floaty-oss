@@ -1,0 +1,49 @@
+{
+  "services": [
+    {
+      "command": [
+        "systemctl",
+        "--user",
+        "daemon-reload"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "systemctl",
+        "--user",
+        "show",
+        "socket-stream-installed-live.service",
+        "-p",
+        "MainPID",
+        "-p",
+        "ActiveState",
+        "-p",
+        "RuntimeMaxUSec",
+        "-p",
+        "DropInPaths"
+      ],
+      "code": 0,
+      "stdout": "ActiveState=active\nDropInPaths=/run/user/1000/systemd/user/socket-stream-installed-live.service.d/90-session-lifetime.conf\nRuntimeMaxUSec=infinity\nMainPID=130950\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "systemctl",
+        "--user",
+        "stop",
+        "socket-stream-reference-server.service"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "diagnostic_cleanup": {
+    "old_probe": "/run/user/1000/ss-shell-jbpzoai5",
+    "mounts": [],
+    "removed": true
+  }
+}

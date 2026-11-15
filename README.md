@@ -118,6 +118,11 @@ static Rust CLI, GTK3 Python shell, AT-SPI reader, XDG ScreenCast/PipeWire
 helper, Tesseract integration, dependency checker, optional tiny Whisper model
 and GPL license. See docs/LINUX-TESTING.md (also bundled as README-LINUX.md).
 
+The working GNOME capture-exclusion method, loader fix, guarded activation,
+deployment and recovery are documented in
+[GNOME capture exclusion](docs/GNOME-CAPTURE-EXCLUSION.md), with the Lenovo's
+live activation record and the user's successful sharing report.
+
 Additional CLI actions:
 - analyze-audio --file INPUT.wav --model models/ggml-tiny.en.bin --provider ollama
 - audio-devices

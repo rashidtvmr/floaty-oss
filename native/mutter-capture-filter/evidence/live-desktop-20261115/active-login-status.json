@@ -1,0 +1,47 @@
+{
+  "at": "2026-11-15T22:35:24.499886+05:30",
+  "installed_status": {
+    "backend": "gnome",
+    "can_install": false,
+    "can_remove": true,
+    "config_validated": true,
+    "configured": true,
+    "deployed": true,
+    "detail": "custom Mutter runtime 50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3 is loaded by GNOME Shell with the capture opt-in set",
+    "fallback_latched": false,
+    "guidance": "The custom capture renderer is enabled; capture is still unverified. Only a real whole-screen share can show whether the panel is excluded.",
+    "path": "/home/rashid/.config/systemd/user/org.gnome.Shell@ubuntu.service.d/90-socket_stream-capture.conf",
+    "restart_required": false,
+    "runtime_active": true,
+    "startup_guard": "ready",
+    "supported": true,
+    "verified": false
+  },
+  "service": {
+    "ActiveState": "active",
+    "InvocationID": "cd7151d47e314851b5539adf64b8d42a",
+    "Type": "notify",
+    "NotifyAccess": "main",
+    "MainPID": "125880"
+  },
+  "executable": "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/gnome-shell",
+  "libraries": [
+    "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/lib/libmutter-18.so.0",
+    "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/lib/libmutter-clutter-18.so.0",
+    "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/lib/libmutter-cogl-18.so.0",
+    "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3/lib/libmutter-mtk-18.so.0"
+  ],
+  "capture_opt_in": "1",
+  "guard_records": [
+    {
+      "boot_id": "d6781961-2dd7-4010-8a34-5afb3b17a8ab",
+      "invocation_id": "cd7151d47e314851b5539adf64b8d42a",
+      "mode": "ubuntu",
+      "phase": "ready",
+      "pid": 125880,
+      "runtime": "/opt/socket_stream-mutter/50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3",
+      "schema": 1,
+      "starttime": 1049159
+    }
+  ]
+}

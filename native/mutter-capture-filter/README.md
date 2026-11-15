@@ -9,6 +9,13 @@ Targets: upstream GNOME Mutter **50.1**, commit
 **50.1-0ubuntu2.5** source with its downstream patches applied. Other versions
 need a port and validation. The patcher checks every source anchor.
 
+**Live deployment, 2026-11-15:** the installed application at commit `4c4eba9`
+configured the runtime and a normal logout/sign-in activated it on the Lenovo.
+The private Shell, four matching libraries, opt-in and `ready` guard were verified;
+the user reported the sharing result working. Read the detailed
+[implementation and deployment record](../../docs/GNOME-CAPTURE-EXCLUSION.md).
+Automated live received-video pixels remain a separate, incomplete check.
+
 ## Isolated upstream development
 
 From this repository, with an isolated upstream source checkout:
@@ -184,7 +191,9 @@ and four read-only mapped files are **synthetic fixtures**, not another
 compositor build. Eight cases cover clean exit, pre-ready failure, post-ready
 crash, ready exit 1 despite `SuccessExitStatus=1`, three stock-fallback invocations,
 and disarm during a live attempt. See `VERIFICATION.md` for the real-device
-results and the still-unmeasured normal desktop logout tuple.
+results. The stock desktop's normal logout tuple was subsequently measured as
+`(success, exited, 0)`; a normal logout/rearm of the custom desktop has not been
+exercised.
 
 ## Rendering changes
 
@@ -226,9 +235,14 @@ keeping obscured surfaces active have performance costs that have not been measu
 * Native pixel and synthetic PipeWire results are recorded in `VERIFICATION.md`.
 * Ubuntu schema-2 runtime `3b4e8e8a98dcb8a3`: **published**; full real-Shell
   startup probe and all eight real-systemd lifecycle cases **passed** on the
-  Lenovo. The desktop remains on stock GNOME pending a coordinated login.
-* Live GNOME activation, Chrome/Meet portal pixels, hardware DMA-BUF/direct
-  scanout, fractional/multi-monitor scaling and KDE live capture: **pending**.
+  Lenovo. A subsequent normal login **activated** the private Shell with all four
+  matching mappings, opt-in and a matching `ready` guard.
+* Live sharing result: **user-confirmed working**. The scripted Chrome receiver
+  did not attach before the browser closed; no new encoded-frame comparison was
+  retained. See [live evidence](evidence/live-desktop-20261115/README.md).
+* Automated Chrome/Meet received pixels, custom-desktop normal logout/rearm,
+  hardware DMA-BUF/direct scanout, fractional/multi-monitor scaling and KDE live
+  capture: **pending**.
 
 `socket_stream_capture.c` runs in Mutter's existing headless Clutter test harness.
 It checks local/capture/local pixels, visibility preservation, cached window

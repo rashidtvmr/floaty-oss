@@ -1,0 +1,29 @@
+{
+  "pid": 98252,
+  "input": "250 ms hold and move; 500 ms release",
+  "window_id": "29360131",
+  "header": {
+    "x": 712,
+    "y": 367,
+    "width": 618,
+    "height": 19
+  },
+  "before": {
+    "x": 700,
+    "y": 355,
+    "width": 642,
+    "height": 370
+  },
+  "after": {
+    "x": 700,
+    "y": 355,
+    "width": 642,
+    "height": 370
+  },
+  "delta": {
+    "x": 0,
+    "y": 0
+  },
+  "properties": "WM_CLASS(STRING) = \"socket_stream_overlay\", \"socket_stream_overlay\"\n_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_DOCK\n_NET_WM_WINDOW_OPACITY:  not found.\n_NET_WM_STATE(ATOM) = _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_ABOVE, _NET_WM_STATE_DEMANDS_ATTENTION, _NET_WM_STATE_STICKY",
+  "pointer": "X=892\nY=421\nSCREEN=0\nWINDOW=1024"
+}

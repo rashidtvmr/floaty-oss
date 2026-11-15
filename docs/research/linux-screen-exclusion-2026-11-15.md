@@ -241,21 +241,25 @@ as of 2026-11-15:
 | Patched Ubuntu **50.1-0ubuntu2.5** runtime | **Published** to the versioned staging layout; manifest hashes, package pins and loader resolution validated statically |
 | Native/headless Mutter tests | **Passed** (build, pixel, animated, snapshot, transaction tests) |
 | Earlier live activation | **Failed at login** with duplicate `ClutterActor`/`ClutterAnimatable` registration. Subsequently reproduced in isolation and resolved by the copied-Shell private RUNPATH and coherent GI/native libraries; static `ldd` alone was insufficient. |
-| Desktop state | **Restored to stock GNOME** by disabling the managed override |
+| Recovery after the first attempt | **Restored to stock GNOME** by disabling the managed override before rebuilding the startup path |
 | Finalized runtime `3b4e8e8a98dcb8a3` | **Published**; production full-Shell probe passed actual readiness, 3.021 s liveness, all four private mappings, clean exit 0 and complete cleanup |
 | One-shot failure guard | **Eight real-systemd lifecycle cases passed**; synthetic executable/mapping fixtures exercise the production guard, not compositor pixels |
-| Live activation of the finalized runtime / normal desktop logout | **Pending**; the live desktop remains on stock GNOME |
-| **Chrome entire-screen exclusion** | **UNVERIFIED** — no captured pixels, no successful runtime activation |
+| Live activation of the finalized runtime | **Succeeded** after installed-app setup and normal logout/sign-in: private Shell PID 125880, four matching mappings, opt-in and `ready` guard |
+| Normal desktop logout | Preceding **stock** session measured `(success, exited, 0)`; custom-desktop logout/rearm not yet exercised |
+| **Live sharing result** | **User-confirmed working**; automated live received-frame comparison incomplete because Chrome closed before scripted receiver attachment |
 
-Do **not** describe the runtime as active or the panel as excluded in a live
-share. "Deployed" means files/hashes/pins validate. It does not
-mean the compositor loaded them, and it never means a share was filtered.
+"Deployed" means files/hashes/pins validate. The separate live process evidence
+now establishes `runtime_active=true`; the user's report establishes a
+user-confirmed sharing result. Neither is an automated received-frame comparison,
+and `verified` remains false. See the
+[live evidence index](../../native/mutter-capture-filter/evidence/live-desktop-20261115/README.md)
+and [technical method](../GNOME-CAPTURE-EXCLUSION.md).
 
 ## 5. Claims explicitly not verified here
 
 | Claim | Status |
 |---|---|
-| Chrome entire-screen WebRTC share omits the panel with the patched Mutter, at pixel level | **Unverified.** Hooks verified in source; no live pixels captured. |
+| Chrome entire-screen WebRTC share omits the panel with the patched Mutter, in retained automated receiver pixels | **Unverified.** Source/native tests and live activation passed; user confirms working sharing, but no automated live receiver comparison was retained. |
 | Chrome under XWayland cannot bypass the filter by capturing the X root window | **Unverified.** Reasoning: Mutter does not paint the composited scene into the X11 root under Wayland; needs empirical confirmation. |
 | Final Round AI "Stealth Mode" beyond Electron flags / Linux support | **Unverifiable** — proprietary, macOS/Windows only. |
 | Glass by Pickle implementation | **[X]** repo 404. |
@@ -291,7 +295,8 @@ curl -sS "https://gitlab.freedesktop.org/api/v4/projects/wayland%2Fwayland-proto
   `SKIP_CAPTURE` at "best effort, unverified".
 - §2.3 records the surveyed ecosystem result without adopting any of its
   mechanisms, and §2.4 records the recovered login failure, passing isolated
-  startup/lifecycle checks, and pending live activation.
-- The GNOME runtime and Chrome exclusion remain **unverified** everywhere; the
+  startup/lifecycle checks, and subsequent successful live activation.
+- The GNOME runtime is now **active** and the user confirms the sharing result;
+  retained automated Chrome received pixels remain incomplete. The
   `deployed` / `configured` / `runtime_active` / `verified` distinction in
   `apps/socket_stream_desktop/ui/capture_rules.py` is unchanged and authoritative.

@@ -4,7 +4,7 @@
 **Target:** Linux x86-64 (X11 and Wayland). The native macOS AppKit panel is a
 separate implementation documented in section 7 and `docs/MACOS-TESTING.md`;
 sections 1–6 and the capability matrix below describe Linux only.
-**Status:** visibility, slight opacity, panel identity and compositor-rule setup implemented. Panel identity and opacity are runtime-verified on the target GNOME 50 desktop; niri/Hyprland/KDE rules have automated configuration tests but pending real-share QA. Stock GNOME/X11/sway have no per-window whole-screen exclusion. The opt-in Ubuntu Mutter `50.1-0ubuntu2.5` runtime now passes native capture tests, the full-Shell startup probe and eight real-systemd lifecycle cases. The earlier duplicate-GType login failure was reproduced and fixed in the isolated startup path. The desktop remains on stock GNOME pending live activation. **Chrome whole-screen exclusion is unverified.** See §2.4 and `docs/research/linux-screen-exclusion-2026-11-15.md`.
+**Status:** visibility, slight opacity, panel identity and compositor-rule setup implemented. Panel identity and opacity are runtime-verified on the target GNOME 50 desktop; niri/Hyprland/KDE rules have automated configuration tests but pending real-share QA. Stock GNOME/X11/sway have no per-window whole-screen exclusion. The opt-in Ubuntu Mutter `50.1-0ubuntu2.5` runtime passes native capture tests, the full-Shell startup probe and eight real-systemd lifecycle cases. The earlier duplicate-GType login failure was fixed and the private runtime is now **active on the Lenovo desktop**. The user confirmed the live sharing result works; automated live received-frame verification remains incomplete. See §2.4 and [the detailed technical record](GNOME-CAPTURE-EXCLUSION.md).
 
 ## 1. What this feature is
 
@@ -24,7 +24,7 @@ configured, and which do not exist.
 | X11 (any WM) | override-redirect + `_NET_WM_STATE_SKIP_TASKBAR/PAGER` + `_NET_WM_WINDOW_TYPE_NOTIFICATION` | Best effort: usually absent from pickers | **Included** | No; no exclusion API |
 | X11 + compositor honouring `_NET_WM_STATE_SKIP_CAPTURE` | above + `SKIP_CAPTURE` | Best effort | Best effort, compositor-dependent | No |
 | GNOME Shell 50 / mutter 18 (Wayland) | XWayland **dock** layer: stays above fullscreen windows; no per-window capture rule | Excluded only because it is not the shared window | **Included** | Stacking verified on target; exclusion absent |
-| Custom Mutter 50.1 (Wayland) | capture-only actor filter, compositor environment opt-in | Filtered window rendering | Filtered offscreen rendering | **No** — runtime staged, native tests pass, live activation failed (§2.4); browser pixels unverified |
+| Custom Mutter 50.1 (Wayland) | capture-only actor filter, compositor environment opt-in | Filtered window rendering | Filtered offscreen rendering | **Active** — native tests pass and user confirms live sharing works (§2.4); automated live receiver pixels pending |
 | KDE Plasma/KWin 6.7+ (Wayland) | registered `excludefromcapture=true`, `excludefromcapturerule=2` in `kwinrulesrc` | Explicit panel-window capture not covered | Output/region capture filter | Unit-tested; real-share QA pending |
 | Hyprland 0.53+ (Wayland) | window rule `no_screen_share = true` | Black rectangle | Black rectangle (position still leaks) | Unit-tested; real-share QA pending |
 | niri (Wayland) | window rule `block-out-from "screen-capture"` (`kind="hide"` on releases that have it) | Black rectangle by default | Black rectangle by default; hidden only with `kind="hide"` | Unit-tested; real-share QA pending |
@@ -155,7 +155,7 @@ Bounded findings, stated no more strongly than the evidence:
 ### 2.4 Deployment status of the custom Mutter runtime
 
 The runtime is a **separate compositor deployment**. Precise state after the
-safer-startup verification on 2026-11-15:
+installed-app setup and successful login on 2026-11-15:
 
 | Item | State |
 |---|---|
@@ -164,14 +164,15 @@ safer-startup verification on 2026-11-15:
 | Earlier login failure | Duplicate `ClutterActor`/`ClutterAnimatable` registration reproduced in isolation; private copied-Shell RUNPATH and DSO RPATH resolved it in full GI/JS startup |
 | Full-Shell production startup probe | **Passed** — actual Shell READY, 3.021 s liveness, four coherent private mappings, exit 0 and complete cleanup |
 | Durable one-shot guard | **8/8 real-systemd lifecycle cases passed**; same-PID consume, identity-bound readiness, clean-exit-only rearm and stock fallback after failure |
-| Desktop state | **Stock GNOME**, unchanged PID 11136 and no managed override; finalized runtime awaiting live activation |
-| Actual normal desktop logout | **Unmeasured**; guard retains strict `(success, exited, 0)` rearming |
-| Chrome whole-screen exclusion | **UNVERIFIED** — no pixels captured |
+| Desktop state | **Private runtime active**, Shell PID 125880, four matching libraries, opt-in and matching `ready` guard; installed app commit `4c4eba9` |
+| Actual normal desktop logout | **Stock session measured** as `(success, exited, 0)` before successful private login; custom-desktop logout/rearm not yet exercised |
+| Live sharing result | **User-confirmed working**; browser closed before scripted receiver attached, so no new automated encoded-frame comparison was retained |
 
 Consequences for every status surface: `deployed` means only "files and pins
 validate". It does not mean the compositor loaded them, and it never means a share
-was filtered. `runtime_active` is the only field allowed to reflect a live
-compositor, and it remains false here. The status also exposes the startup guard;
+was filtered. `runtime_active` is the field that reflects the live
+compositor, and it is now true. `restart_required` is false; `verified` remains
+false because activation does not establish received pixels. The status also exposes the startup guard;
 a latched failure asks for setup again rather than repeatedly requesting login.
 `config_validated` requires compatible, effective configuration, not deployment
 alone. Evidence is in
@@ -180,8 +181,10 @@ alone. Evidence is in
 The intended end state is unchanged and worth stating precisely: the panel keeps
 rendering on the local desktop, and **only capture renders** omit it. The patch is a
 capture-only predicate; it never hides the window from the user and never alters
-local painting. That property is what the native tests check; the remaining work
-is live desktop activation and inspection of Chrome's received sharing pixels.
+local painting. That property is what the native tests check. The live activation
+and user report are retained in the
+[live evidence index](../native/mutter-capture-filter/evidence/live-desktop-20261115/README.md);
+automated received-frame inspection remains outstanding.
 
 ## 3. Frozen module interfaces
 
@@ -281,10 +284,9 @@ or the `[socket_stream_capture]` KWin group; restore on validator/reload failure
 never raises. Supported configuration backends: niri `config.kdl`, Hyprland
 `hyprland.conf` / `hyprland.lua`, KWin 6.7+ `kwinrulesrc`, and a managed GNOME
 Shell user-service drop-in when a compatible custom Mutter runtime is deployed.
-GNOME activation pins the resolved immutable runtime directory and is **intended**
-to take effect at the next full desktop login. It has **not yet succeeded** on the
-target desktop (§2.4), so activation is unproven until a login completes with a
-functioning Shell. The backend checks the live compositor's own
+GNOME activation pins the resolved immutable runtime directory and takes effect
+at the next full desktop login. This succeeded on the target desktop (§2.4).
+The backend checks the live compositor's own
 environment and library mappings; an environment variable in the app is not
 activation. See [`../native/mutter-capture-filter/README.md`](../native/mutter-capture-filter/README.md).
 Stock GNOME without a compatible runtime, X11 and sway report unsupported;
@@ -387,8 +389,9 @@ The main Linux window shows a **Capture exclusion** row with **Set up exclusion*
   drop-in for the detected GNOME Shell unit (on the tested Ubuntu desktop,
   `org.gnome.Shell@ubuntu.service`) that wraps the guarded runtime launcher, then
   reloads user-service configuration. It does **not** restart the live compositor:
-  a full log-out/log-in is required. Static validation of the runtime is not proof
-  that the Shell starts — the first live attempt failed at login (§2.4).
+  a full log-out/log-in is required. The full-Shell probe now gates setup after the
+  first live attempt exposed a late-GI loader failure; the corrected runtime
+  subsequently activated successfully (§2.4).
 * **GNOME without a validated runtime, X11, sway** — no rule exists. The row says so
   and recommends sharing a single application window; no file is modified. Removing
   an existing managed GNOME override stays available.

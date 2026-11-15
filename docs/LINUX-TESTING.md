@@ -34,7 +34,7 @@ The mock model does not send data to any API provider.
 
 ### Measured install record (2026-11-15)
 
-`socket_stream_linux-x86_64-20261115.tar.gz` (SHA-256
+The earlier `socket_stream_linux-x86_64-20261115.tar.gz` (SHA-256
 `2ea895eb15fea7f5284aea66478dcaf9a18c2e1d6c9ffceb5389ace6c3ecba77`) was
 installed over a Nomad raw_exec runner on Ubuntu 26.04.1 x86_64 (glibc 2.43,
 Python 3.14.4) at `/opt/socket_stream`. Verified on that host: remote checksum
@@ -45,6 +45,18 @@ speech model available, mock `analyze-file`, sample OCR, Moonshine runtime
 `capture_rules`/`overlay_guard` unit suites (35 + 30 tests) passing. A headless
 runner cannot exercise the desktop GUI, real capture permissions, or a live
 screencast; those remain manual on-desktop steps.
+
+The subsequent release at commit **`4c4eba9`** is now installed at
+`/opt/socket_stream`: archive SHA-256
+`6cd60e591d70d376a4d2d8220adb2f422c533ffd3007d68012c3d2c3b35fc14e`,
+162,879,928 bytes. Eleven packaged source/page files matched the commit, and the
+bundled English Moonshine `--check` emitted `ready` and exited 0 as the desktop
+user. The actual installed GTK **Replay demo** and **Set up exclusion** were
+exercised through AT-SPI. A normal logout/sign-in activated the private Mutter
+runtime; the user confirmed the live sharing result works. The prior installation
+is retained at `/opt/socket_stream-releases/a74adaa-installed-20261115-215444`.
+See [the technical record](GNOME-CAPTURE-EXCLUSION.md) and
+[live evidence](../native/mutter-capture-filter/evidence/live-desktop-20261115/README.md).
 
 ## Remote Linux checks using HashiCorp Nomad
 
@@ -76,7 +88,8 @@ These jobs use `raw_exec`, so run them only on your own trusted Nomad cluster.
 They do not install software, alter GNOME, or request screen-capture permissions.
 Passing unit tests proves that configuration rules and unsupported fallbacks work;
 it **does not prove** a window was hidden from a real screencast. In status output,
-`config_validated` refers only to a compositor syntax check; `verified` is false
+`config_validated` records the backend's configuration checks (syntax/reload for
+rule-based backends; compatible runtime and effective unit for GNOME); `verified` is false
 unless runtime capture evidence has been established separately. GNOME Wayland
 does not expose a supported per-window full-desktop capture exclusion API.
 
@@ -110,8 +123,10 @@ to pixels; OCR still requires the explicit opt-in above.
 
 Select the mock provider first, then use Analyze text and Analyze image.
 Controls include Start observation, Stop, provider settings, doctor, audio devices,
-audio practice, and local AI start/stop. Provider credentials are held in process
-memory only and are never displayed by the app.
+audio practice, and local AI start/stop. Saved provider settings, including an API
+key when saved, persist in `~/.config/socket_stream/provider-settings.json`
+(or the XDG config directory) with mode `0600`; the key input is masked. That
+configuration lives outside the application installation directory.
 
 For a no-fee local model, install Ollama from its official Linux distribution
 and pull the selected model once:
@@ -220,10 +235,16 @@ The schema-2 runtime `50.1-0ubuntu2.5.socket-stream.3b4e8e8a98dcb8a3` passed the
 production startup probe on the Lenovo (3.021 seconds of stable readiness, four
 private mappings, clean exit 0 and cleanup). All eight disposable real-systemd
 lifecycle cases passed, including exit 1 treated as successful by systemd but
-refused by the guard. The desktop is still on stock GNOME pending a coordinated
-login; the normal desktop logout tuple and live Chrome exclusion remain
-unverified. Full evidence and the recovered earlier login failure are documented
-in [`VERIFICATION.md`](../native/mutter-capture-filter/VERIFICATION.md).
+refused by the guard. The installed app then configured activation and a normal
+logout/sign-in loaded private Shell PID 125880, all four matching libraries,
+opt-in `1` and a matching `ready` guard. `runtime_active=true` and
+`restart_required=false`. The preceding stock session exited with
+`(success, exited, 0)`; a normal logout/rearm of the custom desktop has not been
+exercised. The user reported live sharing works. Chrome closed before the
+scripted receiver attached, so automated live received-frame evidence remains
+incomplete and `verified=false`. Full evidence is in
+[`VERIFICATION.md`](../native/mutter-capture-filter/VERIFICATION.md), with the
+method detailed in [GNOME capture exclusion](GNOME-CAPTURE-EXCLUSION.md).
 
 Verify on a real Linux desktop with the interactive probe:
 

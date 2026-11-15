@@ -6,8 +6,9 @@ The opt-in patch for upstream Mutter **50.1**, commit
 `8e9bb806da4a6a4fc87aa4a481b228dba6735cbd`, built successfully on Ubuntu
 26.04.1 x86_64 (GCC 15.2.0, Meson 1.10.1, PipeWire 1.6.2).
 The original evidence below is headless compositor QA. Subsequent Ubuntu
-full-Shell startup and real-systemd guard evidence is recorded separately below;
-**Chrome whole-screen exclusion remains unverified**.
+full-Shell startup, real-systemd guard and live desktop activation evidence is
+recorded separately below. **The user confirmed the live sharing result works**;
+an automated live received-frame comparison has not been retained.
 
 | Check | Result | Evidence |
 | --- | --- | --- |
@@ -82,10 +83,39 @@ them from `systemd-run`'s return code:
 These services use a synthetic executable and four mapped fixture files with the
 production guard. They prove systemd lifecycle/identity semantics, not Mutter
 loading or exclusion pixels. The real-Shell probe supplies separate startup
-evidence. An actual **normal desktop logout tuple is still unmeasured**; strict
-exit-0 rearming is retained until that evidence exists. The probe's cleanup
+evidence. The subsequent live transition recorded the **stock** desktop's normal
+logout tuple as `(success, exited, 0)`; the custom desktop's normal logout/rearm
+remains unmeasured. Strict exit-0 rearming is retained. The probe's cleanup
 assumes its descendants remain in the disposable unit's cgroup; its private bus
 has no service activation, and systemd also applies `KillMode=control-group`.
+
+## Installed application and live activation (2026-11-15)
+
+Application commit **`4c4eba9fe7769ea2e808438abf70bf53b02f90b1`** was installed at
+`/opt/socket_stream`. The release checksum and eleven packaged source/page files
+were verified. The packaged Moonshine helper emitted `ready` and exited 0 as the
+desktop user. The actual installed GTK app's **Replay demo** and **Set up
+exclusion** actions were exercised through AT-SPI.
+
+After the user-approved normal logout, the actual `org.gnome.Shell@ubuntu.service`
+transitioned from stock PID **11136** to private Shell PID **125880**. The old
+stock invocation's finish tuple was `(success, exited, 0)`. The new invocation
+`cd7151d47e314851b5539adf64b8d42a` loaded all four matching private libraries,
+carried the opt-in, and reached `ready`. The installed backend returned
+`config_validated=true`, `runtime_active=true`, `restart_required=false`, and
+`verified=false`.
+
+The user then reported **“its working finally”** and requested the method be
+committed and documented. This is a user-reported live result. Chrome opened the
+exact reference page but closed before the scripted receiver attached, so this
+run supplies no new automated encoded-frame comparison. Two XTest drag attempts
+observed no movement and do not establish drag behavior for this run. The custom
+desktop and installed app were left running.
+
+The [live evidence index](evidence/live-desktop-20261115/README.md) links the
+installation, UI, state and read-only systemd lifecycle records. The
+[technical document](../../docs/GNOME-CAPTURE-EXCLUSION.md) explains the rendering,
+loader, activation and recovery method in detail.
 
 ## Original headless source digests (SHA-256)
 
@@ -112,14 +142,14 @@ closed the identified rollback-disclosure and permission defects, required all
 four mappings before readiness, and verified same-PID fallback. The final
 diagnostic review closed the smaller residuals; its claimed vanished-file
 `IndexError` was retracted after tracing the unconditional removal bookkeeping.
-No P0/P1 issue remained in the reviewed paths. Real login and received-pixel QA
-are explicitly incomplete.
+No P0/P1 issue remained in the reviewed paths. Real login subsequently succeeded
+as recorded above; automated live received-pixel QA remains incomplete.
 
 ## Remaining limits
 
-- The finalized runtime has passed isolated full-Shell startup but has not yet
-  been activated in the live desktop. Chrome/Meet entire-screen pixels and a
-  normal desktop logout remain unverified.
+- The finalized runtime is active on the live desktop and the user confirmed the
+  sharing result. Automated Chrome/Meet received-frame pixels and a subsequent
+  normal logout/rearm of that custom desktop remain unverified.
 - KDE live output/region sharing remains unverified; explicit panel-window
   capture is not covered by the upstream KDE rule.
 - Real Shell animation transitions, hardware DMA-BUF/direct scanout,

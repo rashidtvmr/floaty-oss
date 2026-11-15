@@ -1,0 +1,21 @@
+{
+  "pid": 98252,
+  "before": {
+    "x": 700,
+    "y": 355,
+    "width": 642,
+    "height": 370
+  },
+  "after": {
+    "x": 700,
+    "y": 355,
+    "width": 642,
+    "height": 370
+  },
+  "delta": {
+    "x": 0,
+    "y": 0
+  },
+  "visible": true,
+  "showing": true
+}
