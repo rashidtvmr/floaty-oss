@@ -57,6 +57,9 @@ cp "$ROOT/tests/fixtures/live_practice/events.jsonl" "$PKG/tests/fixtures/live_p
 cp "$ROOT/tests/fixtures/mock_provider/events.jsonl" "$PKG/tests/fixtures/mock_provider/events.jsonl"
 cp "$ROOT/tests/fixtures/mock_provider/questions.txt" "$PKG/tests/fixtures/mock_provider/questions.txt"
 cp "$ROOT/tests/test_shortcuts.py" "$PKG/tests/test_shortcuts.py"
+for gtk_check in gtk_workspace_checks.py gtk_input.py run_gtk_input_checks.py; do
+    cp "$ROOT/tests/$gtk_check" "$PKG/tests/$gtk_check"
+done
 for optional in test_a11y_helpers.py test_mock_provider.py test_soak_replay.py; do
     if [ -f "$ROOT/tests/$optional" ]; then
         cp "$ROOT/tests/$optional" "$PKG/tests/$optional"
@@ -66,6 +69,7 @@ if [ -f "$ROOT/tests/acceptance/test_provider_e2e.py" ]; then
     cp "$ROOT/tests/acceptance/test_provider_e2e.py" "$PKG/tests/acceptance/test_provider_e2e.py"
 fi
 cp "$ROOT/tests/acceptance/test_config_persistence.py" "$PKG/tests/acceptance/test_config_persistence.py"
+cp "$ROOT/tests/acceptance/test_manual_vision_e2e.py" "$PKG/tests/acceptance/test_manual_vision_e2e.py"
 cp "$ROOT/docs/LINUX-TESTING.md" "$PKG/README-LINUX.md"
 cp "$ROOT/docs/AUTH-AND-ENDPOINTS.md" "$PKG/AUTH-AND-ENDPOINTS.md"
 cp "$ROOT/docs/STEALTH-OVERLAY.md" "$PKG/STEALTH-OVERLAY.md"
@@ -76,6 +80,7 @@ if [ -f "$ROOT/docs/SHORTCUTS.md" ]; then
     cp "$ROOT/docs/SHORTCUTS.md" "$PKG/SHORTCUTS.md"
 fi
 cp "$ROOT/docs/A11Y-TREE-SHORTCUTS.md" "$PKG/A11Y-TREE-SHORTCUTS.md"
+cp "$ROOT/docs/EXTRACTION-BENCHMARK.md" "$PKG/EXTRACTION-BENCHMARK.md"
 test ! -f "$ROOT/models/ggml-tiny.en.bin" || cp "$ROOT/models/ggml-tiny.en.bin" "$PKG/models/ggml-tiny.en.bin"
 for f in "$ROOT/LICENSE" "$ROOT/COPYING"; do if [ -f "$f" ]; then cp "$f" "$PKG/"; break; fi; done
 if ! git -C "$ROOT" rev-parse --verify HEAD > "$PKG/SOURCE-COMMIT.txt" 2>/dev/null; then

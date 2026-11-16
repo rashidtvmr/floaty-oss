@@ -32,3 +32,13 @@ matching mappings, opt-in and a ready guard. The user confirmed the live sharing
 result works. Automated live received-frame verification, custom-desktop normal
 logout/rearm and KDE sharing remain incomplete. See
 `GNOME-CAPTURE-EXCLUSION.md` and `../native/mutter-capture-filter/VERIFICATION.md`.
+
+Workspace/input update (2026-11-16): Rust formatting/Clippy, 50 CLI and 134 core
+tests passed. The macOS Python suite passed 604 tests (6 skipped), and acceptance
+passed 26 (6 skipped). On Ubuntu GNOME/XWayland, all 13 real GTK checks passed,
+including physical prompt typing/Enter, drag/resize, shortcuts and production-path
+XShape readback (7 regions ON, 1 OFF). Six embedded extraction fixtures passed
+fidelity checks; measured OCR scope is in `EXTRACTION-BENCHMARK.md`. The manual
+vision regression proves PNG attachment with synthetic capture and a local HTTP
+provider. These results do not establish hardware-audio latency, real Linux
+portal-to-model capture, native Wayland input shaping or long-session reliability.

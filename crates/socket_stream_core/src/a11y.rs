@@ -114,7 +114,7 @@ impl ImageRegion {
     }
 
     pub fn is_worth_ocr(&self, min_pixels: i64) -> bool {
-        self.area() >= min_pixels
+        self.width > 0 && self.height > 0 && self.area() >= min_pixels.max(1)
     }
 }
 
@@ -210,6 +210,50 @@ impl A11yTree {
             return Err(A11yError::UnsupportedSchema(tree.schema));
         }
         Ok(tree)
+    }
+
+    /// Assemble question context before spending the model's token budget.
+    /// Remove explicitly marked application chrome and protected subtrees,
+    /// keeping document order, code whitespace, examples and answer choices.
+    /// Unknown layouts remain intact: text length or English keywords never
+    /// decide which question paragraphs survive.
+    pub fn render_question(&self, mode: ReadMode, budget: TokenBudget) -> A11yReading {
+        let index = self.node_index();
+        let is_chrome = |role: &str| {
+            matches!(
+                role.to_ascii_lowercase()
+                    .replace([' ', '-', '_'], "")
+                    .as_str(),
+                "toolbar" | "menubar" | "menu" | "navigation" | "banner" | "statusbar"
+            )
+        };
+        let mut scoped = self.clone();
+        scoped.nodes.retain(|node| {
+            let mut current = Some(node.id);
+            let mut visited = HashSet::new();
+            while let Some(id) = current {
+                if !visited.insert(id) {
+                    return false;
+                }
+                let Some(&position) = index.get(&id) else {
+                    break;
+                };
+                let ancestor = &self.nodes[position];
+                if ancestor.protected || is_chrome(&ancestor.role) {
+                    return false;
+                }
+                current = ancestor.parent;
+            }
+            true
+        });
+        for node in &mut scoped.nodes {
+            if matches!(node.role.as_str(), "application" | "window" | "frame") {
+                // The window title is source metadata, not part of a question.
+                node.name.clear();
+                node.text.clear();
+            }
+        }
+        scoped.render(mode, budget)
     }
 
     /// Render under a budget. Pure, deterministic, no I/O.
@@ -751,6 +795,7 @@ mod tests {
         };
         assert_eq!(negative.area(), 0);
         assert!(!negative.is_worth_ocr(1));
+        assert!(!negative.is_worth_ocr(0));
     }
 
     #[test]
@@ -806,5 +851,66 @@ mod tests {
         let tree = sample();
         let reading = tree.render(ReadMode::Text, TokenBudget::default());
         assert_eq!(reading.display, reading.text);
+    }
+
+    #[test]
+    fn question_context_preserves_code_choices_and_graphics_after_long_navigation() {
+        let tree = A11yTree::parse(r#"{"schema":1,"source":"atspi","nodes":[
+            {"id":1,"parent":null,"role":"frame","text":"Browser title"},
+            {"id":2,"parent":1,"role":"navigation","text":""},
+            {"id":3,"parent":2,"role":"link","text":"Home Profile Account Settings Documentation Help Community"},
+            {"id":4,"parent":1,"role":"document web","text":""},
+            {"id":5,"parent":4,"role":"paragraph","text":"What does this function return?"},
+            {"id":6,"parent":4,"role":"text","text":"def solve(x):\n    return x + 1"},
+            {"id":7,"parent":4,"role":"radio button","text":"A. 2"},
+            {"id":8,"parent":4,"role":"radio button","text":"B. 3"},
+            {"id":9,"parent":4,"role":"paragraph","text":"Constraints: 0 <= x <= 100"},
+            {"id":10,"parent":4,"role":"canvas","image":true,"bounds":[10,10,200,100]}
+        ]}"#).unwrap();
+        let reading = tree.render_question(ReadMode::Tree, TokenBudget::default());
+        assert!(!reading.text.contains("Documentation"));
+        assert!(!reading.display.contains("Browser title"));
+        assert!(reading.display.contains("def solve(x):\n    return x + 1"));
+        assert!(reading.display.contains("A. 2\nB. 3"));
+        assert!(reading.display.contains("Constraints: 0 <= x <= 100"));
+        assert_eq!(reading.image_regions.len(), 1);
+        assert!(
+            estimate_tokens(&reading.text)
+                < estimate_tokens(&tree.render(ReadMode::Tree, TokenBudget::default()).text)
+        );
+    }
+
+    #[test]
+    fn question_context_does_not_mistake_toolbar_for_readable_content() {
+        let tree = A11yTree::parse(
+            r#"{"schema":1,"source":"ax","nodes":[
+            {"id":1,"parent":null,"role":"window","text":"A very long application window title"},
+            {"id":2,"parent":1,"role":"toolbar","text":""},
+            {"id":3,"parent":2,"role":"button","text":"Open Save Edit View Help Settings"},
+            {"id":4,"parent":1,"role":"canvas","image":true,"bounds":[0,0,800,600]}
+        ]}"#,
+        )
+        .unwrap();
+        let reading = tree.render_question(ReadMode::Tree, TokenBudget::default());
+        assert!(reading.display.is_empty());
+        assert_eq!(reading.image_regions.len(), 1);
+    }
+
+    #[test]
+    fn question_context_excludes_protected_descendants_and_handles_cycles() {
+        let tree = A11yTree::parse(
+            r#"{"schema":1,"source":"atspi","nodes":[
+            {"id":1,"parent":null,"role":"group","protected":true},
+            {"id":2,"parent":1,"role":"text","text":"secret"},
+            {"id":3,"parent":1,"role":"image","image":true,"bounds":[0,0,100,100]},
+            {"id":4,"parent":5,"role":"text","text":"cycle"},
+            {"id":5,"parent":4,"role":"group"},
+            {"id":6,"parent":null,"role":"text","text":"Explain binary search."}
+        ]}"#,
+        )
+        .unwrap();
+        let reading = tree.render_question(ReadMode::Text, TokenBudget::default());
+        assert_eq!(reading.text, "Explain binary search.");
+        assert!(reading.image_regions.is_empty());
     }
 }

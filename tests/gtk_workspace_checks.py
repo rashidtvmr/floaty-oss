@@ -7,9 +7,9 @@ All questions/processes are synthetic. Preferences use a temporary directory.
 SOCKET_STREAM_GTK_ARTIFACT_DIR optionally retains drawings of these test windows.
 This checks the native UI, not received screen-share pixels or audio hardware.
 """
+import importlib.util
 import ctypes
 import ctypes.util
-import importlib.util
 import json
 import os
 import shutil
@@ -290,7 +290,15 @@ class WorkspaceChecks(unittest.TestCase):
         self.app._install_shortcuts(controller.parse_bindings({"pin_question": "meta+f8"}), True)
         self.panel.hide()
         self.app.set_focus(None)
-        self.app.present()
+        # XQueryPointer is known to remain stale after compositor-routed
+        # movement on this GNOME Wayland session.  Use a server timestamp and
+        # direct focus request instead; the keys below still come from the
+        # physical uinput device rather than GTK's synthetic API.
+        # GDK exposes the server timestamp from the mapped X11 window; do not
+        # use the local epoch clock (its units/epoch are not X timestamps).
+        server_time = GdkX11.x11_get_server_time(self.app.get_window())
+        self.app.present_with_time(server_time)
+        self.app.get_window().focus(server_time)
         pump()
         if os.environ.get("SOCKET_STREAM_DEBUG"):
             print(f"[t] {stamp()} key-test presented", flush=True)
@@ -298,119 +306,12 @@ class WorkspaceChecks(unittest.TestCase):
         from gtk_input import DesktopInput
         screen = self.app.get_screen()
         device = DesktopInput(screen.get_width(), screen.get_height())
-        pointer = dict(line.split("=", 1) for line in subprocess.check_output(
-            ["xdotool", "getmouselocation", "--shell"], text=True).splitlines() if "=" in line)
         try:
             if device.fd is None:
                 subprocess.run(["xdotool", "windowfocus", "--sync", str(self.app.get_window().get_xid())], check=True, timeout=3)
             else:
-                # Window.get_position() includes WM/CSD frame offsets. Anchor
-                # the click to the actual mapped client and its titlebar.
-                header = self.app.get_titlebar()
-                hx, hy = header.translate_coordinates(self.app, 0, 0)
-                xid = self.app.get_window().get_xid()
-
-                def pointer_report():
-                    report = dict(line.split("=", 1) for line in subprocess.check_output(
-                        ["xdotool", "getmouselocation", "--shell"], text=True).splitlines() if "=" in line)
-                    return int(report["X"]), int(report["Y"]), report.get("WINDOW", "")
-
-                def titlebar_target():
-                    # Re-read every attempt: Mutter may still be placing the
-                    # just-presented window, and a stale origin would aim the
-                    # pointer beside the real titlebar.
-                    _ok, x, y = self.app.get_window().get_origin()
-                    return (x + hx + header.get_allocated_width() // 2,
-                            y + hy + header.get_allocated_height() // 2)
-
-                # Confirm arrival with this window's own enter/motion events:
-                # their root coordinates are delivered by the compositor and
-                # stay truthful even where xdotool's XQueryPointer report
-                # freezes (observed on GNOME Wayland after another window's
-                # drag). An event on this window also proves the pointer is
-                # over it, so no separate window check is needed.
-                arrivals = []
-
-                def record_pointer(_widget, event):
-                    arrivals.append((int(event.x_root), int(event.y_root)))
-                    return False
-
-                self.app.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.POINTER_MOTION_MASK)
-                self.app.connect("enter-notify-event", record_pointer)
-                self.app.connect("motion-notify-event", record_pointer)
-
-                def pointer_arrived(target):
-                    if not arrivals:
-                        return False
-                    x, y = arrivals[-1]
-                    return abs(x - target[0]) <= 12 and abs(y - target[1]) <= 12
-
-                # The compositor only tracks pointer positions over X11
-                # surfaces, so confirm the move landed on this window before
-                # clicking: a click that lands on a Wayland-native surface
-                # never focuses the control window.
-                deadline = time.monotonic() + 3.0
-                report = pointer_report()
-                if os.environ.get("SOCKET_STREAM_DEBUG"):
-                    print(f"[t] {stamp()} loop-begin", flush=True)
-                while time.monotonic() < deadline:
-                    target = titlebar_target()
-                    if os.environ.get("SOCKET_STREAM_DEBUG"):
-                        print(f"[t] {stamp()} Focus attempt: target={target}; XID={xid}; last event={arrivals[-1:]}", flush=True)
-                    device.move(*target)
-                    pump(70)
-                    if pointer_arrived(target):
-                        break
-                    # Nudge off-target so the next approach posts fresh
-                    # motion; identical absolute coordinates can be deduped.
-                    device.move(target[0] + 6, target[1] + 6)
-                    pump(40)
-                else:
-                    if os.environ.get("SOCKET_STREAM_DEBUG"):
-                        state = self.app.get_window().get_state()
-                        print(f"Failure state: visible={self.app.get_visible()} "
-                              f"gdk_visible={self.app.get_window().is_visible()} state={state} "
-                              f"origin={self.app.get_window().get_origin()[1:]}", flush=True)
-                        for tool, argv in (
-                            ("tree", ["xwininfo", "-root", "-tree"]),
-                            ("active", ["xprop", "-root", "_NET_ACTIVE_WINDOW", "_NET_CLIENT_LIST_STACKING"]),
-                            ("shape", ["xwininfo", "-id", str(xid), "-shape"]),
-                        ):
-                            try:
-                                print(f"[diag:{tool}] " + subprocess.check_output(argv, text=True, timeout=5).strip(), flush=True)
-                            except Exception as error:  # diagnostics only
-                                print(f"[diag:{tool}] unavailable: {error}", flush=True)
-                        probe = ctypes.CDLL(ctypes.util.find_library("X11"))
-                        probe.XOpenDisplay.argtypes = [ctypes.c_char_p]
-                        probe.XOpenDisplay.restype = ctypes.c_void_p
-                        probe.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
-                        probe.XDefaultRootWindow.restype = ctypes.c_ulong
-                        probe.XGrabPointer.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int,
-                                                       ctypes.c_long, ctypes.c_int, ctypes.c_int,
-                                                       ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
-                        probe.XGrabPointer.restype = ctypes.c_int
-                        probe.XUngrabPointer.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-                        probe.XCloseDisplay.argtypes = [ctypes.c_void_p]
-                        pdpy = probe.XOpenDisplay(None)
-                        if pdpy:
-                            root = probe.XDefaultRootWindow(pdpy)
-                            status = probe.XGrabPointer(pdpy, root, False, 0, 1, 1, 0, 0, 0)
-                            probe.XUngrabPointer(pdpy, 0)
-                            probe.XCloseDisplay(pdpy)
-                            print(f"[diag:grab] XGrabPointer status={status} (0=free, 1=AlreadyGrabbed)", flush=True)
-                        # Sweep fixed points: if any X11 surface answers, the
-                        # report moves; a frozen report means the pointer is
-                        # over Wayland-native surfaces everywhere or not moving.
-                        for point in ((500, 400), (500, 54), (960, 540), (100, 900), (500, 54)):
-                            device.move(*point)
-                            pump(80)
-                            print(f"[diag:sweep] {point} -> {pointer_report()}", flush=True)
-                    self.fail(f"pointer never reached the control window titlebar: report={report} last_events={arrivals[-3:]}")
-                if os.environ.get("SOCKET_STREAM_DEBUG"):
-                    print(f"[t] {stamp()} Focus confirmed: target={target}; XID={xid}; pointer={report} event={arrivals[-1:]}", flush=True)
-                device.button(True)
-                pump(60)
-                device.button(False)
+                self.assertTrue(wait_for(self.app.has_toplevel_focus, timeout=1200),
+                                "control window did not receive compositor focus")
             self.assertTrue(wait_for(self.app.has_toplevel_focus, timeout=1200), "control window did not receive desktop focus")
             for key, pressed in (("super", True), ("f8", True), ("f8", False), ("super", False)):
                 device.key(key, pressed)
@@ -418,7 +319,6 @@ class WorkspaceChecks(unittest.TestCase):
             self.assertTrue(self.app.live_state.display_snapshot()["pinned"], "Meta/Super shortcut did not dispatch")
             print(f"Meta/Super + F8 dispatched through {device.backend}", flush=True)
         finally:
-            device.move(int(pointer["X"]), int(pointer["Y"]))
             device.close()
 
     def test_shared_pinned_pair_rendering_history_and_copy(self):
@@ -476,7 +376,8 @@ class WorkspaceChecks(unittest.TestCase):
         self.assertIsNone(self.panel._fade_tick)
         self.app.save_appearance()
         saved = json.loads(config.read_text())["desktop"]["appearance"]
-        self.assertEqual(saved, dict(opacity=0.72, font_size=20, reduced_motion=True))
+        self.assertEqual(saved, dict(opacity=0.72, font_size=20, reduced_motion=True,
+                                     cursor_blending=True))
         settings = Gtk.Settings.get_default()
         old = settings.get_property("gtk-enable-animations")
         try:
@@ -486,6 +387,162 @@ class WorkspaceChecks(unittest.TestCase):
             self.assertEqual(self.app.workspace_stack.get_transition_duration(), 0)
         finally:
             settings.set_property("gtk-enable-animations", old)
+
+    def test_cursor_blending_live_toggle_and_persistence(self):
+        """Exercise both input-shape modes and the two synchronized controls."""
+        if not self.panel.input_shape_supported:
+            self.skipTest("cursor blending requires X11/XWayland input shapes")
+        self.seed()
+        self.app.navigate("appearance")
+        self.assertTrue(self.panel.cursor_blending)
+        self.assertTrue(self.app.cursor_blending_check.get_active())
+        self.app.save_appearance()
+        self.panel.passthrough_button.set_active(False)
+        pump()
+        self.assertFalse(self.panel.cursor_blending)
+        self.app.opacity_scale.set_value(72)
+        self.app.font_size.set_value(20)
+        self.assertFalse(self.app.cursor_blending_check.get_active())
+        self.assertTrue(self.panel._input_locked)
+        self.assertTrue(self.panel.hide_button.get_sensitive())
+        self.assertTrue(self.panel.pin_button.get_sensitive())
+        self.assertTrue(self.panel.resize_handle.get_sensitive())
+        self.panel.passthrough_button.set_active(True)
+        pump()
+        self.assertTrue(self.panel.cursor_blending)
+        self.assertTrue(self.app.cursor_blending_check.get_active())
+        saved = json.loads((self.path / "config.json").read_text())["desktop"]["appearance"]
+        self.assertEqual(saved, dict(opacity=0.9, font_size=16,
+                                     reduced_motion=False, cursor_blending=True))
+        self.app.cursor_blending_check.set_active(False)
+        pump()
+        self.assertFalse(self.panel.cursor_blending)
+        self.assertTrue(self.panel._input_locked)
+        self.app.save_appearance()
+        saved = json.loads((self.path / "config.json").read_text())
+        self.assertFalse(saved["desktop"]["appearance"]["cursor_blending"])
+        self.assertEqual(saved["desktop"]["appearance"]["opacity"], 0.72)
+        self.assertEqual(saved["desktop"]["appearance"]["font_size"], 20)
+
+    def test_cursor_blending_applied_xshape_region(self):
+        """Read back ShapeInput (coverage is X11 region, not compositor clicks)."""
+        if not self.panel.input_shape_supported:
+            self.skipTest("cursor blending requires X11/XWayland input shapes")
+        gi.require_version("GdkX11", "3.0")
+        from gi.repository import GdkX11
+        self.seed()
+        pump(250)
+        self.assertIsInstance(self.panel.window.get_window(), GdkX11.X11Window)
+        x11 = ctypes.CDLL(ctypes.util.find_library("X11"))
+        xext = ctypes.CDLL(ctypes.util.find_library("Xext"))
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        x11.XCloseDisplay.restype = ctypes.c_int
+        x11.XFree.argtypes = [ctypes.c_void_p]
+        x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        xext.XShapeGetRectangles.argtypes = [ctypes.c_void_p, ctypes.c_ulong,
+                                              ctypes.c_int, ctypes.POINTER(ctypes.c_int),
+                                              ctypes.POINTER(ctypes.c_int)]
+        display = x11.XOpenDisplay(None)
+        self.assertTrue(display)
+        xid = self.panel.window.get_window().get_xid()
+        try:
+            class XRectangle(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_short), ("y", ctypes.c_short),
+                            ("width", ctypes.c_ushort), ("height", ctypes.c_ushort)]
+            xext.XShapeGetRectangles.restype = ctypes.POINTER(XRectangle)
+            def region():
+                x11.XSync(display, 0)
+                count, ordering = ctypes.c_int(), ctypes.c_int()
+                ptr = xext.XShapeGetRectangles(display, xid, 2, ctypes.byref(count), ctypes.byref(ordering))
+                try:
+                    rects = ctypes.cast(ptr, ctypes.POINTER(XRectangle))
+                    return [(r.x, r.y, r.width, r.height) for r in rects[:count.value]]
+                finally:
+                    if ptr:
+                        x11.XFree(ptr)
+
+            def contains(rects, point):
+                x, y = point
+                return any(rx <= x < rx + w and ry <= y < ry + h for rx, ry, w, h in rects)
+
+            def center(widget):
+                x, y = widget.translate_coordinates(self.panel.window, 0, 0)
+                alloc = widget.get_allocation()
+                return (x + alloc.width // 2, y + alloc.height // 2)
+
+            controls = [self.panel.hide_button, self.panel.pin_button,
+                        self.panel.resize_handle, self.panel.passthrough_button]
+            points = [center(widget) for widget in controls]
+            answer_background = center(self.panel.answer_scroll)
+            self.panel.window.get_window().get_display().sync()
+            initial = region()
+            self.assertTrue(initial, "initial mapped ShapeInput region missing")
+            self.assertFalse(contains(initial, background := (1, 1)),
+                             "initial ON mode includes panel corner")
+            self.assertFalse(contains(initial, answer_background),
+                             "initial ON mode includes answer background")
+            for point in points:
+                self.assertTrue(contains(initial, point), f"initial ON mode excluded control point {point}")
+            # Force both signal transitions so the X server has received the
+            # shape request after realization (the default may already be ON).
+            self.panel.passthrough_button.set_active(False)
+            pump(120)
+            self.panel.passthrough_button.set_active(True)
+            pump(120)
+            self.panel.window.get_window().get_display().sync()
+            on = region()
+            self.assertTrue(on, "ShapeInput region was not applied in ON mode")
+            self.assertFalse(contains(on, background), "ON mode includes panel corner")
+            self.assertFalse(contains(on, answer_background), "ON mode includes answer background")
+            for point in points:
+                self.assertTrue(contains(on, point), f"ON mode excluded control point {point}")
+            self.panel.passthrough_button.set_active(False)
+            pump(120)
+            self.panel.window.get_window().get_display().sync()
+            off = region()
+            self.assertTrue(contains(off, background), "OFF mode excludes panel background")
+            self.assertTrue(contains(off, answer_background), "OFF mode excludes answer selection area")
+            for point in points:
+                self.assertTrue(contains(off, point), f"OFF mode excluded control point {point}")
+            print(f"XShape ShapeInput readback: ON={len(on)} rectangles, OFF={len(off)} rectangles", flush=True)
+        finally:
+            x11.XCloseDisplay(display)
+
+    @unittest.skipUnless(os.environ.get("SOCKET_STREAM_GTK_POINTER_CHECKS") == "1", "opt-in physical input checks")
+    def test_real_physical_prompt_typing_and_activate(self):
+        """Verify prompt focus and entry activation through the uinput device."""
+        from gtk_input import DesktopInput
+        received = []
+        self.app.on_ask = received.append
+        self.panel._on_ask = received.append
+        pump()
+        self.assertTrue(self.panel.cursor_blending, "default ON must keep the prompt usable")
+        x, y = self.panel.prompt_entry.translate_coordinates(self.panel.window, 0, 0)
+        alloc = self.panel.prompt_entry.get_allocation()
+        origin = self.panel.window.get_window().get_origin()[1:]
+        device = DesktopInput(self.app.get_screen().get_width(), self.app.get_screen().get_height())
+        try:
+            device.move(origin[0] + x + alloc.width // 2, origin[1] + y + alloc.height // 2)
+            pump(100)
+            device.button(True)
+            pump(80)
+            device.button(False)
+            self.assertTrue(wait_for(lambda: self.panel.window.is_active(), timeout=1200),
+                            "prompt click did not activate the panel toplevel")
+            self.assertTrue(self.panel.prompt_entry.has_focus(), "prompt did not receive physical click focus")
+            for _ in range(2):
+                device.key("a", True)
+                device.key("a", False)
+                pump(40)
+            device.key("enter", True)
+            device.key("enter", False)
+            self.assertTrue(wait_for(lambda: received == ["aa"], timeout=1200),
+                            f"physical prompt activation produced {received!r}")
+            self.assertEqual(self.panel.prompt_entry.get_text(), "")
+        finally:
+            device.close()
 
     def test_long_stream_preserves_reader_scroll_and_code_horizontal_access(self):
         self.seed("A long explanation. " * 600)

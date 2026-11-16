@@ -147,10 +147,24 @@ key when saved, persist in `~/.config/socket_stream/provider-settings.json`
 configuration lives outside the application installation directory.
 
 The workspace also has **Appearance** and **Shortcuts** pages. Appearance previews
-background opacity (55–100%), answer text size (13–22 px) and reduced motion;
+background opacity (55–100%), answer text size (13–22 px), reduced motion and cursor blending;
 Save persists it. Shortcuts can be typed or recorded and apply on Save. The
 floating panel renders Markdown and retains up to 24 Q&A pairs in session memory.
 See [the reading-workspace record](READABLE-ANSWER-UI.md) for design and GTK checks.
+
+Use **Cursor blending: Off** in the answer toolbar for normal selection and
+scrolling. **On** passes background hover/clicks to the underlying window on
+X11/XWayland while keeping controls active. The toolbar choice is saved
+immediately and reflected in Appearance. Native Wayland shows the control as
+unsupported and keeps the full panel interactive. The toggle is independent of
+screen/audio capture and capture exclusion.
+
+Click the prompt, type a question, then press **Enter** or **Send**. **Capture
+screen** answers the current screen once. The panel accepts focus after that
+explicit click and becomes nonactivating again when you leave it. **Listen to
+audio** can read the screen alongside speech when both sources are authorized.
+Toolbar cursor-blending changes save only that choice; unsaved opacity/text-size
+previews still require Appearance → Save.
 
 For a no-fee local model, install Ollama from its official Linux distribution
 and pull the selected model once:
@@ -324,9 +338,15 @@ Observation accepts the same modes plus a token budget and region OCR:
 `--a11y-mode auto|focused|tree|text` selects the render mode, `--max-tokens N`
 sets the budget, and `--ocr-images` / `--no-ocr-images` toggle OCR of image and
 graphic nodes. Flags override the config file; the config file overrides the
-defaults. Accessibility is always tried first: when the tree text is sufficient
-there is no capture and no OCR. Region OCR crops only the image/graphic nodes
-found in the tree, so it never OCRs the whole screen.
+defaults. Accessibility is always tried first. Question context removes marked
+navigation/toolbars and protected subtrees, preserving code, examples and options.
+Short questions, code and non-space-delimited text can satisfy text coverage.
+When image OCR is explicitly enabled, eligible image/graphic regions are OCRed
+even beside a long readable paragraph. A screenshot is acquired through the
+approved source, then only the selected rectangles are OCRed. Empty/failed region
+OCR retains useful accessibility text; whole-frame fallback additionally requires
+`--allow-ocr`. `--force-ocr` requests whole-frame OCR. With sufficient text and no
+enabled eligible image regions, no screenshot is requested by this reader.
 
 ## Config file
 
@@ -356,6 +376,19 @@ and symlink/non-regular config or lock files. Keys:
     desktop.appearance.opacity        GTK background alpha (default 0.90)
     desktop.appearance.font_size      GTK answer text size (default 16)
     desktop.appearance.reduced_motion disable GTK transitions (default false)
+    desktop.appearance.cursor_blending background input pass-through (default true)
+
+## Extraction and OCR baseline
+
+Run the bundled synthetic cases and optional local image fixture:
+
+    ./socket_stream benchmark-extraction --iterations 500
+    ./socket_stream benchmark-extraction --iterations 500 --with-ocr --ocr-iterations 3
+
+The JSON report measures parse/render latency, approximate context-token reduction,
+content-fidelity checks and optional full-image OCR subprocess latency. It performs
+no screen/audio capture or model inference. See [the measured baseline and remaining
+architecture work](EXTRACTION-BENCHMARK.md).
 
 ## Global shortcuts
 

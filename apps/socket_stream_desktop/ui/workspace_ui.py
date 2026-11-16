@@ -204,6 +204,25 @@ def build_workspace(app):
     app.reduced_motion = Gtk.CheckButton(label="Reduce motion")
     app.reduced_motion.set_active(app.appearance["reduced_motion"])
     appearance_card.pack_start(app.reduced_motion, False, False, 0)
+    app.cursor_blending_check = Gtk.CheckButton(label="Cursor blending")
+    app.cursor_blending_check.set_tooltip_text(
+        "Let the answer panel's background pass hover and clicks through to the "
+        "window below (X11/XWayland). Turn off to select and scroll the whole panel.")
+    app.cursor_blending_check.get_accessible().set_name("Cursor blending")
+    app.cursor_blending_check.set_active(bool(getattr(app.floating, "cursor_blending", True)))
+    app.cursor_blending_check.connect("toggled", app.on_cursor_blending_toggled)
+    appearance_card.pack_start(app.cursor_blending_check, False, False, 0)
+    app.cursor_blending_note = label("")
+    appearance_card.pack_start(app.cursor_blending_note, False, False, 0)
+    if getattr(app.floating, "input_shape_supported", False):
+        app.cursor_blending_note.set_text(
+            "On: the panel background passes hover and clicks through. "
+            "Off: the whole panel accepts selection and scrolling.")
+    else:
+        app.cursor_blending_check.set_sensitive(False)
+        app.cursor_blending_note.set_text(
+            "Cursor blending needs X11 or XWayland. This session is native Wayland, "
+            "so the whole panel accepts input.")
     app.font_size.connect("value-changed", app.preview_appearance)
     app.opacity_scale.connect("value-changed", app.preview_appearance)
     app.reduced_motion.connect("toggled", app.preview_appearance)

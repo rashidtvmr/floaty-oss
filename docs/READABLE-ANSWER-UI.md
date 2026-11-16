@@ -22,7 +22,21 @@ answer card. The blue, right-aligned question stays above its answer.
 - Background opacity defaults to **90%**, configurable **55–100%**. Text stays
   opaque at rest. Text size defaults to **16 px**, adjustable **13–22 px**.
   Preferences preview immediately and persist on Save.
-- The standard panel is **720 × 620**; compact is **560 × 420**. Drag the
+- **Cursor blending: On/Off** is available in the panel toolbar and Appearance.
+  On passes background hover/clicks through on X11/XWayland; off restores full
+  panel selection and scrolling. Close, Pin, the prompt/Send controls and resize
+  handle remain input-active. The toolbar saves only this setting immediately;
+  other Appearance previews still need Save. `desktop.appearance.cursor_blending`
+  defaults to `true`. Native Wayland
+  disables the unsupported toggle and uses normal full-panel input.
+- **Capture screen** reads once; the prompt field and **Send** accept a custom
+  question, using the current screen context when available. Listening can read
+  the screen in parallel after the combined screen/audio authorization.
+- Clicking the prompt explicitly permits keyboard focus; Enter sends once and
+  clears the field. Clicking selectable text permits selection when blending is
+  off. Leaving the panel restores nonactivating behavior; showing it does not
+  automatically focus it.
+- The standard panel is **720 × 620**; compact is **560 × 456**. Drag the
   SocketStream portion of the capsule to move it; drag the lower-right handle to
   resize it. Native Wayland placement/resize requests depend on its compositor.
 - Map fades are **140 ms**, stack/revealer transitions **160 ms**, and button
@@ -73,6 +87,8 @@ uses the existing XWayland dock path.
 8. Capture-setup completion after window exit, using a synthetic worker.
 9. Real pointer drag/resize and `WM_CLASS=socket_stream_overlay`.
 10. Physical-keycode Super+F8 dispatch to the focused control window.
+11. Cursor-blending controls, input-region transitions and saved preference.
+12. Physical prompt click, typing and Enter with default-ON blending.
 
 The pointer check measures **(600, 230) → (664, 266)** and
 **720 × 620 → 800 × 680**. XTest supplies input under Xvfb. For GNOME Wayland,
@@ -129,19 +145,36 @@ from automated received-share-pixel evidence, which remains incomplete.
 
 ## Verification record (2026-11-16)
 
-- Local unit suite: 557 tests OK (6 skipped).
-- Acceptance suite: 23 OK (6 skipped) with `CARGO_TARGET_DIR` set to the current
+- Rust: 50 CLI and 134 core tests passed; formatting and Clippy passed.
+- Local Python unit suite: 604 tests OK (6 skipped).
+- Acceptance suite: 26 OK (6 skipped) with `CARGO_TARGET_DIR` set to the current
   build; leaving it unset lets the suite pick up a stale worktree binary and
   produce six false failures, so the variable is part of the documented command.
 - Shortcut defaults parity: 2/2 (Python ↔ Rust ↔ Swift).
-- GNOME Wayland desktop GTK input suite: 10/10 passed twice as full runs. A
-  residual timing-dependent failure remains under investigation: in
-  drag-then-key sequences the compositor intermittently stops applying the
-  synthetic absolute-pointer device's motion even though the kernel evdev
-  stream still receives every event (the Xwayland pointer report and window
-  focus freeze; one run also dropped the drag displacement itself). The key
-  test now confirms the pointer report matches the control window's XID before
-  clicking, re-reads the window origin on every attempt, and dumps window-tree,
-  grab-state and pointer-sweep diagnostics under `SOCKET_STREAM_DEBUG`.
-  Standalone key-test runs pass repeatedly, and every drag/resize assertion
-  passed whenever the compositor applied the pointer events.
+- GNOME Wayland desktop GTK input suite: **13/13** passed with the saved cursor
+  toggle. Physical prompt typing and Enter dispatched exactly one `aa` question.
+  Independent XShape readback found **7 rectangles ON / 1 rectangle OFF**, with
+  the answer background excluded initially and after toggles, and the controls
+  included. The test uses production scheduling, without directly calling the
+  private shape-application method.
+  The key test obtains a real X server timestamp, requests focus on the
+  mapped control window and verifies focus before physical uinput Super+F8.
+  Earlier drag-then-key failures used stale XQueryPointer coordinates to establish
+  focus; those coordinates are not authoritative over native Wayland surfaces.
+  The role of Xwayland warp emulation or a compositor guard in those failures
+  remains unproved. Experimental explicit-cursor hooks were removed.
+- The input-shape failure was an invalid Pycairo API call: `Region` has `union`,
+  not `union_rectangle`, on the tested Cairo 1.27.0. The exception had been
+  swallowed. The corrected call uses `union(RectangleInt(...))` and stores the
+  region through GTK's widget API so layout/CSD updates retain it. Earlier
+  scheduling/asynchrony explanations did not establish the cause.
+- The manual vision regression failed against the old CLI's text-only request
+  and passed after reading PNG bytes before stopping/dropping the owning reader.
+  Three real-CLI/local-HTTP cases check byte-identical PNG attachment,
+  `--no-vision`, and temporary-frame cleanup. Capture/OCR helpers are synthetic;
+  these cases do not measure the desktop capture pipeline.
+- Independent read-only review found no release-blocking defect in the single-key
+  persistence, focus/input shape, extraction/OCR or frame-lifetime changes.
+  Cursor-only saves intentionally preserve existing appearance values without
+  numerically normalizing unrelated fields. Packaging and the bounded restoration
+  of the temporary GDM auto-login setting received separate read-only review.

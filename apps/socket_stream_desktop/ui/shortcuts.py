@@ -90,10 +90,15 @@ ACTION_LABELS = {
 }
 
 #: Default appearance values (top-level desktop.appearance in config).
+#: ``cursor_blending`` keeps the shipped hover pass-through behavior: the
+#: panel background lets hover/clicks reach the window below while the
+#: interactive controls stay usable. Off makes the whole panel accept input
+#: for text selection and scrolling.
 DEFAULT_APPEARANCE = {
     "opacity": 0.90,
     "font_size": 16,
     "reduced_motion": False,
+    "cursor_blending": True,
 }
 
 _MODIFIER_ALIASES = {
@@ -630,7 +635,7 @@ def save_config_file(bindings, *, enabled=True, path=None):
 def _validate_appearance_values(values):
     if not isinstance(values, dict):
         raise ShortcutError("appearance values must be an object")
-    allowed = {"opacity", "font_size", "reduced_motion"}
+    allowed = {"opacity", "font_size", "reduced_motion", "cursor_blending"}
     unknown = set(values.keys()) - allowed
     if unknown:
         raise ShortcutError(f"unknown appearance keys: {', '.join(sorted(unknown))}")
@@ -649,11 +654,20 @@ def _validate_appearance_values(values):
     rm = values["reduced_motion"]
     if not isinstance(rm, bool):
         raise ShortcutError("reduced_motion must be a boolean")
-    return {
+    validated = {
         "opacity": float(opacity),
         "font_size": int(fs),
         "reduced_motion": bool(rm),
     }
+    # cursor_blending is optional on write so older callers keep working; the
+    # loader always supplies it from DEFAULT_APPEARANCE. When present it must
+    # be a real boolean and is preserved in the written object.
+    if "cursor_blending" in values:
+        cb = values["cursor_blending"]
+        if not isinstance(cb, bool):
+            raise ShortcutError("cursor_blending must be a boolean")
+        validated["cursor_blending"] = cb
+    return validated
 
 
 def load_appearance(path=None):
@@ -694,7 +708,9 @@ def save_appearance(values, *, path=None):
     """Validate and save ``desktop.appearance`` into the shared config JSON.
 
     Validated values: ``opacity`` in 0.55..1.0, integer ``font_size`` in
-    13..22, boolean ``reduced_motion``. Unknown appearance keys are rejected.
+    13..22, boolean ``reduced_motion`` and optional boolean ``cursor_blending``
+    (the desktop shells always pass it; direct callers may omit it and the
+    loader then supplies the default). Unknown appearance keys are rejected.
     Other ``desktop`` siblings, unrelated top-level settings and unknown keys
     are preserved; the read/merge/write runs under the shared config flock.
     """
@@ -713,6 +729,35 @@ def save_appearance(values, *, path=None):
         new_desktop = dict(desktop_obj)
         new_desktop["appearance"] = validated
         data["desktop"] = new_desktop
+        return data
+
+    return _lock_and_update(target, _mut)
+
+
+def save_cursor_blending(enabled, *, path=None):
+    """Save only the toolbar choice, preserving other saved appearance values.
+
+    Read and merge inside the shared config lock so another settings writer's
+    changes are retained. Unsaved Appearance previews are never passed here.
+    """
+    if not isinstance(enabled, bool):
+        raise ShortcutError("cursor_blending must be a boolean")
+    target = Path(path) if path is not None else default_config_path()
+
+    def _mut(existing):
+        data = dict(existing)
+        desktop = data.get("desktop", {})
+        if not isinstance(desktop, dict):
+            raise ShortcutError(
+                f"malformed config JSON in {target}: 'desktop' must be an object")
+        appearance = desktop.get("appearance", {})
+        if not isinstance(appearance, dict):
+            raise ShortcutError(
+                f"malformed config JSON in {target}: 'desktop.appearance' must be an object")
+        appearance = dict(appearance)
+        appearance["cursor_blending"] = enabled
+        _validate_appearance_values({**DEFAULT_APPEARANCE, **appearance})
+        data["desktop"] = {**desktop, "appearance": appearance}
         return data
 
     return _lock_and_update(target, _mut)

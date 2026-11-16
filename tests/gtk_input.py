@@ -2,7 +2,7 @@
 
 XTest is suitable for Xvfb/X11. On GNOME Wayland, the root-only test launcher
 can pass a temporary uinput device; it is destroyed when the suite finishes.
-Only the test's pointer, left button and Super/F8 keys are generated.
+Only the test's pointer, left button, Super/F8 and prompt typing keys are generated.
 """
 import ctypes
 import ctypes.util
@@ -59,11 +59,12 @@ class DesktopInput:
 
     def key(self, name, pressed):
         if self.fd is not None:
-            self._events(((1, {"super": 125, "f8": 66}[name], int(pressed)),))
+            self._events(((1, {"super": 125, "f8": 66, "a": 30, "enter": 28}[name], int(pressed)),))
         else:
             # Send the hardware keycode directly. xdotool's symbol synthesis
             # can add Alt when resolving F8 in the server's XKB keymap.
-            code = self.x11.XKeysymToKeycode(self.display, {"super": 0xffeb, "f8": 0xffc5}[name])
+            code = self.x11.XKeysymToKeycode(self.display, {
+                "super": 0xffeb, "f8": 0xffc5, "a": 0x61, "enter": 0xff0d}[name])
             if not code:
                 raise RuntimeError(f"key {name} is absent from the test keymap")
             self.xtst.XTestFakeKeyEvent(self.display, code, int(pressed), 0)
@@ -73,6 +74,8 @@ class DesktopInput:
         self.button(False)
         self.key("f8", False)
         self.key("super", False)
+        self.key("a", False)
+        self.key("enter", False)
         if self.display is not None:
             self.x11.XCloseDisplay(self.display)
             self.display = None

@@ -149,8 +149,8 @@ fn select_regions(
 /// OCR a sub-rectangle of a screenshot. Crops with the platform tool, then runs
 /// the existing [`extract_text`]. Never uploads pixels.
 ///
-/// `psm` is accepted for CLI compatibility; the OCR backend selects its own
-/// page-segmentation mode (`SOCKET_STREAM_TESSERACT_PSM` on Linux).
+/// A supported `psm` overrides `SOCKET_STREAM_TESSERACT_PSM` for this Linux
+/// Tesseract call. The macOS Vision backend does not use segmentation modes.
 pub fn extract_region_text(
     screenshot: &Path,
     region: ImageRegion,
@@ -193,15 +193,21 @@ pub fn extract_regions_text(
     psm: &str,
 ) -> Result<String, OcrError> {
     let selected = select_regions(regions, max_regions, min_pixels);
-    let mut parts = Vec::new();
-    for region in selected {
-        let text = extract_region_text(screenshot, region, psm)?;
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
-            parts.push(trimmed.to_owned());
-        }
-    }
-    Ok(parts.join("\n"))
+    let parts = selected
+        .into_iter()
+        .map(|region| extract_region_text(screenshot, region, psm))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(join_region_texts(&parts))
+}
+
+fn join_region_texts(parts: &[String]) -> String {
+    parts
+        .iter()
+        // Drop separator newlines, not indentation on the first line of code.
+        .map(|text| text.trim_matches(['\r', '\n']))
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Detect simple syntax incompleteness before sending extracted code to a model.
@@ -361,6 +367,19 @@ mod tests {
         let text =
             extract_regions_text(Path::new("/does/not/exist.png"), &regions, 4, 1000, "6").unwrap();
         assert!(text.is_empty());
+    }
+
+    #[test]
+    fn regional_text_join_preserves_first_line_code_indentation() {
+        let text = join_region_texts(&[
+            "\n    if ready:\n        return value\n".to_owned(),
+            "  \r\n".to_owned(),
+            "\r\n    else:\n        return None\r\n".to_owned(),
+        ]);
+        assert_eq!(
+            text,
+            "    if ready:\n        return value\n    else:\n        return None"
+        );
     }
 
     #[test]

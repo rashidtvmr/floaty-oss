@@ -113,10 +113,30 @@ pub fn read_foreground_tree(
         .map_err(|_| AccessibilityError::Backend("invalid accessibility tree JSON".into()))
 }
 
-/// Calls accessibility reader first; runs image-based OCR only if needed.
-/// Capturing screen pixels is separately consent-gated.
+/// Cheap text-coverage signal, not a claim that a whole question is complete.
+/// Accept short questions, code and non-space-delimited languages; reject empty,
+/// punctuation-only and isolated-label readings. Structured callers should pass
+/// role-free, content-scoped text so UI role names cannot satisfy this check.
+/// Capturing screen pixels remains separately consent-gated.
 pub fn needs_ocr(text: Option<&str>) -> bool {
-    text.is_none_or(|value| value.trim().chars().count() < 24)
+    let Some(text) = text.map(str::trim).filter(|text| !text.is_empty()) else {
+        return true;
+    };
+    let letters = text.chars().filter(|ch| ch.is_alphabetic()).count();
+    let words = text
+        .split_whitespace()
+        .filter(|word| word.chars().any(char::is_alphanumeric))
+        .count();
+    let question = text.contains(['?', '？']) && letters >= 3;
+    let code = letters >= 3
+        && (text.contains(['{', '}', '=', ';']) || (text.contains('(') && text.contains(')')));
+    let prose = letters >= 8 && words >= 3;
+    let dense_script = text
+        .chars()
+        .filter(|ch| ch.is_alphabetic() && !ch.is_ascii())
+        .count()
+        >= 6;
+    !(question || code || prose || dense_script)
 }
 
 #[cfg(test)]
@@ -129,6 +149,17 @@ mod tests {
         assert!(needs_ocr(Some("")));
         assert!(needs_ocr(Some("tiny")));
         assert!(!needs_ocr(Some("a sufficiently long coding question here")));
+    }
+
+    #[test]
+    fn content_coverage_accepts_short_questions_code_and_dense_scripts() {
+        assert!(!needs_ocr(Some("Why?")));
+        assert!(!needs_ocr(Some("return x + 1;")));
+        assert!(!needs_ocr(Some("print(x)")));
+        assert!(!needs_ocr(Some("求数组中最大的元素")));
+        assert!(needs_ocr(Some(&". ".repeat(40))));
+        assert!(needs_ocr(Some("123456789012345678901234567890")));
+        assert!(needs_ocr(Some("Settings")));
     }
 
     #[cfg(unix)]

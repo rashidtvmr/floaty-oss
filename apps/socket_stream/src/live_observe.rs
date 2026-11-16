@@ -1,7 +1,7 @@
 //! User-authorized, accessibility-first observation with JSONL UI events.
 //! OCR is never invoked without an explicit OCR flag or config opt-in.
 use crate::live_events::Emitter;
-use socket_stream_core::a11y::{ReadMode, TokenBudget};
+use socket_stream_core::a11y::{A11yReading, A11yTree, ReadMode, TokenBudget};
 use socket_stream_core::accessibility::{AccessibilityError, needs_ocr, read_foreground_tree};
 use socket_stream_core::ai::{AiError, ApiEvent, Provider, list_models, stream_answer_with_meta};
 use socket_stream_core::capture::{PortalFrameSource, capture_to, requires_linux_portal};
@@ -318,6 +318,7 @@ enum AccessibilityOutcome {
 #[derive(Debug, PartialEq, Eq)]
 enum ReadingPlan {
     UseAccessible,
+    TryRegionOcr,
     TryOcr,
     ReportAccessibility,
     Insufficient,
@@ -350,6 +351,32 @@ fn plan_reading(outcome: &AccessibilityOutcome, allow_ocr: bool, force_ocr: bool
             }
         }
     }
+}
+
+/// Image questions must not be hidden by abundant accessible navigation text.
+/// Regional OCR is an independent, explicit opt-in; only eligible rectangles
+/// trigger capture. `--force-ocr` still means a whole-frame OCR request.
+fn plan_tree_reading(
+    reading: &A11yReading,
+    options: &A11yOptions,
+    allow_ocr: bool,
+    force_ocr: bool,
+) -> ReadingPlan {
+    if !force_ocr
+        && options.region_ocr
+        && options.ocr_config.max_regions > 0
+        && reading
+            .image_regions
+            .iter()
+            .any(|region| region.is_worth_ocr(options.ocr_config.min_region_pixels))
+    {
+        return ReadingPlan::TryRegionOcr;
+    }
+    plan_reading(
+        &AccessibilityOutcome::Text(reading.display.clone()),
+        allow_ocr,
+        force_ocr,
+    )
 }
 
 /// Result of one screen read, shared by observe-live, audio-live parallel
@@ -522,20 +549,29 @@ impl ScreenReader {
     /// One accessibility-first read with the configured OCR fallback.
     pub(crate) fn read_once(&mut self) -> Reading {
         let root = socket_stream_core::paths::project_root();
-        let outcome = match read_foreground_tree(
+        let tree = read_foreground_tree(
             &root,
             self.options.budget.max_nodes,
             self.options.budget.max_depth,
             self.options.budget.max_chars,
-        ) {
+        );
+        self.read_tree_result(tree)
+    }
+
+    fn read_tree_result(&mut self, tree: Result<A11yTree, AccessibilityError>) -> Reading {
+        // A subsequent accessibility-only read must not attach a screenshot
+        // retained for an earlier question to the next model request.
+        self.last_frame = None;
+        let outcome = match tree {
             Ok(tree) => {
-                let rendered = tree.render(self.options.mode, self.options.budget);
-                if !self.force_ocr && !needs_ocr(Some(&rendered.text)) {
+                let rendered = tree.render_question(self.options.mode, self.options.budget);
+                let plan =
+                    plan_tree_reading(&rendered, &self.options, self.allow_ocr, self.force_ocr);
+                if plan == ReadingPlan::UseAccessible {
                     return Reading::Question(rendered.text, rendered.display, "accessibility");
                 }
 
-                let needs_capture = self.options.region_ocr && !rendered.image_regions.is_empty();
-                if needs_capture {
+                if plan == ReadingPlan::TryRegionOcr {
                     let screenshot = match self.capture_frame() {
                         Ok(path) => path,
                         Err(message) => return Reading::OcrFailed(message),
@@ -556,14 +592,26 @@ impl ScreenReader {
                             let text = if rendered.text.trim().is_empty() {
                                 ocr_text.clone()
                             } else {
-                                format!("{}\n{}", rendered.text.trim(), ocr_text.trim())
+                                format!("{}\n{}", rendered.text.trim_end(), ocr_text.trim_end())
                             };
                             let display = if rendered.display.trim().is_empty() {
                                 ocr_text
                             } else {
-                                format!("{}\n{}", rendered.display.trim(), ocr_text.trim())
+                                format!("{}\n{}", rendered.display.trim_end(), ocr_text.trim_end())
                             };
                             return Reading::Question(text, display, "ocr");
+                        }
+                        Ok(_) | Err(_) if !needs_ocr(Some(&rendered.display)) => {
+                            // A decorative image or unavailable region engine
+                            // must not discard useful accessible question text.
+                            if remove_after {
+                                let _ = std::fs::remove_file(&screenshot);
+                            }
+                            return Reading::Question(
+                                rendered.text,
+                                rendered.display,
+                                "accessibility",
+                            );
                         }
                         Ok(_) if self.allow_ocr => {
                             return self.ocr_captured_frame(&screenshot, remove_after);
@@ -585,7 +633,7 @@ impl ScreenReader {
                         }
                     }
                 }
-                AccessibilityOutcome::Text(rendered.text)
+                AccessibilityOutcome::Text(rendered.display)
             }
             Err(AccessibilityError::OwnWindow) => AccessibilityOutcome::OwnWindow,
             Err(AccessibilityError::Empty) => AccessibilityOutcome::Empty,
@@ -607,7 +655,7 @@ impl ScreenReader {
                 }
                 _ => Reading::Nothing,
             },
-            ReadingPlan::TryOcr => {
+            ReadingPlan::TryOcr | ReadingPlan::TryRegionOcr => {
                 let screenshot = match self.capture_frame() {
                     Ok(path) => path,
                     Err(message) => return Reading::OcrFailed(message),
@@ -1039,6 +1087,111 @@ mod tests {
             ReadingPlan::Insufficient
         );
         assert_eq!(plan_reading(&empty, true, false), ReadingPlan::TryOcr);
+    }
+
+    #[test]
+    fn graphic_question_is_read_even_alongside_abundant_accessible_text() {
+        use socket_stream_core::a11y::{A11yTree, ImageRegion};
+        let tree = A11yTree::parse(r#"{"schema":1,"source":"atspi","nodes":[
+            {"id":1,"parent":null,"role":"paragraph","text":"Use the diagram below to calculate the result of this algorithm."},
+            {"id":2,"parent":1,"role":"image","image":true,"bounds":[10,20,640,480]}
+        ]}"#).unwrap();
+        let mut options = A11yOptions {
+            mode: ReadMode::Tree,
+            budget: TokenBudget::default(),
+            region_ocr: true,
+            ocr_config: OcrConfig::default(),
+        };
+        let mut rendered = tree.render_question(options.mode, options.budget);
+        assert_eq!(
+            plan_tree_reading(&rendered, &options, false, false),
+            ReadingPlan::TryRegionOcr
+        );
+        // A readable paragraph does not grant screenshot permission on its own.
+        options.region_ocr = false;
+        assert_eq!(
+            plan_tree_reading(&rendered, &options, false, false),
+            ReadingPlan::UseAccessible
+        );
+        assert_eq!(
+            plan_tree_reading(&rendered, &options, true, false),
+            ReadingPlan::UseAccessible
+        );
+        options.region_ocr = true;
+        assert_eq!(
+            plan_tree_reading(&rendered, &options, true, true),
+            ReadingPlan::TryOcr
+        );
+        rendered.image_regions = vec![ImageRegion {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 8,
+        }];
+        assert_eq!(
+            plan_tree_reading(&rendered, &options, false, false),
+            ReadingPlan::UseAccessible
+        );
+        rendered.image_regions[0].width = 640;
+        options.ocr_config.max_regions = 0;
+        assert_eq!(
+            plan_tree_reading(&rendered, &options, false, false),
+            ReadingPlan::UseAccessible
+        );
+    }
+
+    #[test]
+    fn next_accessibility_read_cannot_reuse_a_previous_vision_frame() {
+        let options = A11yOptions {
+            mode: ReadMode::Tree,
+            budget: TokenBudget::default(),
+            region_ocr: false,
+            ocr_config: OcrConfig::default(),
+        };
+        let mut reader = ScreenReader::start(false, false, true, false, options, 4).unwrap();
+        let tree = A11yTree::parse(
+            r#"{"schema":1,"source":"atspi","nodes":[
+            {"id":1,"parent":null,"role":"text","text":"Explain the complexity of binary search."}
+        ]}"#,
+        )
+        .unwrap();
+        reader.last_frame = Some(reader.temp.path().join("old-question.png"));
+        assert!(matches!(
+            reader.read_tree_result(Ok(tree)),
+            Reading::Question(..)
+        ));
+        assert!(reader.last_frame().is_none());
+        reader.last_frame = Some(reader.temp.path().join("old-question.png"));
+        assert!(matches!(
+            reader.read_tree_result(Err(AccessibilityError::OwnWindow)),
+            Reading::Nothing
+        ));
+        assert!(reader.last_frame().is_none());
+    }
+
+    #[test]
+    fn role_labels_and_long_browser_chrome_do_not_satisfy_question_coverage() {
+        use socket_stream_core::a11y::A11yTree;
+        let tree = A11yTree::parse(r#"{"schema":1,"source":"ax","nodes":[
+            {"id":1,"parent":null,"role":"window","text":"A very long browser page title"},
+            {"id":2,"parent":1,"role":"toolbar","text":"Back Forward Refresh Home Settings Downloads"},
+            {"id":3,"parent":1,"role":"canvas","image":true,"bounds":[0,0,500,500]}
+        ]}"#).unwrap();
+        let options = A11yOptions {
+            mode: ReadMode::Tree,
+            budget: TokenBudget::default(),
+            region_ocr: false,
+            ocr_config: OcrConfig::default(),
+        };
+        let rendered = tree.render_question(options.mode, options.budget);
+        assert_eq!(
+            plan_tree_reading(&rendered, &options, false, false),
+            ReadingPlan::Insufficient
+        );
+        assert_eq!(
+            plan_tree_reading(&rendered, &options, true, false),
+            ReadingPlan::TryOcr
+        );
     }
 
     #[test]

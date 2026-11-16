@@ -109,7 +109,7 @@ async fn ask_body(
     // (--with-screen). The frame is retained for vision-capable providers.
     let mut screen_question: Option<(String, String, &'static str)> = None;
     let mut screen_context: Option<String> = None;
-    let mut frame: Option<std::path::PathBuf> = None;
+    let mut image = None;
     if read_screen || with_screen {
         let mut reader = ScreenReader::start(
             allow_ocr,
@@ -120,7 +120,11 @@ async fn ask_body(
             interval,
         )?;
         let reading = reader.read_once();
-        frame = reader.last_frame().map(std::path::Path::to_path_buf);
+        // Read the approved frame while its owning reader/portal still exists.
+        // Stopping and dropping the reader removes its temporary screenshot.
+        if vision {
+            image = vision_frame(&provider, reader.last_frame());
+        }
         reader.stop();
         match reading {
             Reading::Question(text, display, source) if !text.trim().is_empty() => {
@@ -187,11 +191,6 @@ async fn ask_body(
     )?;
     emitter.send("answer_started", source, Some(request), None)?;
 
-    let image = if vision {
-        vision_frame(&provider, frame.as_deref())
-    } else {
-        None
-    };
     let (deltas, mut incoming) = tokio::sync::mpsc::channel::<String>(32);
     let (meta_tx, mut meta_rx) = tokio::sync::mpsc::channel::<ApiEvent>(8);
     let stream = stream_answer_with_meta_vision(

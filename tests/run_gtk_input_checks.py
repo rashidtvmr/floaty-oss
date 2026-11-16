@@ -32,7 +32,7 @@ def main():
         # Linux uinput.h: _IOW('U', request, int), UI_DEV_SETUP and UI_ABS_SETUP.
         for event_type in (1, 3):  # EV_KEY, EV_ABS
             fcntl.ioctl(fd, 0x40045564, event_type)
-        for key in (0x110, 125, 66):  # BTN_LEFT, KEY_LEFTMETA, KEY_F8
+        for key in (0x110, 125, 66, 30, 28):  # BTN_LEFT, Super, F8, A, Enter
             fcntl.ioctl(fd, 0x40045565, key)
         fcntl.ioctl(fd, 0x4004556e, 0)  # INPUT_PROP_POINTER
         for axis in (0, 1):  # ABS_X, ABS_Y

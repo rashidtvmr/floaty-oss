@@ -103,13 +103,25 @@ them for the next launch:
 ```json
 {
   "desktop": {
-    "appearance": {"opacity": 0.9, "font_size": 16, "reduced_motion": false}
+    "appearance": {
+      "opacity": 0.9,
+      "font_size": 16,
+      "reduced_motion": false,
+      "cursor_blending": true
+    }
   }
 }
 ```
 
 Opacity accepts `0.55–1.0`, text size accepts integers `13–22`, and reduced motion
-is a boolean. Missing fields use defaults. Invalid appearance data is reported in
+and cursor blending are booleans. Cursor blending defaults to `true`: the answer
+background passes hover/clicks to the window below while controls remain active.
+Switch it off for normal panel selection and scrolling. The panel's **Cursor
+blending: On/Off** button saves immediately and mirrors the Appearance checkbox;
+Appearance previews persist on **Save appearance**. Native Wayland disables this
+X11/XWayland feature and accepts input over the full panel, retaining the saved
+preference for the next supported session. Capture exclusion is a separate setting.
+Missing fields use defaults. Invalid appearance data is reported in
 the workspace, which starts with defaults. Provider credentials stay in their
 separate provider-settings file.
 

@@ -98,6 +98,38 @@ def input_region_rects(rects, size, locked):
     return regions
 
 
+def load_saved_appearance():
+    """Best-effort saved appearance for the standalone panel; never raises.
+
+    The GTK shell loads the same ``desktop.appearance`` block, so the
+    standalone panel restores the persisted cursor-blending choice too.
+    """
+    try:
+        from shortcuts import load_appearance
+        return load_appearance()
+    except Exception:  # noqa: BLE001 - missing or invalid config keeps defaults
+        return {}
+
+
+def persist_cursor_blending(enabled, *, save=None):
+    """Persist the standalone panel's cursor-blending choice; never raises.
+
+    The standalone panel has no host controller, so the toolbar toggle must
+    save itself. ``shortcuts.save_cursor_blending`` writes only that one key
+    atomically under the shared config lock, preserving every other saved
+    appearance value and config section. Returns ``(ok, message)`` so the
+    caller can surface a failure through the panel status line instead of
+    raising into GTK.
+    """
+    try:
+        if save is None:
+            from shortcuts import save_cursor_blending as save
+        save(bool(enabled))
+    except Exception as exc:  # noqa: BLE001 - a save failure must not crash the panel
+        return False, f"Could not save cursor blending: {exc}"
+    return True, ""
+
+
 def default_cli_path() -> str:
     """Locate the Rust CLI the same way the GTK shell does."""
     override = os.environ.get("SOCKET_STREAM_CLI")
@@ -239,11 +271,34 @@ class FloatingOverlay:
                 except Exception:  # noqa: BLE001
                     pass
 
+    def _detect_input_shape_support(self):
+        """True only where X11 input shapes can punch pass-through holes.
+
+        X11 and XWayland expose ``input_shape_combine_region``; a native
+        Wayland surface cannot, so cursor blending is disabled there and the
+        whole panel accepts input instead of pretending to pass through.
+        """
+        try:
+            from gi.repository import GdkX11
+        except Exception:  # noqa: BLE001 - GDK built without the X11 backend
+            return False
+        try:
+            display = self._Gdk.Display.get_default()
+        except Exception:  # noqa: BLE001 - headless or shutdown races
+            display = None
+        if display is None:
+            return display_is_x11(self.display_name)
+        try:
+            return isinstance(display, GdkX11.X11Display)
+        except Exception:  # noqa: BLE001 - class missing on non-X11 builds
+            return False
+
     def __init__(self, plan=None, session=None, *, stealth=True, compact=False,
                  opacity=DEFAULT_PANEL_OPACITY, on_stop=None, on_pause=None,
                  on_copy=None, on_minimize=None, on_settings=None, state=None,
                  on_selection_changed=None, font_size=16, reduced_motion=False,
-                 on_ask=None, on_capture=None):
+                 on_ask=None, on_capture=None, cursor_blending=True,
+                 on_cursor_blending=None):
         import gi
 
         gi.require_version("Gdk", "3.0")
@@ -287,10 +342,18 @@ class FloatingOverlay:
         self._on_selection_changed = on_selection_changed
         self._on_ask = on_ask
         self._on_capture = on_capture
-        # Hover pass-through: on X11 the panel's background is removed from the
-        # input shape so hover and clicks reach the site below. The lock
-        # toggle restores full input for text selection and scrolling.
-        self._input_locked = False
+        self._on_cursor_blending = on_cursor_blending
+        # Cursor blending: on X11/XWayland the panel's background is removed
+        # from the input shape so hover and clicks reach the site below while
+        # the interactive controls stay usable. Off restores full input for
+        # text selection and scrolling without hiding the panel or touching
+        # capture/audio. Native Wayland cannot punch input holes, so the
+        # control is disabled there and the whole panel accepts input.
+        self.input_shape_supported = self._detect_input_shape_support()
+        self.cursor_blending = bool(cursor_blending) and self.input_shape_supported
+        self._input_locked = not self.cursor_blending
+        self._syncing_blending = False
+        self._shape_source = None
         self._model = OverlayModel(state)
         self._watcher = ScreenShareWatcher()
         self._share_active = False
@@ -312,6 +375,13 @@ class FloatingOverlay:
         self._history_signature = None
         self._syncing_pin = False
         self._provider = ""
+        # Focus policy, deliberately separate from cursor blending: the panel
+        # is a nonactivating on-top overlay, so keyboard focus is relaxed only
+        # for an explicit interaction with the prompt entry and restored when
+        # focus leaves the entry or the whole window.
+        self._nonactivating = True
+        self._entry_focused = False
+        self._focus_restore_source = None
 
         self.window = self._with_panel_identity(self._create_window)
         self.window.set_default_size(*(COMPACT_PANEL_SIZE if self.compact else PANEL_SIZE))
@@ -320,6 +390,9 @@ class FloatingOverlay:
         style(self.window, "ss-overlay")
         install_theme(self.window.get_screen())
         self.window.set_decorated(False)
+        # Nonactivating by default: focus_on_map stays off so a later map can
+        # never steal focus, and accept_focus is relaxed only for an explicit
+        # prompt interaction (see permit_prompt_focus).
         self.window.set_focus_on_map(False)
         self.window.set_accept_focus(False)
         visual = self.window.get_screen().get_rgba_visual()
@@ -328,7 +401,6 @@ class FloatingOverlay:
             self.window.set_visual(visual)
         self.window.set_app_paintable(True)
         self.window.connect("draw", self._clear_background)
-
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.window.add(outer)
         command_row = Gtk.Box(spacing=8)
@@ -381,12 +453,18 @@ class FloatingOverlay:
             toolbar.pack_start(self.settings_button, False, False, 0)
         else:
             self.settings_button = None
-        # Hover pass-through lock: unlocked means hover and clicks on the
-        # panel background pass through to the window below (X11 input
-        # shape); locked means the whole panel accepts input again.
-        self.passthrough_button = self._icon_button(
-            "changes-allow-symbolic", self._passthrough_tooltip(), self._toggle_input_lock)
+        # Cursor blending toggle: on means the panel background passes hover
+        # and clicks through to the window below (X11 input shape); off means
+        # the whole panel accepts input for selection and scrolling. The
+        # label and icon state are kept in sync by _sync_passthrough_button.
+        self.passthrough_button = style(Gtk.ToggleButton(), "ss-quiet")
+        self.passthrough_button.set_always_show_image(True)
+        self.passthrough_button.get_accessible().set_name("Cursor blending")
+        self.passthrough_button.connect("toggled", self._on_passthrough_toggled)
         toolbar.pack_start(self.passthrough_button, False, False, 0)
+        if not self.input_shape_supported:
+            self.passthrough_button.set_sensitive(False)
+        self._sync_passthrough_button()
         self.minimize_button = None
         if on_minimize is not None:
             self.minimize_button = self._icon_button("window-minimize-symbolic", "Minimize app",
@@ -435,6 +513,8 @@ class FloatingOverlay:
         self.full_question.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.full_question.set_selectable(True)
         self.full_question.set_max_width_chars(60)
+        self.full_question.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.full_question.connect("button-press-event", self._on_selectable_press)
         question_scroll.add(self.full_question)
         self.question_revealer.add(question_scroll)
         body.pack_start(self.question_revealer, False, False, 0)
@@ -463,6 +543,8 @@ class FloatingOverlay:
         self.answer.set_pixels_below_lines(5)
         self.answer.set_left_margin(2)
         self.answer.set_right_margin(8)
+        self.answer.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.answer.connect("button-press-event", self._on_selectable_press)
         self.answer_scroll.add(self.answer)
         self.answer_stack.add_named(self.answer_scroll, "answer")
         empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -539,10 +621,17 @@ class FloatingOverlay:
         self.prompt_entry.set_hexpand(True)
         self.prompt_entry.get_accessible().set_name("Manual question")
         self.prompt_entry.connect("activate", self._on_prompt_activate)
+        # A deliberate click permits typing; leaving the panel restores its
+        # nonactivating behavior. Selectable answer text has the same policy.
+        self.prompt_entry.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.FOCUS_CHANGE_MASK)
+        self.prompt_entry.connect("button-press-event", self._on_prompt_press)
+        self.prompt_entry.connect("focus-in-event", self._on_prompt_focus_in)
+        self.prompt_entry.connect("focus-out-event", self._on_prompt_focus_out)
         self.prompt_row.pack_start(self.prompt_entry, True, True, 0)
-        self.ask_button = style(Gtk.Button(label="Ask"), "ss-quiet")
+        self.ask_button = style(Gtk.Button(label="Send"), "ss-quiet")
         self.ask_button.set_tooltip_text("Send the typed question to the model")
-        self.ask_button.get_accessible().set_name("Ask")
+        self.ask_button.get_accessible().set_name("Send")
         self.ask_button.connect("clicked", self._on_prompt_activate)
         self.prompt_row.pack_start(self.ask_button, False, False, 0)
         self.capture_button = style(Gtk.Button(label="Capture"), "ss-quiet")
@@ -589,6 +678,9 @@ class FloatingOverlay:
         self.render_state()
 
         self.window.connect("delete-event", self._on_delete)
+        # The whole toplevel losing focus (user switched apps) restores the
+        # nonactivating overlay; focus moving between panel widgets does not.
+        self.window.connect("notify::is-active", self._on_window_active_changed)
 
         # Hover pass-through (X11 input shape): keep the interactive strips
         # input-active and let the background pass events through. Reapplied
@@ -618,48 +710,245 @@ class FloatingOverlay:
         return button
 
     def _on_prompt_activate(self, *_args):
-        """Send the typed question through the host callback; empty stays local."""
+        """Send the typed question through the host callback; empty stays local.
+
+        The entry is cleared before the callback runs, so a single Enter or
+        Send gesture can never dispatch the same question twice.
+        """
         text = self.prompt_entry.get_text().strip()
         if not text or self._on_ask is None:
             return
         self.prompt_entry.set_text("")
         self._on_ask(text)
 
+    # ---- prompt focus policy -------------------------------------------
+
+    def _set_nonactivating(self, nonactivating):
+        """Toggle the WM input hint that keeps the panel nonactivating.
+
+        The overlay is nonactivating by default so it never steals focus from
+        the practice window. Keyboard focus is relaxed only while the user is
+        explicitly typing or selecting text. ``focus_on_map`` is pinned off so a
+        later map can never auto-focus the panel.
+        """
+        self._nonactivating = bool(nonactivating)
+        try:
+            self.window.set_accept_focus(not self._nonactivating)
+        except Exception:  # noqa: BLE001 - headless/test stubs
+            pass
+        try:
+            self.window.set_focus_on_map(False)
+        except Exception:  # noqa: BLE001
+            pass
+        return self._nonactivating
+
+    def permit_focus(self, event=None, widget=None):
+        """Explicitly allow keyboard focus for a purposeful user interaction.
+
+        Called from a real pointer event. The panel is nonactivating by
+        default, so the WM input hint is relaxed before the compositor will
+        deliver key events. ``present_with_time`` uses the event's real server
+        timestamp when available. When ``widget`` is given it is focused explicitly (the
+        prompt entry); otherwise GTK's own click handler focuses the clicked
+        selectable widget. Returns False so GTK's default handler still runs.
+        """
+        self._set_nonactivating(False)
+        timestamp = 0
+        if event is not None:
+            try:
+                timestamp = int(getattr(event, "time", 0) or 0)
+            except (TypeError, ValueError):
+                timestamp = 0
+        try:
+            if timestamp:
+                self.window.present_with_time(timestamp)
+            else:
+                self.window.present()
+        except Exception:  # noqa: BLE001 - a focus request is best effort
+            pass
+        if widget is not None:
+            try:
+                widget.grab_focus()
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+
+    def permit_prompt_focus(self, event=None):
+        """Explicitly allow keyboard focus so the user can type a question."""
+        return self.permit_focus(event, widget=self.prompt_entry)
+
+    def restore_nonactivating(self):
+        """Return the panel to its nonactivating overlay behaviour."""
+        self._cancel_focus_restore()
+        self._entry_focused = False
+        return self._set_nonactivating(True)
+
+    def _cancel_focus_restore(self):
+        source = getattr(self, "_focus_restore_source", None)
+        self._focus_restore_source = None
+        if source is not None:
+            try:
+                self._GLib.source_remove(source)
+            except Exception:  # noqa: BLE001 - already fired or shutting down
+                pass
+
+    def _schedule_focus_restore(self):
+        """Restore nonactivating once focus has left the panel entirely.
+
+        Focus moving between widgets inside the panel (for example from the
+        prompt to a selectable answer) keeps keyboard focus so selection
+        works; the idle check lets GTK settle the new focus widget first.
+        """
+        self._cancel_focus_restore()
+        try:
+            self._focus_restore_source = self._GLib.idle_add(self._focus_restore_if_left)
+        except Exception:  # noqa: BLE001 - headless/test stubs
+            self._focus_restore_source = None
+
+    def _focus_restore_if_left(self):
+        self._focus_restore_source = None
+        try:
+            active = bool(self.window.is_active())
+        except Exception:  # noqa: BLE001
+            active = False
+        if not active:
+            self.restore_nonactivating()
+        return False
+
+    def _on_prompt_press(self, _widget, event):
+        """A click on the prompt is an explicit request to type."""
+        self.permit_prompt_focus(event)
+        return False
+
+    def _on_selectable_press(self, _widget, event):
+        """Clicking selectable text is a purposeful request for focus.
+
+        With cursor blending off the whole panel accepts input, so selecting
+        or copying the answer needs keyboard focus; GTK's own click handler
+        then focuses the clicked widget.
+        """
+        self.permit_focus(event)
+        return False
+
+    def _on_prompt_focus_in(self, *_args):
+        self._cancel_focus_restore()
+        self._entry_focused = True
+        return False
+
+    def _on_prompt_focus_out(self, *_args):
+        self._entry_focused = False
+        self._schedule_focus_restore()
+        return False
+
+    def _on_window_active_changed(self, window, _param):
+        """The whole toplevel lost focus: stop accepting keyboard focus."""
+        try:
+            active = bool(window.get_property("is-active"))
+        except Exception:  # noqa: BLE001
+            try:
+                active = bool(window.is_active())
+            except Exception:  # noqa: BLE001
+                active = False
+        if not active:
+            self._entry_focused = False
+            self.restore_nonactivating()
+        return False
+
     def _on_capture_clicked(self):
         if self._on_capture is not None:
             self._on_capture()
 
     def _passthrough_tooltip(self):
-        if self._input_locked:
-            return "Input locked: the whole panel accepts clicks, selection and scrolling"
-        return "Hover pass-through on: the panel background lets hover reach the site below (click to lock input)"
+        if not self.input_shape_supported:
+            return ("Cursor blending needs X11 or XWayland. This session is native "
+                    "Wayland, so the whole panel accepts input.")
+        if self.cursor_blending:
+            return ("Cursor blending on: the panel background passes hover and clicks "
+                    "through to the window below (X11/XWayland). Turn off to select "
+                    "and scroll the whole panel.")
+        return ("Cursor blending off: the whole panel accepts clicks, selection and "
+                "scrolling. Turn on to let the background pass through.")
+
+    def _sync_passthrough_button(self):
+        """Keep the panel toggle's label, icon and state in sync."""
+        button = getattr(self, "passthrough_button", None)
+        if button is None:
+            return
+        self._syncing_blending = True
+        try:
+            button.set_active(self.cursor_blending)
+        finally:
+            self._syncing_blending = False
+        button.set_label("Cursor blending: On" if self.cursor_blending
+                         else "Cursor blending: Off")
+        button.set_image(self._Gtk.Image.new_from_icon_name(
+            "changes-allow-symbolic" if self.cursor_blending else "changes-prevent-symbolic",
+            self._Gtk.IconSize.MENU))
+        button.set_tooltip_text(self._passthrough_tooltip())
+
+    def _on_passthrough_toggled(self, button):
+        if getattr(self, "_syncing_blending", False):
+            return
+        self.set_cursor_blending(button.get_active())
+
+    def set_cursor_blending(self, enabled, notify=True):
+        """Set cursor blending, apply the input shape and mirror the toggle.
+
+        ``notify`` asks the host (when one is attached) to persist the new
+        choice; the Appearance checkbox uses ``notify=False`` because it owns
+        the save flow itself. Unsupported native Wayland clamps to off.
+        """
+        enabled = bool(enabled) and self.input_shape_supported
+        changed = enabled != self.cursor_blending
+        self.cursor_blending = enabled
+        self._input_locked = not enabled
+        self._sync_passthrough_button()
+        self._cancel_input_shape()
+        self._apply_input_shape()
+        if notify and changed and self._on_cursor_blending is not None:
+            try:
+                self._on_cursor_blending(enabled)
+            except Exception:  # noqa: BLE001 - a host callback must not crash the panel
+                pass
+        return self.cursor_blending
 
     def _toggle_input_lock(self, *_args):
-        self._input_locked = not self._input_locked
-        icon = self._Gtk.Image.new_from_icon_name(
-            "changes-prevent-symbolic" if self._input_locked else "changes-allow-symbolic",
-            self._Gtk.IconSize.MENU)
-        for child in list(self.passthrough_button.get_children()):
-            self.passthrough_button.remove(child)
-        self.passthrough_button.add(icon)
-        self.passthrough_button.set_tooltip_text(self._passthrough_tooltip())
-        icon.show()
-        self._apply_input_shape()
+        """Legacy lock toggle; flips cursor blending and notifies the host."""
+        return self.set_cursor_blending(not self.cursor_blending)
+
+    def _cancel_input_shape(self):
+        source = getattr(self, "_shape_source", None)
+        self._shape_source = None
+        if source is not None:
+            try:
+                self._GLib.source_remove(source)
+            except Exception:  # noqa: BLE001 - already fired or shutting down
+                pass
 
     def _schedule_input_shape(self):
-        """Reapply the input shape after allocations settle."""
+        """Coalesce repeated shape requests into one idle callback."""
+        if getattr(self, "_shape_source", None) is not None:
+            return
         try:
-            self._Gtk.idle_add(self._apply_input_shape)
+            self._shape_source = self._GLib.idle_add(self._apply_input_shape)
         except Exception:  # noqa: BLE001 - headless or shutdown races
-            pass
+            self._shape_source = None
 
     def _input_widget_list(self):
-        """Widgets that must keep accepting input during pass-through."""
+        """Widgets that must keep accepting input during pass-through.
+
+        The toolbar holds the session controls, but Close lives in the command
+        row beside it, and Pin and the resize grip sit outside both, so each is
+        listed explicitly. The revealed history panel is included as a whole.
+        """
         widgets = [
             getattr(self, "toolbar", None),
             getattr(self, "question_button", None),
             getattr(self, "prompt_row", None),
             getattr(self, "controls", None),
+            getattr(self, "hide_button", None),
+            getattr(self, "pin_button", None),
+            getattr(self, "resize_handle", None),
         ]
         revealer = getattr(self, "history_revealer", None)
         if revealer is not None and revealer.get_reveal_child():
@@ -686,8 +975,11 @@ class FloatingOverlay:
         """Apply the X11 input shape; non-interactive areas pass input through.
 
         Wayland windows cannot punch input holes, so this is skipped off X11
-        (the panel runs under Xwayland in the supported GNOME setup).
+        (the panel runs under Xwayland in the supported GNOME setup). With
+        cursor blending off the whole window is one input region, which
+        restores text selection and scrolling.
         """
+        self._shape_source = None
         window = self.window
         gdk_window = window.get_window()
         if gdk_window is None:
@@ -702,12 +994,20 @@ class FloatingOverlay:
         try:
             import cairo
 
+            rects = self._collect_input_rects()
+            if not self._input_locked and not rects:
+                # Nothing has been allocated yet; keep the panel usable rather
+                # than making the whole window click-through.
+                return False
             size = (window.get_allocated_width(), window.get_allocated_height())
             region = cairo.Region()
-            for x, y, w, h in input_region_rects(self._collect_input_rects(), size, self._input_locked):
-                region.union_rectangle(cairo.RectangleInt(x, y, w, h))
-            gdk_window.input_shape_combine_region(region, 0, 0)
-        except Exception:  # noqa: BLE001 - shape is best-effort, never fatal
+            for x, y, w, h in input_region_rects(rects, size, self._input_locked):
+                region.union(cairo.RectangleInt(x, y, w, h))
+            # Keep the application region in GTK's widget state. Writing only
+            # to Gdk.Window is overwritten by GTK's later CSD/layout updates.
+            window.input_shape_combine_region(region)
+        except Exception as exc:  # noqa: BLE001 - shape is best-effort, never fatal
+            self._drag_debug(f"input shape update failed: {exc}")
             return False
         return False
 
@@ -721,10 +1021,12 @@ class FloatingOverlay:
         cr.restore()
         return False
 
-    def set_appearance(self, opacity, font_size=16, reduced_motion=False):
+    def set_appearance(self, opacity, font_size=16, reduced_motion=False, cursor_blending=None):
         self.opacity = parse_opacity(opacity)
         self.font_size = max(13, min(22, int(font_size)))
         self.reduced_motion = bool(reduced_motion)
+        if cursor_blending is not None and bool(cursor_blending) != self.cursor_blending:
+            self.set_cursor_blending(cursor_blending, notify=False)
         alpha = self.opacity if self._has_alpha else 1.0
         self._surface_css.load_from_data((
             f"#socket-stream-answer-panel .ss-panel, #socket-stream-answer-panel .ss-command-bar {{ background-color: rgba(23,23,28,{alpha}); }}\n"
@@ -959,7 +1261,7 @@ class FloatingOverlay:
                     applied.append(f"type-hint={hint_name.lower()}")
                     if hint_name == "DOCK":
                         # The dock layer is above fullscreen windows and is
-                        # never focused; no titlebar should be drawn for it.
+                        # nonactivating on map; no titlebar is drawn for it.
                         self.window.set_decorated(False)
                         self._center_window()
                 except Exception:  # noqa: BLE001
@@ -1097,6 +1399,7 @@ class FloatingOverlay:
         self._ever_shown = True
         if not self._should_hide():
             self._show_window()
+            self._schedule_input_shape()
             if not was_visible and getattr(self, "_motion_enabled", False):
                 self._fade_in()
         return self.is_visible()
@@ -1106,6 +1409,7 @@ class FloatingOverlay:
         self._on_drag_release(None, None)
         self._on_resize_release(None, None)
         self._cancel_fade()
+        self.restore_nonactivating()
         self.window.hide()
         return False
 
@@ -1451,6 +1755,8 @@ class FloatingOverlay:
         self._on_drag_release(None, None)
         self._on_resize_release(None, None)
         self._cancel_fade()
+        self._cancel_input_shape()
+        self._cancel_focus_restore()
         if self._render_timeout is not None:
             self._GLib.source_remove(self._render_timeout)
             self._render_timeout = None
@@ -1501,9 +1807,21 @@ def main(argv=None):
         return 2
 
     plan = build_plan(session, xwayland_dock=backend_is_x11(backend))
+    appearance = load_saved_appearance()
+
+    def persist_blending(enabled):
+        """Standalone persistence: save the toggle and report a failure."""
+        ok, message = persist_cursor_blending(enabled)
+        if not ok:
+            overlay.set_status(message)
+
     overlay = FloatingOverlay(
         plan=plan, session=session, stealth=args.stealth, compact=args.compact,
         opacity=args.opacity,
+        font_size=appearance.get("font_size", 16),
+        reduced_motion=appearance.get("reduced_motion", False),
+        cursor_blending=appearance.get("cursor_blending", True),
+        on_cursor_blending=persist_blending,
     )
 
     def deliver(event):

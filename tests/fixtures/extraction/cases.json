@@ -1,0 +1,82 @@
+[
+  {
+    "name": "code_examples_constraints",
+    "tree": {"schema":1,"source":"synthetic-atspi","nodes":[
+      {"id":1,"parent":null,"role":"frame","name":"Practice browser window"},
+      {"id":2,"parent":1,"role":"navigation","text":"Home Account Settings Documentation Help Community"},
+      {"id":3,"parent":1,"role":"document web"},
+      {"id":4,"parent":3,"role":"heading","text":"Find the first matching pair."},
+      {"id":5,"parent":3,"role":"text","text":"def solve(values):\n    for value in values:\n        if value == 2:\n            return value"},
+      {"id":6,"parent":3,"role":"paragraph","text":"Example: [1, 2, 3] returns 2."},
+      {"id":7,"parent":3,"role":"paragraph","text":"Constraints: 1 <= len(values) <= 1000."}
+    ]},
+    "keep":["Find the first matching pair.","def solve(values):\n    for value in values:\n        if value == 2:\n            return value","Example: [1, 2, 3] returns 2.","Constraints: 1 <= len(values) <= 1000."],
+    "drop":["Practice browser window","Home Account Settings"],
+    "text_needs_ocr":false,
+    "image_regions":0
+  },
+  {
+    "name":"image_question_with_long_navigation",
+    "tree":{"schema":1,"source":"synthetic-ax","nodes":[
+      {"id":1,"parent":null,"role":"window","text":"A very long page title that is not the question"},
+      {"id":2,"parent":1,"role":"toolbar","text":"Back Forward Refresh Address Search Bookmarks History Downloads"},
+      {"id":3,"parent":1,"role":"canvas","image":true,"bounds":[20,100,640,480]}
+    ]},
+    "keep":[],
+    "drop":["page title","Back Forward"],
+    "text_needs_ocr":true,
+    "image_regions":1
+  },
+  {
+    "name":"mixed_text_and_diagram",
+    "tree":{"schema":1,"source":"synthetic-atspi","nodes":[
+      {"id":1,"parent":null,"role":"document web"},
+      {"id":2,"parent":1,"role":"paragraph","text":"Using the graph below, find the shortest path from A to D."},
+      {"id":3,"parent":1,"role":"image","image":true,"bounds":[100,200,600,300]},
+      {"id":4,"parent":1,"role":"paragraph","text":"All edge weights are positive integers."}
+    ]},
+    "keep":["Using the graph below, find the shortest path from A to D.","All edge weights are positive integers."],
+    "drop":[],
+    "text_needs_ocr":false,
+    "image_regions":1
+  },
+  {
+    "name":"multiple_choice",
+    "tree":{"schema":1,"source":"synthetic-atspi","nodes":[
+      {"id":1,"parent":null,"role":"document web"},
+      {"id":2,"parent":1,"role":"paragraph","text":"Which search algorithm requires sorted input?"},
+      {"id":3,"parent":1,"role":"radio button","text":"A. Linear search"},
+      {"id":4,"parent":1,"role":"radio button","text":"B. Binary search"},
+      {"id":5,"parent":1,"role":"radio button","text":"C. Depth-first search"},
+      {"id":6,"parent":1,"role":"status bar","text":"Account status: connected"}
+    ]},
+    "keep":["Which search algorithm requires sorted input?","A. Linear search","B. Binary search","C. Depth-first search"],
+    "drop":["Account status"],
+    "text_needs_ocr":false,
+    "image_regions":0
+  },
+  {
+    "name":"short_non_space_delimited_question",
+    "tree":{"schema":1,"source":"synthetic-ax","nodes":[
+      {"id":1,"parent":null,"role":"text","text":"求数组中最大的元素"}
+    ]},
+    "keep":["求数组中最大的元素"],
+    "drop":[],
+    "text_needs_ocr":false,
+    "image_regions":0
+  },
+  {
+    "name":"protected_subtree_and_short_code",
+    "tree":{"schema":1,"source":"synthetic-atspi","nodes":[
+      {"id":1,"parent":null,"role":"document web"},
+      {"id":2,"parent":1,"role":"group","protected":true},
+      {"id":3,"parent":2,"role":"text","text":"synthetic-secret-must-not-leak"},
+      {"id":4,"parent":2,"role":"image","image":true,"bounds":[0,0,100,100]},
+      {"id":5,"parent":1,"role":"text","text":"print(x)"}
+    ]},
+    "keep":["print(x)"],
+    "drop":["synthetic-secret-must-not-leak"],
+    "text_needs_ocr":false,
+    "image_regions":0
+  }
+]

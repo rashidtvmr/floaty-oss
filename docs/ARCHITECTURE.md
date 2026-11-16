@@ -6,14 +6,25 @@ Low-overhead Rust desktop assistant for coding practice, accessibility assistanc
 ## Capture
 - Use frontmost application accessibility text when it is accessible to the logged-in user and authorized by OS permissions.
 - macOS: AXUIElement; Linux: AT-SPI2 through PyGObject helper. Both are currently one-shot helpers; automatic observation is via explicit sampling. The macOS helper roots at the focused/main window (not the application element, whose first child is the global menu bar), skips `AXMenuBar`, excludes secure fields, and records focus so `auto` rendering can pick the real content element.
-- If text is inaccessible/too short: use a consent-gated screenshot and local OCR. macOS: Apple Vision; Linux: Tesseract.
-- No screenshots are intentionally retained after sampling. Captures used for user-requested export are explicit.
+- Text coverage recognizes short questions, code and dense-script text. When
+  useful text is unavailable, an explicit OCR opt-in permits an approved
+  screenshot and local OCR (macOS Apple Vision; Linux Tesseract). Enabled eligible
+  image regions are handled before the readable-text early return.
+- Captures are session-temporary. The audio/manual-ask vision path can retain the
+  current approved frame for a configured compatible provider; `--no-vision`
+  disables attachment. A later accessibility-only read clears the previous-frame
+  reference. User-requested file exports are explicit.
 - Some code editors expose only the focused line; OCR is necessary in these cases.
 - GNOME/KDE Wayland use the user-approved XDG ScreenCast/PipeWire backend when OCR is required; wlroots grim and X11 import remain alternatives. Real Linux portal E2E pending.
 
 ## Accessibility tree, region OCR and shortcuts
 - The AT-SPI2 (Linux) and AX (macOS) helpers accept `--mode tree|text` and print one schema-1 JSON object in `tree` mode: a flat pre-order node list with `id`, `parent`, `role`, `name`, `text`, `focused`, `bounds`, `image` and `protected`, plus `truncated` and `node_count`. `--mode text` keeps the previous flat-text output byte-for-byte.
 - `crates/socket_stream_core/src/a11y.rs` parses that JSON into an `A11yTree` and renders it under a `TokenBudget` in `focused`, `tree`, `text` or `auto` mode. Rendering is pure and deterministic: structural roles are skipped, protected nodes never render text, duplicate `(role, text)` pairs are emitted once, and the budget caps tokens, nodes, depth and characters and sets `truncated`. The default mode is `tree` and the default budget is depth 20 / 800 nodes / 32k chars / 4000 tokens: a browser nests its page content (`AXWebArea`) about eight levels below the window and the question several levels below that, so `focused`/`auto` (and the old depth-8 budget) returned only the browser chrome, never the page.
+- The live/manual/audio reader uses `render_question()` before spending the
+  model budget: explicitly marked navigation, toolbar, menu, banner and status
+  subtrees are removed, as are protected descendants. Window titles are metadata.
+  Remaining content keeps document order and code whitespace; unknown layouts
+  are preserved. The role-free display is used to assess text coverage.
 - `A11yTree::image_regions` returns image/graphic nodes worth OCR, largest first and bounded by the budget. This is what makes region OCR resource-efficient: instead of OCR-ing a whole frame, `ocr.rs` crops only those rectangles (`sips`/`magick`/`convert`) and runs Tesseract on them, with a small bounded cache keyed by screenshot path and region. If no crop tool exists it returns an error rather than silently OCR-ing the whole screen. OCR remains opt-in.
 - `crates/socket_stream_core/src/config.rs` reads a JSON config from `$SOCKET_STREAM_CONFIG`, else `$XDG_CONFIG_HOME/socket_stream/config.json`, else `~/.config/socket_stream/config.json`. It controls the a11y mode and budget, the OCR policy, the shortcut bindings and the overlay defaults. A missing file means defaults; a malformed file is reported, never silently ignored. CLI flags override the file, which overrides the defaults.
 - `crates/socket_stream_core/src/shortcuts.rs` holds seventeen stable action names and their accelerators (Linux set includes five Q&A actions; macOS currently implements 12), parses and validates bindings, and reports platform notes. The desktop shells register them with their own toolkits; out-of-focus global grabs require the desktop's own hotkey tool and the app never installs a grab silently. Every shortcut is also reachable from the UI without a keyboard.
@@ -23,7 +34,36 @@ Low-overhead Rust desktop assistant for coding practice, accessibility assistanc
   unknown fields. Binding maps are full snapshots. Malformed/non-object JSON and
   symlink/non-regular targets are refused. Appearance lives in `desktop.appearance`;
   the legacy `overlay` section remains separate. See [SHORTCUTS.md](SHORTCUTS.md).
-- All of this keeps the permission-based model: accessibility is read only for the authorized foreground application, OCR only runs after explicit opt-in, and no capture happens when the accessibility text is sufficient.
+- Accessibility is read for the authorized foreground application. OCR is
+  explicitly enabled; image-region OCR can augment otherwise sufficient text.
+  Region failures preserve usable accessible content. Whole-frame fallback needs
+  the separate general OCR opt-in, and force-OCR retains whole-frame semantics.
+- `desktop.appearance.cursor_blending` defaults to `true`. GTK uses coalesced GLib
+  input-shape updates on X11/XWayland; off restores the full input region. The
+  toolbar saves immediately and mirrors Appearance. Native Wayland disables the
+  unsupported control while preserving its stored preference.
+
+### Adoption status of the accessibility-first recommendations
+
+The current release implements question-scoped context, coverage-based OCR
+decisions, image-region precedence, stale vision-frame invalidation and a
+reproducible synthetic extraction/OCR benchmark. Native AT-SPI2 and AX remain the
+default. See [EXTRACTION-BENCHMARK.md](EXTRACTION-BENCHMARK.md) for measured scope.
+
+The next changes need their own implementation and runtime evidence:
+
+- Event-driven observation: AT-SPI event subscriptions / AXObserver, debounced
+  stable-context reads, cancellation and a periodic resynchronization fallback.
+- Persistent OCR workers and content-based region caching: the current backend
+  starts one process per OCR call; the small cache uses path/rectangle plus file
+  size, modification time and segmentation mode.
+- Optional Agent Browser reader: explicit existing CDP connection and selected
+  content scope, disabled by default. A bundled adapter is pending; version
+  capabilities, protected form values, daemon cleanup and automatic browser
+  side effects require fixture and real-browser checks first.
+- Interactive computer actions: a separate explicit grant, action/time bounds,
+  cancellation on Stop and review before externally visible actions. Screen
+  reading permission does not enable browser clicks, typing or submission.
 
 ## Audio
 - Explicit FFmpeg microphone recording is available with a user-chosen source, finite duration and output file; local Whisper CLI can transcribe the resulting WAV. Batch audio-practice composes these steps.
@@ -31,7 +71,10 @@ Low-overhead Rust desktop assistant for coding practice, accessibility assistanc
 
 ## Providers
 - Mock model always works offline for test-only echo; live local Ollama qwen2.5-coder:1.5b answered a sample algorithm question.
-- OpenAI-compatible chat completions use BYOK. Send extracted text, not screenshots. HTTPS is required for nonlocal URLs. Explicit provider fallback never silently uses a second API service.
+- OpenAI-compatible chat completions use BYOK. Text is the default; authorized
+  audio/manual-ask vision requests can attach the current screenshot as a data
+  URL. HTTPS is required for nonlocal URLs. Explicit provider fallback never
+  silently uses a second API service.
 - Codex provider invokes the user-installed, officially authenticated CLI with read-only sandbox and stdin prompt. Subscription plan restrictions and availability apply; this isn't an API-key substitution.
 - No assistant has privilege to execute code extracted from a captured screen. Screen text is untrusted data.
 - Shared system instructions keep the `Question:`/`Answer:` envelope and request

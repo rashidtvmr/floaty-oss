@@ -1,6 +1,7 @@
 mod ask;
 mod audio_live;
 mod auth_commands;
+mod extraction_benchmark;
 mod hotkeys;
 mod live_events;
 mod live_observe;
@@ -66,6 +67,8 @@ fn usage() {
         "  analyze-file --file PATH [--provider mock|openai-compatible|ollama|codex] [--fallback-provider ...]"
     );
     eprintln!("  ocr --file IMAGE");
+    eprintln!("  benchmark-extraction [--iterations 100] [--with-ocr] [--ocr-iterations 3]");
+    eprintln!("    synthetic extraction/token baseline; optional bundled-image local OCR timing");
     eprintln!("  analyze-image --file IMAGE [--provider mock|ollama|openai-compatible|codex]");
     eprintln!("  transcribe --file WAV --model WHISPER_GGML_MODEL [--executable whisper-cli]");
     eprintln!(
@@ -213,6 +216,7 @@ async fn run(args: &[String]) -> Result<(), String> {
         "overlay" => overlay::run(args),
         "replay-events" => live_events::replay(&required_path(args, "--file")?),
         "hotkeys" => hotkeys::run(args),
+        "benchmark-extraction" => extraction_benchmark::run(args),
         "codex-login" | "codex-status" | "codex-logout" => auth_commands::run(action, args).await,
         "provider-models" => {
             let models = list_models(&provider_from_env(args)?)

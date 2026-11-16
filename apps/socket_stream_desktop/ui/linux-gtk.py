@@ -33,6 +33,7 @@ from shortcuts import (  # noqa: E402  (path set just above)
     parse_bindings,
     save_appearance as save_appearance_config,
     save_config_file,
+    save_cursor_blending,
 )
 from answer_format import question_title  # noqa: E402
 from ui_theme import style  # noqa: E402
@@ -187,6 +188,7 @@ def create_window():
             self._accel_group = None
             self._recording_action = ""
             self._navigating = False
+            self._syncing_blending = False
             self._history_signature = None
             self._force_stop_source = None
             self.proc = None
@@ -226,6 +228,7 @@ def create_window():
                 on_minimize=self.minimize_app, on_settings=self.open_appearance,
                 on_selection_changed=self.refresh_session,
                 on_ask=self.send_manual_question, on_capture=self.manual_capture,
+                on_cursor_blending=self.on_panel_cursor_blending,
                 **self.appearance,
             )
             build_workspace(self)
@@ -333,9 +336,16 @@ def create_window():
             self.set_status()
 
         def appearance_values(self):
-            return dict(opacity=round(self.opacity_scale.get_value() / 100, 2),
-                        font_size=self.font_size.get_value_as_int(),
-                        reduced_motion=self.reduced_motion.get_active())
+            values = dict(opacity=round(self.opacity_scale.get_value() / 100, 2),
+                          font_size=self.font_size.get_value_as_int(),
+                          reduced_motion=self.reduced_motion.get_active())
+            if getattr(self.floating, "input_shape_supported", False):
+                values["cursor_blending"] = self.cursor_blending_check.get_active()
+            else:
+                # Native Wayland cannot apply input shapes; keep the stored
+                # preference instead of silently rewriting it to off.
+                values["cursor_blending"] = bool(self.appearance.get("cursor_blending", True))
+            return values
 
         def preview_appearance(self, _widget=None):
             values = self.appearance_values()
@@ -352,15 +362,52 @@ def create_window():
             self.feedback(self.appearance_message,
                           "Preview updated · Save to keep these settings." if values != self.appearance else "")
 
+        def on_cursor_blending_toggled(self, button):
+            """Appearance checkbox: preview the panel live; Save persists it."""
+            if getattr(self, "_syncing_blending", False):
+                return
+            self.floating.set_cursor_blending(button.get_active(), notify=False)
+            self.preview_appearance()
+
+        def on_panel_cursor_blending(self, enabled):
+            """Panel toggle changed cursor blending: mirror it and save the choice.
+
+            The panel toggle is a live control, so the choice is persisted
+            immediately through the shared atomic config; a failed save stays
+            visible in the Appearance message and the diagnostics log.
+            """
+            self._syncing_blending = True
+            try:
+                self.cursor_blending_check.set_active(bool(enabled))
+            finally:
+                self._syncing_blending = False
+            try:
+                save_cursor_blending(bool(enabled))
+            except (ValueError, OSError) as exc:
+                self.feedback(self.appearance_message,
+                              f"Could not save cursor blending: {exc}", error=True)
+                self.floating.set_status("Cursor blending changed · could not save")
+                self.write("Cursor blending changed for this session, but the setting "
+                           "could not be saved.\n")
+            else:
+                self.appearance["cursor_blending"] = bool(enabled)
+                state = "on" if enabled else "off"
+                pending = (" Other appearance previews still need Save."
+                           if self.appearance_values() != self.appearance else "")
+                self.feedback(self.appearance_message,
+                              f"Cursor blending {state} · saved for next time.{pending}")
+                self.write(f"Cursor blending {state} · saved for next time.\n")
+
         def save_appearance(self, _button=None):
             values = self.appearance_values()
             try:
                 save_appearance_config(values)
             except (ValueError, OSError) as exc:
                 self.feedback(self.appearance_message, f"Could not save appearance: {exc}", error=True)
-                return
+                return False
             self.appearance = values
             self.feedback(self.appearance_message, "Appearance saved.")
+            return True
 
         # ---- keyboard shortcuts ------------------------------------------
 

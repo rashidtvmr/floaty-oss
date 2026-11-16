@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 socket_stream_core = { path = "../../crates/socket_stream_core", features = ["codex-auth-experimental"] }
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tempfile.workspace = true
