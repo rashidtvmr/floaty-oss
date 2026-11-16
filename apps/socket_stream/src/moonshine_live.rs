@@ -1,11 +1,15 @@
 //! Continuous, local Moonshine STT feeding the normal streaming answer UI.
 //! Capture and inference are separate owned children. Pause destroys both and
-//! discards pending speech; Resume starts a fresh audio stream.
+//! discards pending speech; Resume starts a fresh audio stream. With
+//! --read-screen, a parallel reader keeps the latest screen text (and, for
+//! OpenAI-compatible providers, a screenshot for model vision) so spoken and
+//! manually typed questions are answered with on-screen context.
 use crate::live_events::Emitter;
-use socket_stream_core::ai::{Provider, stream_answer};
+use crate::live_observe::{ScreenReader, a11y_options, bound_context, compose_prompt};
+use socket_stream_core::ai::{MAX_IMAGE_BYTES, Provider, stream_answer_vision};
 use std::collections::VecDeque;
 use std::io::BufRead;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, Command};
@@ -15,9 +19,92 @@ use tokio::time::{Duration, Instant};
 
 const MAX_EVENT: u64 = 128 * 1024;
 const MAX_TEXT: usize = 8000;
+/// Longest stdin control line: "question " plus a bounded manual question.
+const MAX_CONTROL_LINE: usize = 9_000;
+/// Longest manual question accepted over stdin after the "question " prefix.
+const MAX_MANUAL_QUESTION: usize = 8_000;
 
 fn option(args: &[String], flag: &str) -> Option<String> {
     args.windows(2).find(|p| p[0] == flag).map(|p| p[1].clone())
+}
+
+fn has(args: &[String], flag: &str) -> bool {
+    args.iter().any(|arg| arg == flag)
+}
+
+fn bounded_u64(
+    args: &[String],
+    flag: &str,
+    default: u64,
+    lower: u64,
+    upper: u64,
+) -> Result<u64, String> {
+    let value = option(args, flag)
+        .map(|raw| {
+            raw.parse::<u64>()
+                .map_err(|_| format!("{flag} must be an integer"))
+        })
+        .transpose()?
+        .unwrap_or(default);
+    if !(lower..=upper).contains(&value) {
+        return Err(format!("{flag} must be {lower}..{upper}"));
+    }
+    Ok(value)
+}
+
+/// One parallel screen-reading outcome delivered to the session loop.
+struct ScreenUpdate {
+    /// Role-free panel rendering (bounded).
+    display: String,
+    /// Bounded model context text.
+    context: String,
+    source: &'static str,
+    /// "ok" or "unavailable".
+    status: &'static str,
+    /// Path of the retained screenshot, when vision is enabled.
+    frame: Option<PathBuf>,
+    /// True when the read was explicitly requested via the read-screen
+    /// control; such reads become questions, automatic reads do not.
+    manual: bool,
+}
+
+/// Signals from the session loop to the blocking reader thread.
+enum ReaderSignal {
+    Read,
+    Pause,
+    Resume,
+    Stop,
+}
+
+/// Decode one control line. Pure so the protocol is testable without stdin.
+fn control_line(line: &str) -> Option<Result<Control, String>> {
+    let trimmed = line.trim();
+    match trimmed {
+        "pause" => return Some(Ok(Control::Pause)),
+        "resume" => return Some(Ok(Control::Resume)),
+        "stop" => return Some(Ok(Control::Stop)),
+        "read-screen" => return Some(Ok(Control::ReadScreen)),
+        "" => return None,
+        _ => {}
+    }
+    trimmed.strip_prefix("question ").map(|rest| {
+        let text = rest.trim();
+        if text.is_empty() {
+            Err("Type a question after the question command.".into())
+        } else if text.len() > MAX_MANUAL_QUESTION {
+            Err("Manual question is too long.".into())
+        } else {
+            Ok(Control::Question(text.to_owned()))
+        }
+    })
+}
+
+enum Control {
+    Pause,
+    Resume,
+    Stop,
+    ReadScreen,
+    Question(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -288,11 +375,15 @@ impl Drop for AnswerTask {
     }
 }
 
-fn start_answer(provider: Provider, prompt: String) -> (AnswerTask, watch::Receiver<AnswerView>) {
+fn start_answer(
+    provider: Provider,
+    prompt: String,
+    image: Option<Vec<u8>>,
+) -> (AnswerTask, watch::Receiver<AnswerView>) {
     let (tx, rx) = watch::channel(AnswerView::default());
     let task = tokio::spawn(async move {
         let (deltas, mut incoming) = mpsc::channel::<String>(32);
-        let inference = stream_answer(&provider, &prompt, &deltas);
+        let inference = stream_answer_vision(&provider, &prompt, image.as_deref(), &deltas);
         tokio::pin!(inference);
         let append = |delta: String| {
             tx.send_modify(|view| {
@@ -324,25 +415,171 @@ fn controls() -> mpsc::Receiver<String> {
         let mut reader = stdin.lock();
         loop {
             let mut bytes = Vec::new();
-            if std::io::Read::take(&mut reader, 65)
+            if std::io::Read::take(&mut reader, MAX_CONTROL_LINE as u64)
                 .read_until(b'\n', &mut bytes)
                 .unwrap_or(0)
                 == 0
             {
                 break;
             }
-            if bytes.len() > 64 {
+            if bytes.len() > MAX_CONTROL_LINE {
                 break;
             }
             let line = String::from_utf8_lossy(&bytes).trim().to_owned();
-            if matches!(line.as_str(), "pause" | "resume" | "stop")
-                && tx.blocking_send(line).is_err()
-            {
+            // Forward pause/resume/stop/read-screen and bounded "question …"
+            // lines; anything else is ignored so stray input cannot kill the
+            // session.
+            let recognized = matches!(line.as_str(), "pause" | "resume" | "stop" | "read-screen")
+                || line.starts_with("question ");
+            if recognized && tx.blocking_send(line).is_err() {
                 break;
             }
         }
     });
     rx
+}
+
+/// Read the screen once and deliver the outcome. Automatic interval reads
+/// only carry context; manual reads (from the panel's Capture button) become
+/// questions in the session loop.
+fn deliver_read(
+    reader: &mut ScreenReader,
+    updates: &tokio::sync::mpsc::UnboundedSender<ScreenUpdate>,
+    manual: bool,
+) {
+    use crate::live_observe::Reading;
+    let reading = reader.read_once();
+    let frame = reader.last_frame().map(Path::to_path_buf);
+    let update = match reading {
+        Reading::Question(text, display, source) => {
+            let context = bound_context(&text);
+            let empty = context.trim().is_empty();
+            ScreenUpdate {
+                display,
+                context,
+                source,
+                status: if empty { "unavailable" } else { "ok" },
+                frame,
+                manual,
+            }
+        }
+        Reading::Nothing => ScreenUpdate {
+            display: String::new(),
+            context: String::new(),
+            source: "system",
+            status: "unavailable",
+            frame,
+            manual,
+        },
+        Reading::Insufficient => ScreenUpdate {
+            display: "No readable content on the focused window. Enable local OCR fallback for screenshots.".into(),
+            context: String::new(),
+            source: "system",
+            status: "unavailable",
+            frame,
+            manual,
+        },
+        Reading::AccessibilityUnavailable(reason) => ScreenUpdate {
+            display: if reason.is_empty() {
+                "Accessibility unavailable; enable local OCR fallback for screenshots.".into()
+            } else {
+                format!("Accessibility unavailable: {reason}")
+            },
+            context: String::new(),
+            source: "system",
+            status: "unavailable",
+            frame,
+            manual,
+        },
+        Reading::OcrFailed(reason) => ScreenUpdate {
+            display: format!("Screenshot read failed: {reason}"),
+            context: String::new(),
+            source: "system",
+            status: "unavailable",
+            frame,
+            manual,
+        },
+    };
+    let _ = updates.send(update);
+}
+
+/// Start the parallel screen-reading thread. It performs one immediate read,
+/// then reads on the interval, delivering every outcome to the session loop.
+/// Dropping the returned signal sender stops the thread.
+fn start_screen_reader(
+    args: &[String],
+) -> (
+    tokio::sync::mpsc::UnboundedReceiver<ScreenUpdate>,
+    std::sync::mpsc::Sender<ReaderSignal>,
+) {
+    let (updates_tx, updates_rx) = tokio::sync::mpsc::unbounded_channel::<ScreenUpdate>();
+    let (signals_tx, signals_rx) = std::sync::mpsc::channel::<ReaderSignal>();
+    let args = args.to_vec();
+    std::thread::spawn(move || {
+        let interval = bounded_u64(&args, "--read-interval", 5, 2, 3600).unwrap_or(5);
+        let (reader, options_error) = match a11y_options(&args) {
+            Ok(options) => {
+                let allow_ocr = has(&args, "--allow-ocr") || has(&args, "--force-ocr");
+                let force_ocr = has(&args, "--force-ocr");
+                let vision = !has(&args, "--no-vision");
+                match ScreenReader::start(
+                    allow_ocr,
+                    force_ocr,
+                    vision,
+                    socket_stream_core::capture::requires_linux_portal(),
+                    options,
+                    interval,
+                ) {
+                    Ok(reader) => (Some(reader), None),
+                    Err(message) => (None, Some(message)),
+                }
+            }
+            Err(message) => (None, Some(message)),
+        };
+        let mut reader = match reader {
+            Some(reader) => reader,
+            None => {
+                let _ = updates_tx.send(ScreenUpdate {
+                    display: options_error.unwrap_or_default(),
+                    context: String::new(),
+                    source: "system",
+                    status: "unavailable",
+                    frame: None,
+                    manual: false,
+                });
+                return;
+            }
+        };
+        // One immediate read so context exists before the first interval.
+        deliver_read(&mut reader, &updates_tx, false);
+        loop {
+            match signals_rx.recv_timeout(Duration::from_secs(interval)) {
+                Ok(ReaderSignal::Stop) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    break;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    deliver_read(&mut reader, &updates_tx, false);
+                }
+                Ok(ReaderSignal::Read) => deliver_read(&mut reader, &updates_tx, true),
+                Ok(ReaderSignal::Pause) => reader.pause(),
+                Ok(ReaderSignal::Resume) => reader.resume(),
+            }
+        }
+        reader.stop();
+    });
+    (updates_rx, signals_tx)
+}
+
+/// The latest screenshot is attached to provider requests only for
+/// OpenAI-compatible endpoints; Codex CLI and the mock provider receive the
+/// OCR'd screen text instead. PNG magic bytes guard against stale files.
+fn vision_frame(provider: &Provider, frame: Option<&Path>) -> Option<Vec<u8>> {
+    if !matches!(provider, Provider::OpenAiCompatible { .. }) {
+        return None;
+    }
+    let bytes = std::fs::read(frame?).ok()?;
+    (bytes.len() <= MAX_IMAGE_BYTES && bytes.starts_with(&[0x89, b'P', b'N', b'G']))
+        .then_some(bytes)
 }
 
 pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
@@ -390,9 +627,30 @@ async fn run_session(
     } else {
         "microphone"
     };
+    let read_screen = has(args, "--read-screen");
+    if read_screen {
+        // Validate reader options up front so a bad flag fails fast instead
+        // of surfacing later as an unavailable screen read.
+        bounded_u64(args, "--read-interval", 5, 2, 3600)?;
+        a11y_options(args)?;
+    }
     let root = socket_stream_core::paths::project_root();
     let mut control = controls();
     let (tx, mut events) = mpsc::channel(32);
+    let (mut screen_updates, reader_signals) = if read_screen {
+        start_screen_reader(args)
+    } else {
+        let (updates_tx, updates_rx) = tokio::sync::mpsc::unbounded_channel::<ScreenUpdate>();
+        let (signals_tx, signals_rx) = std::sync::mpsc::channel::<ReaderSignal>();
+        drop(updates_tx);
+        drop(signals_rx);
+        (updates_rx, signals_tx)
+    };
+    let mut screen_context = String::new();
+    let mut screen_frame: Option<PathBuf> = None;
+    let mut manual_pending: Option<String> = None;
+    let mut manual_number = 0_u64;
+    let mut warned_screen = false;
     let mut generation = 1;
     let mut session: Option<SpeechSession> = None;
     let mut starting = true;
@@ -409,6 +667,28 @@ async fn run_session(
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| "Cannot install audio stop handler.")?;
     emitter.send("session_started", label, None, None)?;
+    // Start one manual request. A typed question gets the latest screen text
+    // as context; a manual capture's read IS the question, so no extra
+    // context is added. Vision frames are attached when the provider can use
+    // them.
+    macro_rules! start_manual {
+        ($text:expr, $source:expr, $with_context:expr) => {{
+            manual_number += 1;
+            answer_id = format!("manual-{manual_number}");
+            emitter.send("question_detected", $source, Some(&answer_id), Some(&$text))?;
+            emitter.send("answer_started", $source, Some(&answer_id), None)?;
+            let prompt = if $with_context {
+                compose_prompt(&$text, Some(&screen_context))
+            } else {
+                $text.clone()
+            };
+            let image = vision_frame(&provider, screen_frame.as_deref());
+            let (task, rx) = start_answer(provider.clone(), prompt, image);
+            answer_task = Some(task);
+            answer_rx = rx;
+            answer_sent = 0;
+        }};
+    }
     loop {
         // Startup remains cancellable: no capture survives a cancelled future.
         let startup = async {
@@ -427,7 +707,10 @@ async fn run_session(
             } => break,
             command = control.recv() => {
                 match command.as_deref() {
-                    Some("stop") => break,
+                    Some("stop") => {
+                        let _ = reader_signals.send(ReaderSignal::Stop);
+                        break;
+                    }
                     Some("pause") if !paused => {
                         starting = false;
                         paused = true;
@@ -435,17 +718,70 @@ async fn run_session(
                         if let Some(mut old) = session.take() { old.stop().await; }
                         answer_task = None;
                         transcript.pending.clear();
+                        manual_pending = None;
                         due = None;
+                        let _ = reader_signals.send(ReaderSignal::Pause);
                         emitter.send("session_paused", label, None, None)?;
                     }
                     Some("resume") if paused => {
                         paused = false;
                         starting = true;
                         transcript.last_final = None;
+                        let _ = reader_signals.send(ReaderSignal::Resume);
                         emitter.send("session_resumed", label, None, None)?;
                     }
+                    Some("read-screen") => {
+                        let _ = reader_signals.send(ReaderSignal::Read);
+                    }
+                    Some(line) if line.starts_with("question ") => match control_line(line) {
+                        Some(Ok(Control::Question(text))) => {
+                            if text.chars().filter(|c| c.is_alphabetic()).count() < 3 {
+                                emitter.send(
+                                    "error", "system", None,
+                                    Some("Type a longer question before sending."),
+                                )?;
+                            } else if answer_task.is_none() && !paused {
+                                start_manual!(text, "manual", true);
+                            } else {
+                                manual_pending = Some(text);
+                            }
+                        }
+                        Some(Err(message)) => {
+                            emitter.send("error", "system", None, Some(&message))?;
+                        }
+                        _ => {}
+                    },
                     None => break,
                     _ => {}
+                }
+            }
+            Some(update) = screen_updates.recv(), if read_screen => {
+                let ScreenUpdate { display, context, source, status, frame, manual } = update;
+                if status == "ok" && !context.trim().is_empty() {
+                    screen_context = context;
+                    warned_screen = false;
+                }
+                if frame.is_some() {
+                    screen_frame = frame;
+                }
+                if status == "ok" {
+                    emitter.send_screen_read(source, "ok", &display)?;
+                } else if manual || !warned_screen {
+                    emitter.send_screen_read("system", "unavailable", &display)?;
+                    warned_screen = true;
+                    if manual {
+                        emitter.send("error", "system", None, Some(&display))?;
+                    }
+                }
+                // A manual capture becomes a question: the read itself is the
+                // question text, so the model answers what is on screen.
+                if manual && status == "ok" && !screen_context.trim().is_empty() {
+                    if answer_task.is_none() && !paused {
+                        let text = screen_context.clone();
+                        start_manual!(text, source, false);
+                    } else {
+                        manual_pending = Some(screen_context.clone());
+                    }
                 }
             }
             result = startup, if starting => {
@@ -477,7 +813,9 @@ async fn run_session(
                 answer_id = format!("spoken-{request}");
                 emitter.send("question_detected", label, Some(&answer_id), Some(&prompt))?;
                 emitter.send("answer_started", label, Some(&answer_id), None)?;
-                let (task, rx) = start_answer(provider.clone(), prompt);
+                let context_prompt = compose_prompt(&prompt, Some(&screen_context));
+                let image = vision_frame(&provider, screen_frame.as_deref());
+                let (task, rx) = start_answer(provider.clone(), context_prompt, image);
                 answer_task = Some(task);
                 answer_rx = rx;
                 answer_sent = 0;
@@ -493,6 +831,14 @@ async fn run_session(
                     if view.failed { emitter.send("error", "provider", Some(&answer_id), Some("AI provider failed; check endpoint, credentials and model."))?; }
                     else { emitter.send("answer_completed", label, Some(&answer_id), None)?; }
                     answer_task = None;
+                    // Start a queued manual request once the current answer
+                    // completed; latest request wins.
+                    if !paused
+                        && let Some(text) = manual_pending.take()
+                        && text.chars().filter(|c| c.is_alphabetic()).count() >= 3
+                    {
+                        start_manual!(text, "manual", true);
+                    }
                 }
             }
         }
@@ -550,7 +896,7 @@ mod tests {
 
     #[tokio::test]
     async fn mock_answer_stream_completes_in_bounded_view() {
-        let (_task, mut rx) = start_answer(Provider::Mock, "Explain binary search".into());
+        let (_task, mut rx) = start_answer(Provider::Mock, "Explain binary search".into(), None);
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 rx.changed().await.unwrap();
@@ -564,5 +910,61 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[test]
+    fn control_lines_accept_pause_resume_stop_readscreen_and_questions() {
+        assert!(matches!(control_line("pause"), Some(Ok(Control::Pause))));
+        assert!(matches!(
+            control_line("  resume  "),
+            Some(Ok(Control::Resume))
+        ));
+        assert!(matches!(control_line("stop\n"), Some(Ok(Control::Stop))));
+        assert!(matches!(
+            control_line("read-screen"),
+            Some(Ok(Control::ReadScreen))
+        ));
+        assert!(matches!(
+            control_line("question What is binary search?"),
+            Some(Ok(Control::Question(text))) if text == "What is binary search?"
+        ));
+        assert!(control_line("").is_none());
+        assert!(control_line("quit").is_none());
+        assert!(
+            control_line("question").is_none(),
+            "bare question without payload is ignored"
+        );
+        assert!(
+            control_line("question    ").is_none(),
+            "payload trims away, leaving bare 'question'"
+        );
+        assert!(matches!(
+            control_line(&format!("question {}", "x".repeat(MAX_MANUAL_QUESTION + 1))),
+            Some(Err(message)) if message.contains("too long")
+        ));
+    }
+
+    #[test]
+    fn vision_frames_require_png_magic_and_openai_compatible_provider() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let png = directory.path().join("frame.png");
+        std::fs::write(&png, [0x89_u8, b'P', b'N', b'G', 0x0D, 0x0A]).expect("write frame");
+        let openai = Provider::OpenAiCompatible {
+            base_url: "http://localhost:11434/v1".into(),
+            model: "m".into(),
+            api_key: "k".into(),
+        };
+        assert!(vision_frame(&openai, Some(&png)).is_some());
+        // Mock and Codex providers never receive pixels.
+        assert!(vision_frame(&Provider::Mock, Some(&png)).is_none());
+        let text_file = directory.path().join("note.txt");
+        std::fs::write(&text_file, b"not an image").expect("write note");
+        assert!(vision_frame(&openai, Some(&text_file)).is_none());
+        assert!(vision_frame(&openai, None).is_none());
+        let big_path = directory.path().join("big.png");
+        let mut big = vec![0_u8; MAX_IMAGE_BYTES + 1];
+        big[..4].copy_from_slice(&[0x89, b'P', b'N', b'G']);
+        std::fs::write(&big_path, big).expect("write big");
+        assert!(vision_frame(&openai, Some(&big_path)).is_none());
     }
 }

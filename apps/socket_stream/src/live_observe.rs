@@ -18,7 +18,13 @@ fn has(args: &[String], flag: &str) -> bool {
     args.iter().any(|arg| arg == flag)
 }
 
-fn limit(args: &[String], flag: &str, default: u64, lower: u64, upper: u64) -> Result<u64, String> {
+pub(crate) fn limit(
+    args: &[String],
+    flag: &str,
+    default: u64,
+    lower: u64,
+    upper: u64,
+) -> Result<u64, String> {
     let value = args
         .windows(2)
         .find(|p| p[0] == flag)
@@ -32,14 +38,14 @@ fn limit(args: &[String], flag: &str, default: u64, lower: u64, upper: u64) -> R
 }
 
 #[derive(Clone)]
-struct A11yOptions {
+pub(crate) struct A11yOptions {
     mode: ReadMode,
     budget: TokenBudget,
     region_ocr: bool,
     ocr_config: OcrConfig,
 }
 
-fn a11y_options(args: &[String]) -> Result<A11yOptions, String> {
+pub(crate) fn a11y_options(args: &[String]) -> Result<A11yOptions, String> {
     let mut config = match args.windows(2).find(|pair| pair[0] == "--config") {
         Some(pair) => Config::load_from(Path::new(&pair[1])).map_err(|error| error.to_string())?,
         None => Config::load().map_err(|error| error.to_string())?,
@@ -88,11 +94,15 @@ fn plausible_question(text: &str) -> bool {
         && text.chars().filter(|ch| ch.is_alphabetic()).count() >= 12
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ControlCommand {
     Pause,
     Resume,
     Stop,
+    /// A manually typed question sent from the answer panel.
+    Question(String),
+    /// An explicit capture request from the answer panel.
+    ReadScreen,
 }
 
 enum ModelMessage {
@@ -144,11 +154,116 @@ fn api_message(request: &str, event: ApiEvent) -> ModelMessage {
 }
 
 fn control_command(input: &str) -> Option<ControlCommand> {
-    match input.trim() {
+    let line = input.trim();
+    match line {
         "pause" => Some(ControlCommand::Pause),
         "resume" => Some(ControlCommand::Resume),
         "stop" => Some(ControlCommand::Stop),
-        _ => None,
+        "read-screen" => Some(ControlCommand::ReadScreen),
+        _ => line
+            .strip_prefix("question ")
+            .map(|rest| ControlCommand::Question(rest.trim().to_owned())),
+    }
+}
+
+/// Spawn the streaming model worker for one request. Shared by the automatic
+/// observation tick and the manual question/read-screen controls.
+fn spawn_model_task(
+    provider: Provider,
+    request: String,
+    prompt: String,
+    sender: mpsc::Sender<ModelMessage>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let (parts_tx, mut parts_rx) = mpsc::channel::<String>(16);
+        let (meta_tx, mut meta_rx) = mpsc::channel::<ApiEvent>(8);
+        let stream = stream_answer_with_meta(&provider, &prompt, &parts_tx, Some(&meta_tx));
+        tokio::pin!(stream);
+        loop {
+            tokio::select! {
+                Some(part) = parts_rx.recv() => {
+                    if sender
+                        .send(ModelMessage::Delta { request: request.clone(), text: part })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Some(event) = meta_rx.recv() => {
+                    let message = api_message(&request, event);
+                    if sender.send(message).await.is_err() {
+                        break;
+                    }
+                }
+                finished = &mut stream => {
+                    while let Ok(part) = parts_rx.try_recv() {
+                        if sender
+                            .send(ModelMessage::Delta { request: request.clone(), text: part })
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    while let Ok(event) = meta_rx.try_recv() {
+                        if sender.send(api_message(&request, event)).await.is_err() {
+                            return;
+                        }
+                    }
+                    let _ = sender.send(ModelMessage::Finished { request, outcome: finished }).await;
+                    break;
+                }
+            }
+        }
+    })
+}
+
+/// Emit the `screen_read` event for one reading outcome. Returns the question
+/// payload when the read produced text a manual capture should ask about.
+fn screen_read_outcome(
+    events: &mut Emitter,
+    reading: &Reading,
+) -> Result<Option<(String, String, String)>, String> {
+    match reading {
+        Reading::Question(text, display, source) if !text.trim().is_empty() => {
+            events.send_screen_read(source, "ok", display)?;
+            Ok(Some((text.clone(), display.clone(), (*source).to_owned())))
+        }
+        Reading::Question(..) => {
+            events.send_screen_read(
+                "system",
+                "unavailable",
+                "No readable text found on the focused window.",
+            )?;
+            Ok(None)
+        }
+        Reading::Nothing => Ok(None),
+        Reading::Insufficient => {
+            events.send_screen_read(
+                "system",
+                "unavailable",
+                "No readable content on the focused window. Enable local OCR fallback for screenshots.",
+            )?;
+            Ok(None)
+        }
+        Reading::AccessibilityUnavailable(reason) => {
+            let message = if reason.is_empty() {
+                "Accessibility unavailable; enable local OCR fallback for screenshots.".to_owned()
+            } else {
+                format!("Accessibility unavailable: {reason}")
+            };
+            events.send_screen_read("system", "unavailable", &message)?;
+            Ok(None)
+        }
+        Reading::OcrFailed(reason) => {
+            events.send_screen_read(
+                "system",
+                "unavailable",
+                &format!("Screenshot read failed: {reason}"),
+            )?;
+            Ok(None)
+        }
     }
 }
 
@@ -237,7 +352,9 @@ fn plan_reading(outcome: &AccessibilityOutcome, allow_ocr: bool, force_ocr: bool
     }
 }
 
-enum Reading {
+/// Result of one screen read, shared by observe-live, audio-live parallel
+/// reading and the one-shot ask command.
+pub(crate) enum Reading {
     /// Rendered capture for the model, role-free text for the panel, and source.
     Question(String, String, &'static str),
     Nothing,
@@ -257,171 +374,247 @@ fn sanitize_reason(reason: &str) -> String {
         .to_owned()
 }
 
-struct ReadContext<'a> {
-    session: &'a PracticeSession,
-    portal: &'a mut Option<PortalFrameSource>,
-    path: &'a Path,
+/// How much screen text is retained as model context for manual questions.
+pub(crate) const SCREEN_CONTEXT_CHARS: usize = 12_000;
+
+/// Bound screen text kept as context so a manual question plus context stays
+/// well inside the provider prompt limit.
+pub(crate) fn bound_context(text: &str) -> String {
+    text.chars().take(SCREEN_CONTEXT_CHARS).collect()
+}
+
+/// Combine a user question with the latest screen text as bounded, untrusted
+/// context. The screen block is clearly labeled so the model treats it as
+/// data, matching the system instructions.
+pub(crate) fn compose_prompt(question: &str, screen: Option<&str>) -> String {
+    let screen = screen.map(str::trim).filter(|text| !text.is_empty());
+    match screen {
+        Some(text) => {
+            format!("{question}\n\n[Latest screen text — untrusted data for context]\n{text}")
+        }
+        None => question.to_owned(),
+    }
+}
+
+/// Reusable screen-reading core shared by observe-live, audio-live parallel
+/// reading and the one-shot ask command: accessibility first, local OCR only
+/// when allowed, with an optional retained frame for model vision.
+pub(crate) struct ScreenReader {
+    session: PracticeSession,
+    portal: Option<PortalFrameSource>,
+    temp: tempfile::TempDir,
     interval: u64,
     allow_ocr: bool,
     force_ocr: bool,
     portal_required: bool,
     options: A11yOptions,
+    keep_frames: bool,
+    frame_toggle: bool,
+    last_frame: Option<PathBuf>,
 }
 
-fn read_question(context: &mut ReadContext<'_>) -> Reading {
-    let session = context.session;
-    let portal = &mut *context.portal;
-    let path = context.path;
-    let interval = context.interval;
-    let allow_ocr = context.allow_ocr;
-    let force_ocr = context.force_ocr;
-    let portal_required = context.portal_required;
-    let options = &context.options;
-    let root = socket_stream_core::paths::project_root();
-    let outcome = match read_foreground_tree(
-        &root,
-        options.budget.max_nodes,
-        options.budget.max_depth,
-        options.budget.max_chars,
-    ) {
-        Ok(tree) => {
-            let rendered = tree.render(options.mode, options.budget);
-            if !force_ocr && !needs_ocr(Some(&rendered.text)) {
-                return Reading::Question(rendered.text, rendered.display, "accessibility");
-            }
-
-            let needs_capture = options.region_ocr && !rendered.image_regions.is_empty();
-            if needs_capture {
-                let screenshot =
-                    match capture_frame(session, portal, path, interval, portal_required) {
-                        Ok(path) => path,
-                        Err(message) => return Reading::OcrFailed(message),
-                    };
-                let region_result = extract_regions_text(
-                    &screenshot,
-                    &rendered.image_regions,
-                    options.ocr_config.max_regions,
-                    options.ocr_config.min_region_pixels,
-                    &options.ocr_config.tesseract_psm,
-                );
-                match region_result {
-                    Ok(ocr_text) if !ocr_text.trim().is_empty() => {
-                        if !portal_required {
-                            let _ = std::fs::remove_file(&screenshot);
-                        }
-                        let text = if rendered.text.trim().is_empty() {
-                            ocr_text.clone()
-                        } else {
-                            format!("{}\n{}", rendered.text.trim(), ocr_text.trim())
-                        };
-                        let display = if rendered.display.trim().is_empty() {
-                            ocr_text
-                        } else {
-                            format!("{}\n{}", rendered.display.trim(), ocr_text.trim())
-                        };
-                        return Reading::Question(text, display, "ocr");
-                    }
-                    Ok(_) if allow_ocr => {
-                        return ocr_captured_frame(&screenshot, !portal_required);
-                    }
-                    Ok(_) => {
-                        if !portal_required {
-                            let _ = std::fs::remove_file(&screenshot);
-                        }
-                        return Reading::Insufficient;
-                    }
-                    Err(_) if allow_ocr => {
-                        return ocr_captured_frame(&screenshot, !portal_required);
-                    }
-                    Err(_) => {
-                        if !portal_required {
-                            let _ = std::fs::remove_file(&screenshot);
-                        }
-                        return Reading::OcrFailed("Targeted region OCR failed");
-                    }
-                }
-            }
-            AccessibilityOutcome::Text(rendered.text)
-        }
-        Err(AccessibilityError::OwnWindow) => AccessibilityOutcome::OwnWindow,
-        Err(AccessibilityError::Empty) => AccessibilityOutcome::Empty,
-        Err(AccessibilityError::Backend(reason)) => AccessibilityOutcome::Backend(reason),
-    };
-    match plan_reading(&outcome, allow_ocr, force_ocr) {
-        ReadingPlan::Nothing => Reading::Nothing,
-        ReadingPlan::Insufficient => Reading::Insufficient,
-        ReadingPlan::ReportAccessibility => {
-            let reason = match &outcome {
-                AccessibilityOutcome::Backend(detail) => sanitize_reason(detail),
-                _ => String::new(),
-            };
-            Reading::AccessibilityUnavailable(reason)
-        }
-        ReadingPlan::UseAccessible => match outcome {
-            AccessibilityOutcome::Text(text) => {
-                Reading::Question(text.clone(), text, "accessibility")
-            }
-            _ => Reading::Nothing,
-        },
-        ReadingPlan::TryOcr => whole_frame_ocr(session, portal, path, interval, portal_required),
+impl ScreenReader {
+    /// Starts the capture-permission session. `keep_frames` retains the
+    /// latest screenshot for model vision instead of deleting it after OCR.
+    /// `portal_required` forces the Linux ScreenCast portal source.
+    pub(crate) fn start(
+        allow_ocr: bool,
+        force_ocr: bool,
+        keep_frames: bool,
+        portal_required: bool,
+        options: A11yOptions,
+        interval: u64,
+    ) -> Result<Self, String> {
+        let mut session = PracticeSession::new();
+        session.start(true).map_err(str::to_owned)?;
+        let temp = tempfile::tempdir().map_err(|_| "cannot create temporary capture directory")?;
+        Ok(Self {
+            session,
+            portal: None,
+            temp,
+            interval,
+            allow_ocr,
+            force_ocr,
+            portal_required,
+            options,
+            keep_frames,
+            frame_toggle: false,
+            last_frame: None,
+        })
     }
-}
 
-fn capture_frame(
-    session: &PracticeSession,
-    portal: &mut Option<PortalFrameSource>,
-    path: &Path,
-    interval: u64,
-    portal_required: bool,
-) -> Result<PathBuf, &'static str> {
-    if portal_required {
-        if portal.is_none() {
-            *portal = Some(
-                PortalFrameSource::start(session, path.to_path_buf(), interval)
-                    .map_err(|_| "Could not start approved ScreenCast source")?,
-            );
-        }
-        let stream = portal.as_mut().ok_or("ScreenCast unavailable")?;
-        if stream.finished().unwrap_or(true) {
-            return Err("ScreenCast permission revoked or session closed");
-        }
-        for _ in 0..40 {
-            if stream.path().exists() {
-                return Ok(stream.path().to_path_buf());
+    /// The most recent retained screenshot, if any. Only meaningful when the
+    /// reader was started with `keep_frames` or a portal source is active.
+    pub(crate) fn last_frame(&self) -> Option<&Path> {
+        self.last_frame.as_deref()
+    }
+
+    pub(crate) fn pause(&mut self) {
+        self.session.pause();
+        self.portal.take();
+        self.last_frame = None;
+    }
+
+    pub(crate) fn resume(&mut self) {
+        self.session.resume();
+    }
+
+    pub(crate) fn stop(&mut self) {
+        self.session.stop();
+        self.portal = None;
+    }
+
+    fn capture_frame(&mut self) -> Result<PathBuf, &'static str> {
+        let path = if self.keep_frames && !self.portal_required {
+            // Alternate between two files so a vision read never races the
+            // next capture writing into the same path.
+            self.frame_toggle = !self.frame_toggle;
+            self.temp.path().join(if self.frame_toggle {
+                "frame-a.png"
+            } else {
+                "frame-b.png"
+            })
+        } else {
+            self.temp.path().join("latest.png")
+        };
+        let captured = if self.portal_required {
+            if self.portal.is_none() {
+                self.portal = Some(
+                    PortalFrameSource::start(&self.session, path, self.interval)
+                        .map_err(|_| "Could not start approved ScreenCast source")?,
+                );
             }
+            let stream = self.portal.as_mut().ok_or("ScreenCast unavailable")?;
             if stream.finished().unwrap_or(true) {
                 return Err("ScreenCast permission revoked or session closed");
             }
-            std::thread::sleep(Duration::from_millis(250));
+            let mut found = None;
+            for _ in 0..40 {
+                if stream.path().exists() {
+                    found = Some(stream.path().to_path_buf());
+                    break;
+                }
+                if stream.finished().unwrap_or(true) {
+                    return Err("ScreenCast permission revoked or session closed");
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            found.ok_or("No approved ScreenCast frame")?
+        } else {
+            capture_to(&self.session, &path).map_err(|_| "Local screenshot capture unavailable")?;
+            path
+        };
+        self.last_frame = Some(captured.clone());
+        Ok(captured)
+    }
+
+    fn ocr_captured_frame(&self, screenshot: &Path, remove_after: bool) -> Reading {
+        let text = extract_text(screenshot);
+        if remove_after {
+            let _ = std::fs::remove_file(screenshot);
         }
-        return Err("No approved ScreenCast frame");
+        match text {
+            Ok(text) => Reading::Question(text.clone(), text, "ocr"),
+            Err(_) => Reading::OcrFailed("Local OCR failed"),
+        }
     }
-    capture_to(session, path).map_err(|_| "Local screenshot capture unavailable")?;
-    Ok(path.to_path_buf())
-}
 
-fn whole_frame_ocr(
-    session: &PracticeSession,
-    portal: &mut Option<PortalFrameSource>,
-    path: &Path,
-    interval: u64,
-    portal_required: bool,
-) -> Reading {
-    let screenshot = match capture_frame(session, portal, path, interval, portal_required) {
-        Ok(path) => path,
-        Err(message) => return Reading::OcrFailed(message),
-    };
-    ocr_captured_frame(&screenshot, !portal_required)
-}
+    /// One accessibility-first read with the configured OCR fallback.
+    pub(crate) fn read_once(&mut self) -> Reading {
+        let root = socket_stream_core::paths::project_root();
+        let outcome = match read_foreground_tree(
+            &root,
+            self.options.budget.max_nodes,
+            self.options.budget.max_depth,
+            self.options.budget.max_chars,
+        ) {
+            Ok(tree) => {
+                let rendered = tree.render(self.options.mode, self.options.budget);
+                if !self.force_ocr && !needs_ocr(Some(&rendered.text)) {
+                    return Reading::Question(rendered.text, rendered.display, "accessibility");
+                }
 
-fn ocr_captured_frame(screenshot: &Path, remove_after: bool) -> Reading {
-    let text = extract_text(screenshot);
-    if remove_after {
-        let _ = std::fs::remove_file(screenshot);
-    }
-    match text {
-        Ok(text) => Reading::Question(text.clone(), text, "ocr"),
-        Err(_) => Reading::OcrFailed("Local OCR failed"),
+                let needs_capture = self.options.region_ocr && !rendered.image_regions.is_empty();
+                if needs_capture {
+                    let screenshot = match self.capture_frame() {
+                        Ok(path) => path,
+                        Err(message) => return Reading::OcrFailed(message),
+                    };
+                    let remove_after = !self.portal_required && !self.keep_frames;
+                    let region_result = extract_regions_text(
+                        &screenshot,
+                        &rendered.image_regions,
+                        self.options.ocr_config.max_regions,
+                        self.options.ocr_config.min_region_pixels,
+                        &self.options.ocr_config.tesseract_psm,
+                    );
+                    match region_result {
+                        Ok(ocr_text) if !ocr_text.trim().is_empty() => {
+                            if remove_after {
+                                let _ = std::fs::remove_file(&screenshot);
+                            }
+                            let text = if rendered.text.trim().is_empty() {
+                                ocr_text.clone()
+                            } else {
+                                format!("{}\n{}", rendered.text.trim(), ocr_text.trim())
+                            };
+                            let display = if rendered.display.trim().is_empty() {
+                                ocr_text
+                            } else {
+                                format!("{}\n{}", rendered.display.trim(), ocr_text.trim())
+                            };
+                            return Reading::Question(text, display, "ocr");
+                        }
+                        Ok(_) if self.allow_ocr => {
+                            return self.ocr_captured_frame(&screenshot, remove_after);
+                        }
+                        Ok(_) => {
+                            if remove_after {
+                                let _ = std::fs::remove_file(&screenshot);
+                            }
+                            return Reading::Insufficient;
+                        }
+                        Err(_) if self.allow_ocr => {
+                            return self.ocr_captured_frame(&screenshot, remove_after);
+                        }
+                        Err(_) => {
+                            if remove_after {
+                                let _ = std::fs::remove_file(&screenshot);
+                            }
+                            return Reading::OcrFailed("Targeted region OCR failed");
+                        }
+                    }
+                }
+                AccessibilityOutcome::Text(rendered.text)
+            }
+            Err(AccessibilityError::OwnWindow) => AccessibilityOutcome::OwnWindow,
+            Err(AccessibilityError::Empty) => AccessibilityOutcome::Empty,
+            Err(AccessibilityError::Backend(reason)) => AccessibilityOutcome::Backend(reason),
+        };
+        match plan_reading(&outcome, self.allow_ocr, self.force_ocr) {
+            ReadingPlan::Nothing => Reading::Nothing,
+            ReadingPlan::Insufficient => Reading::Insufficient,
+            ReadingPlan::ReportAccessibility => {
+                let reason = match &outcome {
+                    AccessibilityOutcome::Backend(detail) => sanitize_reason(detail),
+                    _ => String::new(),
+                };
+                Reading::AccessibilityUnavailable(reason)
+            }
+            ReadingPlan::UseAccessible => match outcome {
+                AccessibilityOutcome::Text(text) => {
+                    Reading::Question(text.clone(), text, "accessibility")
+                }
+                _ => Reading::Nothing,
+            },
+            ReadingPlan::TryOcr => {
+                let screenshot = match self.capture_frame() {
+                    Ok(path) => path,
+                    Err(message) => return Reading::OcrFailed(message),
+                };
+                self.ocr_captured_frame(&screenshot, !self.portal_required && !self.keep_frames)
+            }
+        }
     }
 }
 
@@ -433,20 +626,23 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
     let max = limit(args, "--max-captures", 1000, 1, 1000)?;
     let allow_ocr = has(args, "--allow-ocr") || has(args, "--force-ocr");
     let force_ocr = has(args, "--force-ocr");
-    let a11y = a11y_options(args)?;
+    let options = a11y_options(args)?;
     let portal_required = has(args, "--portal") || requires_linux_portal();
     let mut events = Emitter::new();
     if let Err(message) = verify_provider(&provider).await {
         events.send("error", "provider", None, Some(message))?;
         return Err(message.into());
     }
-    let mut session = PracticeSession::new();
-    session.start(true).map_err(str::to_owned)?;
-    let temp_dir = tempfile::tempdir().map_err(|_| "cannot create temporary capture directory")?;
-    let frame = temp_dir.path().join("latest.png");
-    let mut portal: Option<PortalFrameSource> = None;
+    let mut reader = ScreenReader::start(
+        allow_ocr,
+        force_ocr,
+        false,
+        portal_required,
+        options,
+        interval,
+    )?;
     if let Err(error) = events.send("session_started", "system", None, None) {
-        session.stop();
+        reader.stop();
         return Err(error);
     }
     let mut dedup = Deduplicator::new(128);
@@ -463,6 +659,12 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
     let mut control_open = true;
     let mut controls = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     let mut event_error = None;
+    // Latest successful screen read, kept as bounded context for manually
+    // typed questions so "what does this error mean?" can see the screen.
+    let mut last_screen: Option<String> = None;
+    // One queued manual question while an answer is still streaming; latest
+    // request wins once the current answer completes.
+    let mut manual_pending: Option<String> = None;
     macro_rules! emit {
         ($kind:expr, $source:expr, $request:expr, $content:expr) => {
             if let Err(error) = events.send($kind, $source, $request, $content) {
@@ -505,19 +707,66 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                     Ok(Some(line)) => match control_command(&line) {
                         Some(ControlCommand::Pause) if !paused => {
                             paused = true;
-                            session.pause();
-                            portal.take();
+                            reader.pause();
                             dedup = Deduplicator::new(128);
                             last_request.clear();
+                            last_screen = None;
                             if let Some(task) = pending.take() { task.abort(); }
                             emit!("session_paused", "system", None, None);
                         }
                         Some(ControlCommand::Resume) if paused => {
                             paused = false;
-                            session.resume();
+                            reader.resume();
                             emit!("session_resumed", "system", None, None);
                         }
                         Some(ControlCommand::Stop) => break,
+                        Some(ControlCommand::Question(text)) => {
+                            let text = text.trim().to_owned();
+                            if text.chars().filter(|c| c.is_alphabetic()).count() < 3 {
+                                emit!("error", "system", None,
+                                    Some("Type a longer question before sending."));
+                            } else if pending.is_none() {
+                                request_number += 1;
+                                let rid = format!("manual-{request_number}");
+                                last_request.clone_from(&rid);
+                                let prompt = compose_prompt(&text, last_screen.as_deref());
+                                emit_question!("manual", &rid, &text, &text);
+                                emit!("answer_started", "manual", Some(&rid), None);
+                                pending = Some(spawn_model_task(
+                                    provider.clone(), rid, prompt, sender.clone(),
+                                ));
+                                warned_accessibility = false;
+                                warned_ocr = false;
+                            } else {
+                                manual_pending = Some(text);
+                            }
+                        }
+                        Some(ControlCommand::ReadScreen) => {
+                            let reading = reader.read_once();
+                            if let Reading::Question(text, ..) = &reading {
+                                last_screen = Some(bound_context(text));
+                            }
+                            match screen_read_outcome(&mut events, &reading) {
+                                Ok(Some((text, display, source))) => {
+                                    if pending.is_none() {
+                                        request_number += 1;
+                                        let rid = format!("manual-{request_number}");
+                                        last_request.clone_from(&rid);
+                                        emit_question!(&source, &rid, &text, &display);
+                                        emit!("answer_started", &source, Some(&rid), None);
+                                        pending = Some(spawn_model_task(
+                                            provider.clone(), rid, text, sender.clone(),
+                                        ));
+                                        warned_accessibility = false;
+                                        warned_ocr = false;
+                                    } else {
+                                        manual_pending = Some(text);
+                                    }
+                                }
+                                Ok(None) => {}
+                                Err(error) => { event_error = Some(error); break; }
+                            }
+                        }
                         _ => {},
                     },
                     Ok(None) | Err(_) => control_open = false,
@@ -525,19 +774,10 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
             }
             _ = ticker.tick(), if observations < max && !paused => {
                 observations += 1;
-                let reading = {
-                    let mut context = ReadContext {
-                        session: &session,
-                        portal: &mut portal,
-                        path: &frame,
-                        interval,
-                        allow_ocr,
-                        force_ocr,
-                        portal_required,
-                        options: a11y.clone(),
-                    };
-                    read_question(&mut context)
-                };
+                let reading = reader.read_once();
+                if let Reading::Question(text, ..) = &reading {
+                    last_screen = Some(bound_context(text));
+                }
                 match reading {
                     Reading::Question(text, display, source) if plausible_question(&text) => {
                         // Never abort an in-flight model call. A page with a
@@ -554,43 +794,9 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             last_request.clone_from(&rid);
                             emit_question!(source, &rid, &text, &display);
                             emit!("answer_started", source, Some(&rid), None);
-                            let tx = sender.clone();
-                            let model = provider.clone();
-                            pending = Some(tokio::spawn(async move {
-                                let (parts_tx, mut parts_rx) = mpsc::channel::<String>(16);
-                                let (meta_tx, mut meta_rx) = mpsc::channel::<ApiEvent>(8);
-                                let stream = stream_answer_with_meta(
-                                    &model, &text, &parts_tx, Some(&meta_tx),
-                                );
-                                tokio::pin!(stream);
-                                loop {
-                                    tokio::select! {
-                                        Some(part) = parts_rx.recv() => {
-                                            if tx.send(ModelMessage::Delta {
-                                                request: rid.clone(), text: part,
-                                            }).await.is_err() { break; }
-                                        }
-                                        Some(event) = meta_rx.recv() => {
-                                            let message = api_message(&rid, event);
-                                            if tx.send(message).await.is_err() { break; }
-                                        }
-                                        finished = &mut stream => {
-                                            while let Ok(part) = parts_rx.try_recv() {
-                                                if tx.send(ModelMessage::Delta {
-                                                    request: rid.clone(), text: part,
-                                                }).await.is_err() { return; }
-                                            }
-                                            while let Ok(event) = meta_rx.try_recv() {
-                                                if tx.send(api_message(&rid, event)).await.is_err() { return; }
-                                            }
-                                            let _ = tx.send(ModelMessage::Finished {
-                                                request: rid, outcome: finished,
-                                            }).await;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }));
+                            pending = Some(spawn_model_task(
+                                provider.clone(), rid, text, sender.clone(),
+                            ));
                             warned_accessibility = false;
                             warned_ocr = false;
                         }
@@ -647,6 +853,21 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                                 Some("Model unavailable. Check provider settings, login or quota.")),
                         }
                         if observations >= max { break; }
+                        // Start a queued manual question once the current
+                        // answer completed; latest request wins.
+                        if let Some(text) = manual_pending.take()
+                            && text.chars().filter(|c| c.is_alphabetic()).count() >= 3
+                        {
+                            request_number += 1;
+                            let rid = format!("manual-{request_number}");
+                            last_request.clone_from(&rid);
+                            let prompt = compose_prompt(&text, last_screen.as_deref());
+                            emit_question!("manual", &rid, &text, &text);
+                            emit!("answer_started", "manual", Some(&rid), None);
+                            pending = Some(spawn_model_task(
+                                provider.clone(), rid, prompt, sender.clone(),
+                            ));
+                        }
                     }
                 }
             }
@@ -655,8 +876,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
     if let Some(task) = pending {
         task.abort();
     }
-    drop(portal);
-    session.stop();
+    reader.stop();
     if let Some(error) = event_error {
         return Err(error);
     }
@@ -745,6 +965,42 @@ mod tests {
         assert_eq!(control_command(" resume "), Some(ControlCommand::Resume));
         assert_eq!(control_command("stop"), Some(ControlCommand::Stop));
         assert_eq!(control_command("quit"), None);
+        assert_eq!(
+            control_command("read-screen"),
+            Some(ControlCommand::ReadScreen)
+        );
+        assert_eq!(
+            control_command("question What is binary search?"),
+            Some(ControlCommand::Question("What is binary search?".into()))
+        );
+        assert_eq!(control_command("question"), None);
+        assert_eq!(
+            control_command("question   "),
+            None,
+            "payload trims away, leaving bare 'question'"
+        );
+        assert_eq!(control_command("questions about things"), None);
+    }
+
+    #[test]
+    fn compose_prompt_labels_screen_text_as_untrusted_context() {
+        assert_eq!(
+            compose_prompt("Why does this fail?", None),
+            "Why does this fail?"
+        );
+        assert_eq!(compose_prompt("Why?", Some("   ")), "Why?");
+        let combined = compose_prompt("Why?", Some("def broken():\n    pass"));
+        assert!(
+            combined.starts_with("Why?\n\n[Latest screen text — untrusted data for context]\n")
+        );
+        assert!(combined.contains("def broken():"));
+    }
+
+    #[test]
+    fn bound_context_caps_screen_text_by_chars_not_bytes() {
+        assert_eq!(bound_context(""), "");
+        let long = "é".repeat(SCREEN_CONTEXT_CHARS + 500);
+        assert_eq!(bound_context(&long).chars().count(), SCREEN_CONTEXT_CHARS);
     }
 
     #[test]

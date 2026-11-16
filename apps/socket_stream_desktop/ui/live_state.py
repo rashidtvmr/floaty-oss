@@ -11,6 +11,7 @@ _TYPES = {
     "session_started", "question_detected", "answer_started", "answer_delta",
     "answer_completed", "api_request", "api_response", "transcript_updated",
     "session_paused", "session_resumed", "error", "session_stopped",
+    "screen_read",
 }
 
 
@@ -30,7 +31,7 @@ class LiveState:
         self._view = dict(
             status="idle", session_id="", request_id="", question="",
             question_display="", answer="", source="", error="",
-            api_request="", api_response="", transcript="",
+            api_request="", api_response="", transcript="", screen="",
         )
         self._seq = -1
         self._history = []
@@ -158,7 +159,7 @@ class LiveState:
                 status="observing", session_id=sid, request_id="",
                 question="", question_display="", answer="",
                 source=source if source in ("microphone", "playback") else "", error="",
-                api_request="", api_response="", transcript="",
+                api_request="", api_response="", transcript="", screen="",
             )
             return True
         if kind == "error" and self._view["status"] == "idle":
@@ -204,6 +205,10 @@ class LiveState:
             self._view["transcript"] = clean(event.get("text"), 24000)
             return True
 
+        if kind == "screen_read":
+            self._view["screen"] = clean(event.get("text"), 12000)
+            return True
+
         rid = event.get("request_id")
         if not isinstance(rid, str) or not 0 < len(rid) <= 128:
             return False
@@ -213,7 +218,7 @@ class LiveState:
                 return False
             display = clean(event.get("display"), 12000).strip()
             source = event.get("source")
-            if source not in ("screen", "accessibility", "ocr", "microphone", "playback", "file"):
+            if source not in ("screen", "accessibility", "ocr", "microphone", "playback", "file", "manual"):
                 source = "screen"
             self._view.update(
                 status="thinking", request_id=rid, question=question,

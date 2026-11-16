@@ -67,6 +67,37 @@ def repo_root() -> Path:
     return _HERE.parents[2]
 
 
+def input_region_rects(rects, size, locked):
+    """Pure planner for the panel's X11 input shape (hover pass-through).
+
+    ``rects`` lists input-active areas ``(x, y, width, height)`` relative to
+    the panel window; ``size`` is the window ``(width, height)``. With
+    ``locked`` the whole window accepts input again (text selection and
+    scrolling mode). Otherwise only the given areas accept input and the
+    remaining background passes hover and clicks through to the window below.
+
+    Returns clamped, non-empty rectangles; degenerate and out-of-window rects
+    are dropped so the shape never grows beyond the panel.
+    """
+    width, height = int(size[0]), int(size[1])
+    if width <= 0 or height <= 0:
+        return []
+    if locked:
+        return [(0, 0, width, height)]
+    regions = []
+    for x, y, w, h in rects:
+        try:
+            x, y, w, h = int(x), int(y), int(w), int(h)
+        except (TypeError, ValueError):
+            continue
+        x0, y0 = max(0, x), max(0, y)
+        x1, y1 = min(width, x + w), min(height, y + h)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        regions.append((x0, y0, x1 - x0, y1 - y0))
+    return regions
+
+
 def default_cli_path() -> str:
     """Locate the Rust CLI the same way the GTK shell does."""
     override = os.environ.get("SOCKET_STREAM_CLI")
@@ -211,7 +242,8 @@ class FloatingOverlay:
     def __init__(self, plan=None, session=None, *, stealth=True, compact=False,
                  opacity=DEFAULT_PANEL_OPACITY, on_stop=None, on_pause=None,
                  on_copy=None, on_minimize=None, on_settings=None, state=None,
-                 on_selection_changed=None, font_size=16, reduced_motion=False):
+                 on_selection_changed=None, font_size=16, reduced_motion=False,
+                 on_ask=None, on_capture=None):
         import gi
 
         gi.require_version("Gdk", "3.0")
@@ -253,6 +285,12 @@ class FloatingOverlay:
         self._on_minimize = on_minimize
         self._on_settings = on_settings
         self._on_selection_changed = on_selection_changed
+        self._on_ask = on_ask
+        self._on_capture = on_capture
+        # Hover pass-through: on X11 the panel's background is removed from the
+        # input shape so hover and clicks reach the site below. The lock
+        # toggle restores full input for text selection and scrolling.
+        self._input_locked = False
         self._model = OverlayModel(state)
         self._watcher = ScreenShareWatcher()
         self._share_active = False
@@ -297,6 +335,7 @@ class FloatingOverlay:
         command_row.set_halign(Gtk.Align.CENTER)
         outer.pack_start(command_row, False, False, 0)
         toolbar = style(Gtk.Box(spacing=6), "ss-command-bar")
+        self.toolbar = toolbar
         command_row.pack_start(toolbar, False, False, 0)
         layout = style(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "ss-panel")
         outer.pack_start(layout, True, True, 0)
@@ -337,8 +376,17 @@ class FloatingOverlay:
         self.stop_button.connect("clicked", lambda *_: self._stop())
         toolbar.pack_start(self.stop_button, False, False, 0)
         if on_settings is not None:
-            toolbar.pack_start(self._icon_button("preferences-system-symbolic", "Panel settings",
-                                                lambda *_: on_settings()), False, False, 0)
+            self.settings_button = self._icon_button(
+                "preferences-system-symbolic", "Panel settings", lambda *_: on_settings())
+            toolbar.pack_start(self.settings_button, False, False, 0)
+        else:
+            self.settings_button = None
+        # Hover pass-through lock: unlocked means hover and clicks on the
+        # panel background pass through to the window below (X11 input
+        # shape); locked means the whole panel accepts input again.
+        self.passthrough_button = self._icon_button(
+            "changes-allow-symbolic", self._passthrough_tooltip(), self._toggle_input_lock)
+        toolbar.pack_start(self.passthrough_button, False, False, 0)
         self.minimize_button = None
         if on_minimize is not None:
             self.minimize_button = self._icon_button("window-minimize-symbolic", "Minimize app",
@@ -369,13 +417,13 @@ class FloatingOverlay:
         self.question.set_ellipsize(Pango.EllipsizeMode.END)
         self.question.set_width_chars(1)
         self.question.set_hexpand(True)
-        question_button = style(Gtk.Button(), "ss-question-bubble")
-        question_button.set_margin_start(36)
-        question_button.add(self.question)
-        question_button.set_tooltip_text("Show the full recognized question")
-        question_button.connect("clicked", lambda *_: self.question_revealer.set_reveal_child(
+        self.question_button = style(Gtk.Button(), "ss-question-bubble")
+        self.question_button.set_margin_start(36)
+        self.question_button.add(self.question)
+        self.question_button.set_tooltip_text("Show the full recognized question")
+        self.question_button.connect("clicked", lambda *_: self.question_revealer.set_reveal_child(
             not self.question_revealer.get_reveal_child()))
-        body.pack_start(question_button, False, False, 0)
+        body.pack_start(self.question_button, False, False, 0)
         self.question_revealer = Gtk.Revealer()
         self.question_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
         question_scroll = Gtk.ScrolledWindow()
@@ -463,12 +511,46 @@ class FloatingOverlay:
         self.transcript.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         transcript_scroll.add(self.transcript)
         self.history_stack.add_titled(transcript_scroll, "transcript", "Heard transcript")
+        screen_scroll = Gtk.ScrolledWindow()
+        screen_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        screen_scroll.set_min_content_height(130)
+        self.screen_view = style(Gtk.TextView(), "ss-transcript")
+        self.screen_view.set_editable(False)
+        self.screen_view.set_cursor_visible(False)
+        self.screen_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.screen_view.get_buffer().set_text("What the app reads from your screen appears here.")
+        screen_scroll.add(self.screen_view)
+        self.history_stack.add_titled(screen_scroll, "screen", "Screen")
         history_body.pack_start(self.history_stack, True, True, 0)
         history_hint = style(Gtk.Label(label="Select to pin · Recent 24 questions · This session only"), "ss-muted")
         history_hint.set_ellipsize(Pango.EllipsizeMode.END)
         history_body.pack_start(history_hint, False, False, 0)
         self.history_revealer.add(history_body)
         layout.pack_start(self.history_revealer, False, False, 0)
+
+        # Manual prompt row: type a question for the model, or capture the
+        # screen now (accessibility first, screenshot fallback) and answer
+        # what is on it. Both work during a live session and standalone.
+        self.prompt_row = style(Gtk.Box(spacing=6), "ss-footer")
+        layout.pack_start(self.prompt_row, False, False, 0)
+        self.prompt_entry = style(Gtk.Entry(), "ss-prompt")
+        self.prompt_entry.set_placeholder_text("Ask about this screen…")
+        self.prompt_entry.set_max_length(2000)
+        self.prompt_entry.set_hexpand(True)
+        self.prompt_entry.get_accessible().set_name("Manual question")
+        self.prompt_entry.connect("activate", self._on_prompt_activate)
+        self.prompt_row.pack_start(self.prompt_entry, True, True, 0)
+        self.ask_button = style(Gtk.Button(label="Ask"), "ss-quiet")
+        self.ask_button.set_tooltip_text("Send the typed question to the model")
+        self.ask_button.get_accessible().set_name("Ask")
+        self.ask_button.connect("clicked", self._on_prompt_activate)
+        self.prompt_row.pack_start(self.ask_button, False, False, 0)
+        self.capture_button = style(Gtk.Button(label="Capture"), "ss-quiet")
+        self.capture_button.set_tooltip_text(
+            "Read the screen now and answer what is on it (accessibility first, screenshot fallback)")
+        self.capture_button.get_accessible().set_name("Capture screen")
+        self.capture_button.connect("clicked", lambda *_: self._on_capture_clicked())
+        self.prompt_row.pack_start(self.capture_button, False, False, 0)
 
         self.controls = style(Gtk.Box(spacing=6), "ss-footer")
         layout.pack_start(self.controls, False, False, 0)
@@ -508,6 +590,14 @@ class FloatingOverlay:
 
         self.window.connect("delete-event", self._on_delete)
 
+        # Hover pass-through (X11 input shape): keep the interactive strips
+        # input-active and let the background pass events through. Reapplied
+        # whenever geometry or reveal state changes.
+        self.window.connect("map", lambda *_: self._schedule_input_shape())
+        self.window.connect("size-allocate", lambda *_: self._schedule_input_shape())
+        self.question_button.connect("size-allocate", lambda *_: self._schedule_input_shape())
+        self.history_revealer.connect("notify::reveal-child", lambda *_: self._schedule_input_shape())
+
         # GTK3 on Wayland derives ``xdg_toplevel.app_id`` from
         # ``g_get_prgname()``. Keep the panel identity active for realize and
         # for the first map (``_show_window``); the main window keeps its own.
@@ -526,6 +616,100 @@ class FloatingOverlay:
         button.get_accessible().set_name(title)
         button.connect("clicked", callback)
         return button
+
+    def _on_prompt_activate(self, *_args):
+        """Send the typed question through the host callback; empty stays local."""
+        text = self.prompt_entry.get_text().strip()
+        if not text or self._on_ask is None:
+            return
+        self.prompt_entry.set_text("")
+        self._on_ask(text)
+
+    def _on_capture_clicked(self):
+        if self._on_capture is not None:
+            self._on_capture()
+
+    def _passthrough_tooltip(self):
+        if self._input_locked:
+            return "Input locked: the whole panel accepts clicks, selection and scrolling"
+        return "Hover pass-through on: the panel background lets hover reach the site below (click to lock input)"
+
+    def _toggle_input_lock(self, *_args):
+        self._input_locked = not self._input_locked
+        icon = self._Gtk.Image.new_from_icon_name(
+            "changes-prevent-symbolic" if self._input_locked else "changes-allow-symbolic",
+            self._Gtk.IconSize.MENU)
+        for child in list(self.passthrough_button.get_children()):
+            self.passthrough_button.remove(child)
+        self.passthrough_button.add(icon)
+        self.passthrough_button.set_tooltip_text(self._passthrough_tooltip())
+        icon.show()
+        self._apply_input_shape()
+
+    def _schedule_input_shape(self):
+        """Reapply the input shape after allocations settle."""
+        try:
+            self._Gtk.idle_add(self._apply_input_shape)
+        except Exception:  # noqa: BLE001 - headless or shutdown races
+            pass
+
+    def _input_widget_list(self):
+        """Widgets that must keep accepting input during pass-through."""
+        widgets = [
+            getattr(self, "toolbar", None),
+            getattr(self, "question_button", None),
+            getattr(self, "prompt_row", None),
+            getattr(self, "controls", None),
+        ]
+        revealer = getattr(self, "history_revealer", None)
+        if revealer is not None and revealer.get_reveal_child():
+            widgets.append(revealer)
+        return [widget for widget in widgets if widget is not None]
+
+    def _collect_input_rects(self):
+        """Allocations of the input-active widgets in window coordinates."""
+        rects = []
+        for widget in self._input_widget_list():
+            try:
+                if not widget.get_visible() or not widget.get_mapped():
+                    continue
+                translated = widget.translate_coordinates(self.window, 0, 0)
+                if translated is None:
+                    continue
+                alloc = widget.get_allocation()
+                rects.append((translated[0], translated[1], alloc.width, alloc.height))
+            except Exception:  # noqa: BLE001 - widget may be unrealized mid-teardown
+                continue
+        return rects
+
+    def _apply_input_shape(self, *_args):
+        """Apply the X11 input shape; non-interactive areas pass input through.
+
+        Wayland windows cannot punch input holes, so this is skipped off X11
+        (the panel runs under Xwayland in the supported GNOME setup).
+        """
+        window = self.window
+        gdk_window = window.get_window()
+        if gdk_window is None:
+            return False
+        try:
+            from gi.repository import GdkX11  # noqa: F401 - display type check
+            display = gdk_window.get_display()
+            if not isinstance(display, GdkX11.X11Display):
+                return False
+        except Exception:  # noqa: BLE001 - GdkX11 unavailable outside X11 builds
+            return False
+        try:
+            import cairo
+
+            size = (window.get_allocated_width(), window.get_allocated_height())
+            region = cairo.Region()
+            for x, y, w, h in input_region_rects(self._collect_input_rects(), size, self._input_locked):
+                region.union_rectangle(cairo.RectangleInt(x, y, w, h))
+            gdk_window.input_shape_combine_region(region, 0, 0)
+        except Exception:  # noqa: BLE001 - shape is best-effort, never fatal
+            return False
+        return False
 
     def _clear_background(self, _window, cr):
         import cairo
@@ -1054,7 +1238,8 @@ class FloatingOverlay:
         self.question.set_text(question_title(question, state["answer"]) or "Ready for your next question")
         self.set_answer(state["answer"])
         sources = {"screen": "Screen", "accessibility": "Accessibility", "ocr": "Local OCR",
-                   "microphone": "Microphone", "playback": "System audio", "file": "Imported"}
+                   "microphone": "Microphone", "playback": "System audio", "file": "Imported",
+                   "manual": "Typed question"}
         self.source_label.set_text(sources.get(state["source"], "Ready"))
         self.provider_label.set_text(self._provider)
         self.provider_label.set_tooltip_text(self._provider)
@@ -1101,6 +1286,11 @@ class FloatingOverlay:
         if transcript != getattr(self, "_transcript_text", None):
             self._transcript_text = transcript
             self.transcript.get_buffer().set_text(transcript or "Recognized speech will appear here when audio listening starts.")
+        screen = self._model.snapshot().get("screen", "")
+        if screen != getattr(self, "_screen_text", None):
+            self._screen_text = screen
+            self.screen_view.get_buffer().set_text(
+                screen or "What the app reads from your screen appears here.")
         self._render_history(state)
         self.copy_button.set_sensitive(bool(self.answer_text().strip()))
 

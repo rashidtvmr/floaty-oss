@@ -67,6 +67,59 @@ class ArgumentParsing(unittest.TestCase):
             overlay.parse_args(["--opacity", "0.5"])
 
 
+class InputShapePlanning(unittest.TestCase):
+    """Pure hover pass-through planner: no GTK, no display server."""
+
+    def test_unlocked_keeps_only_the_given_input_areas(self):
+        rects = overlay.input_region_rects(
+            [(12, 8, 200, 36), (0, 580, 720, 40)], (720, 620), locked=False)
+        self.assertEqual(rects, [(12, 8, 200, 36), (0, 580, 720, 40)])
+
+    def test_locked_accepts_input_everywhere_again(self):
+        rects = overlay.input_region_rects([(12, 8, 200, 36)], (720, 620), locked=True)
+        self.assertEqual(rects, [(0, 0, 720, 620)])
+
+    def test_rects_are_clamped_to_the_window_and_dropped_when_empty(self):
+        rects = overlay.input_region_rects(
+            [(-10, -10, 40, 40), (700, 600, 400, 400), (5, 5, 0, 10), (5, 5, 10, 0)],
+            (720, 620), locked=False)
+        self.assertEqual(rects, [(0, 0, 30, 30), (700, 600, 20, 20)])
+
+    def test_degenerate_window_has_no_input_regions(self):
+        self.assertEqual(overlay.input_region_rects([(0, 0, 10, 10)], (0, 400), False), [])
+        self.assertEqual(overlay.input_region_rects([(0, 0, 10, 10)], (400, -1), False), [])
+
+    def test_non_numeric_rects_are_dropped_without_raising(self):
+        self.assertEqual(overlay.input_region_rects([("x", 0, 10, 10)], (100, 100), False), [])
+
+
+class PanelManualControls(unittest.TestCase):
+    """The panel source must expose the manual prompt and pass-through hooks."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ast
+        source = (ROOT / "apps" / "socket_stream_desktop" / "ui" / "floating_overlay.py").read_text()
+        cls.tree = ast.parse(source)
+        cls.class_node = next(node for node in ast.walk(cls.tree)
+                              if isinstance(node, ast.ClassDef) and node.name == "FloatingOverlay")
+
+    def test_constructor_accepts_ask_and_capture_callbacks(self):
+        import ast
+        init = next(node for node in self.class_node.body
+                    if isinstance(node, ast.FunctionDef) and node.name == "__init__")
+        keywords = [arg.arg for arg in init.args.kwonlyargs]
+        for required in ("on_ask", "on_capture"):
+            self.assertIn(required, keywords)
+
+    def test_pass_through_and_shape_methods_exist(self):
+        import ast
+        names = {node.name for node in ast.walk(self.tree) if isinstance(node, ast.FunctionDef)}
+        for required in ("_toggle_input_lock", "_apply_input_shape", "_collect_input_rects",
+                         "_input_widget_list", "_on_prompt_activate", "_on_capture_clicked"):
+            self.assertIn(required, names)
+
+
 class ObserveCommand(unittest.TestCase):
     def test_base_command(self):
         command = overlay.observe_command("/bin/socket_stream", "ollama")

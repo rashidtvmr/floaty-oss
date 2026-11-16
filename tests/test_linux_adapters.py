@@ -202,5 +202,97 @@ class LinuxAdapterTests(unittest.TestCase):
         ):
             self.assertTrue(path.is_file(), str(path))
 
+
+class ManualQuestionDispatch(unittest.TestCase):
+    """Panel question/capture dispatch: stdin controls when live, ask otherwise."""
+
+    @classmethod
+    def _method(cls, name):
+        tree = ast.parse((ROOT / "apps/socket_stream_desktop/ui/linux-gtk.py").read_text())
+        function = next(node for node in ast.walk(tree)
+                        if isinstance(node, ast.FunctionDef) and node.name == name)
+        scope = {"sanitize_manual_question": GTK.sanitize_manual_question}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), name, "exec"), scope)
+        return scope[name]
+
+    def controller(self, proc=None, stdin_live=False):
+        sent, launched, shown, messages, confirmed = [], [], [], [], []
+        fake = SimpleNamespace(
+            proc=proc, _stdin_live=stdin_live,
+            write=lambda text: messages.append(text),
+            run_cli=lambda args: (launched.append(args) or True),
+            selected_provider=lambda: "mock",
+            show_answer_panel=lambda: shown.append(True),
+            confirmation=lambda title, text: confirmed.append((title, text)) or self.confirm_result,
+            set_status=lambda status: messages.append(f"status:{status}"),
+        )
+        return fake, SimpleNamespace(sent=sent, launched=launched, shown=shown,
+                                     messages=messages, confirmed=confirmed)
+
+    class RecordingStdin:
+        def __init__(self, sink):
+            self._sink = sink
+        def write(self, line):
+            self._sink.append(line)
+        def flush(self):
+            pass
+
+    def setUp(self):
+        self.confirm_result = True
+
+    def test_sanitize_flattens_whitespace_and_bounds_the_question(self):
+        self.assertEqual(GTK.sanitize_manual_question("  why\n\tdoes  this fail? "),
+                         "why does this fail?")
+        self.assertEqual(GTK.sanitize_manual_question("x" * 5000), "x" * 2000)
+        self.assertEqual(GTK.sanitize_manual_question(None), "")
+        self.assertEqual(GTK.sanitize_manual_question("   "), "")
+
+    def test_live_session_sends_question_control_line(self):
+        proc = SimpleNamespace(poll=lambda: None,
+                               stdin=self.RecordingStdin((lines := [])))
+        fake, seen = self.controller(proc=proc, stdin_live=True)
+        self._method("send_manual_question")(fake, "why\n does  this fail?")
+        self.assertEqual(lines, ["question why does this fail?\n"])
+        self.assertEqual(seen.launched, [])
+
+    def test_standalone_question_runs_one_shot_ask(self):
+        fake, seen = self.controller()
+        self._method("send_manual_question")(fake, "explain binary search")
+        self.assertEqual(seen.launched,
+                         [["ask", "--question", "explain binary search", "--provider", "mock"]])
+        self.assertEqual(seen.shown, [True])
+
+    def test_question_is_blocked_while_a_non_live_operation_runs(self):
+        proc = SimpleNamespace(poll=lambda: None, stdin=None)
+        fake, seen = self.controller(proc=proc, stdin_live=False)
+        self._method("send_manual_question")(fake, "hello there")
+        self.assertEqual(seen.launched, [])
+        self.assertTrue(any("Stop the active operation" in text for text in seen.messages))
+
+    def test_live_capture_sends_read_screen_control(self):
+        proc = SimpleNamespace(poll=lambda: None,
+                               stdin=self.RecordingStdin((lines := [])))
+        fake, seen = self.controller(proc=proc, stdin_live=True)
+        self._method("manual_capture")(fake)
+        self.assertEqual(lines, ["read-screen\n"])
+        self.assertEqual(seen.launched, [])
+
+    def test_standalone_capture_confirms_then_runs_authorized_ask(self):
+        fake, seen = self.controller()
+        self._method("manual_capture")(fake)
+        self.assertEqual(len(seen.confirmed), 1)
+        self.assertEqual(seen.launched,
+                         [["ask", "--read-screen", "--authorized", "--allow-ocr",
+                           "--provider", "mock"]])
+        self.assertEqual(seen.shown, [True])
+
+    def test_standalone_capture_respects_declined_consent(self):
+        self.confirm_result = False
+        fake, seen = self.controller()
+        self._method("manual_capture")(fake)
+        self.assertEqual(seen.launched, [])
+        self.assertIn("status:Permission declined", seen.messages)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,3 +1,4 @@
+mod ask;
 mod audio_live;
 mod auth_commands;
 mod hotkeys;
@@ -30,9 +31,19 @@ fn usage() {
         "  audio-live --authorized --source microphone|system [--stt moonshine|whisper] [--device DEVICE] [--provider PROVIDER]"
     );
     eprintln!("    Moonshine is built in; legacy Whisper requires --stt whisper --model MODEL.");
+    eprintln!("    audio-live stdin controls: pause, resume, stop, read-screen, question TEXT");
+    eprintln!(
+        "    --read-screen reads the screen in parallel (accessibility first, OCR with --allow-ocr);"
+    );
+    eprintln!("      --read-interval N sets the cadence; --no-vision skips attaching screenshots.");
     eprintln!(
         "  observe-live --authorized [--allow-ocr|--force-ocr] [--ocr-images|--no-ocr-images] [--a11y-mode auto|focused|tree|text] [--max-tokens N] [--config PATH] [--interval 4] [--provider ollama|codex|openai-compatible|mock]"
     );
+    eprintln!("    observe-live stdin controls: pause, resume, stop, read-screen, question TEXT");
+    eprintln!(
+        "  ask [--question TEXT | --read-screen] [--with-screen] [--authorized] [--allow-ocr] [--portal] [--provider ...]"
+    );
+    eprintln!("    one-shot manual ask; emits live JSONL events for the answer panel");
     eprintln!(
         "  overlay --provider ollama [--stealth|--no-stealth] [--interval 4] [--opacity 0.94] [--allow-ocr] [--portal]"
     );
@@ -198,6 +209,7 @@ async fn run(args: &[String]) -> Result<(), String> {
     match action {
         "audio-live" => audio_live::run(args, provider_from_env(args)?).await,
         "observe-live" => live_observe::run(args, provider_from_env(args)?).await,
+        "ask" => ask::run(args, provider_from_env(args)?).await,
         "overlay" => overlay::run(args),
         "replay-events" => live_events::replay(&required_path(args, "--file")?),
         "hotkeys" => hotkeys::run(args),

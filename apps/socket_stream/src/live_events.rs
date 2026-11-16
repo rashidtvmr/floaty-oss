@@ -123,6 +123,20 @@ impl Emitter {
         self.write(&event)
     }
 
+    /// A screen reading outcome for the practice panel: what was read and from
+    /// which source. `status` distinguishes a successful read from a bounded,
+    /// control-free reason why nothing could be read.
+    pub fn send_screen_read(
+        &mut self,
+        source: &str,
+        status: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        self.sequence += 1;
+        let event = screen_read_event(&self.session_id, self.sequence, source, status, text);
+        self.write(&event)
+    }
+
     fn write(&self, event: &Value) -> Result<(), String> {
         let mut stdout = io::stdout().lock();
         serde_json::to_writer(&mut stdout, event).map_err(|_| "cannot serialize live event")?;
@@ -198,6 +212,25 @@ fn api_response_event(
         event["status"] = json!(status);
     }
     event
+}
+
+/// Build the bounded `screen_read` event. Pure so the shape can be tested
+/// without writing to stdout. `status` is normalized to "ok" or
+/// "unavailable"; the text is the panel rendering of what was read, or a
+/// bounded reason when nothing could be read.
+fn screen_read_event(
+    session_id: &str,
+    sequence: u64,
+    source: &str,
+    status: &str,
+    text: &str,
+) -> Value {
+    json!({
+        "schema": 1, "type": "screen_read", "session_id": session_id,
+        "sequence": sequence, "source": source, "timestamp": utc_timestamp(),
+        "status": if status == "ok" { "ok" } else { "unavailable" },
+        "text": bounded_text(text),
+    })
 }
 
 pub fn replay(path: &Path) -> Result<(), String> {
@@ -282,6 +315,23 @@ mod tests {
         assert!(identical.get("display").is_none());
 
         let bounded = question_event("s1", 5, "ocr", "q3", &"x".repeat(70_000), "y");
+        assert_eq!(bounded["text"].as_str().unwrap().chars().count(), 64_000);
+    }
+
+    #[test]
+    fn screen_read_event_normalizes_status_and_bounds_text() {
+        let ok = screen_read_event("s1", 8, "accessibility", "ok", "What is binary search?");
+        assert_eq!(ok["type"], "screen_read");
+        assert_eq!(ok["schema"], 1);
+        assert_eq!(ok["source"], "accessibility");
+        assert_eq!(ok["status"], "ok");
+        assert_eq!(ok["text"], "What is binary search?");
+        assert!(ok.get("request_id").is_none());
+
+        let unavailable = screen_read_event("s1", 9, "system", "weird-value", "Portal denied");
+        assert_eq!(unavailable["status"], "unavailable");
+
+        let bounded = screen_read_event("s1", 10, "ocr", "ok", &"y".repeat(70_000));
         assert_eq!(bounded["text"].as_str().unwrap().chars().count(), 64_000);
     }
 

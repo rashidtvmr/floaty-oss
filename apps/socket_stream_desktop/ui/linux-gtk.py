@@ -119,6 +119,15 @@ def gtk_modifier_mask(Gdk, accelerator):
     return mask
 
 
+def sanitize_manual_question(text):
+    """Flatten a typed panel question into one bounded stdin control line.
+
+    Newlines and tabs become single spaces (the stdin protocol is line-based)
+    and the question is bounded to the panel entry's 2000-character limit.
+    """
+    return " ".join(str(text or "").split())[:2000]
+
+
 def terminate_tree(proc):
     """Terminate only child processes started in our private process group."""
     if proc is None or proc.poll() is not None:
@@ -171,6 +180,9 @@ def create_window():
             self._process_generation = 0
             self._events_closed = False
             self._live_mode = False
+            # True only while a stdin-controlled live command (observe-live or
+            # audio-live) owns the child; one-shot ask runs accept no controls.
+            self._stdin_live = False
             self._pause_pending = False
             self._accel_group = None
             self._recording_action = ""
@@ -212,7 +224,9 @@ def create_window():
                 plan=plan, session=session, stealth=True, state=self.live_state,
                 on_stop=self.stop, on_pause=self.toggle_pause,
                 on_minimize=self.minimize_app, on_settings=self.open_appearance,
-                on_selection_changed=self.refresh_session, **self.appearance,
+                on_selection_changed=self.refresh_session,
+                on_ask=self.send_manual_question, on_capture=self.manual_capture,
+                **self.appearance,
             )
             build_workspace(self)
             self._install_shortcuts()
@@ -872,11 +886,14 @@ def create_window():
             env.update(self.env)
             env["SOCKET_STREAM_GUI_PID"] = str(os.getpid())
             env["SOCKET_STREAM_HOME"] = str(ROOT)
-            live_mode = arguments[0] in ("observe-live", "audio-live", "replay-events")
+            live_mode = arguments[0] in ("observe-live", "audio-live", "replay-events", "ask")
+            # One-shot ask feeds the same JSONL event stream into the panel but
+            # accepts no stdin controls; only the long-running live commands do.
+            self._stdin_live = arguments[0] in ("observe-live", "audio-live")
             try:
                 proc = subprocess.Popen(
                     [str(CLI), *arguments], cwd=str(ROOT), env=env,
-                    stdin=subprocess.PIPE if arguments[0] in ("observe-live", "audio-live") else None,
+                    stdin=subprocess.PIPE if self._stdin_live else None,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL if live_mode else subprocess.STDOUT,
                     text=True, bufsize=1, errors="replace", start_new_session=True,
@@ -971,6 +988,7 @@ def create_window():
                     self.proc = None
                     self.stopping = False
                     self.pause_supported = False
+                    self._stdin_live = False
                     self._pause_pending = False
                     if self._force_stop_source is not None:
                         GLib.source_remove(self._force_stop_source)
@@ -1008,6 +1026,62 @@ def create_window():
                 )
             except (BrokenPipeError, OSError):
                 self.write("Could not send pause/resume to the observation process.\n")
+
+        def send_manual_question(self, text):
+            """Typed question from the answer panel.
+
+            Inside a stdin-controlled live session it travels as a ``question``
+            control line and is answered with the latest screen context.
+            Otherwise it runs as a one-shot ``ask`` command that streams the
+            same JSONL events into the panel.
+            """
+            question = sanitize_manual_question(text)
+            if not question:
+                return
+            proc = self.proc
+            if self._stdin_live and proc is not None and proc.poll() is None and proc.stdin is not None:
+                try:
+                    proc.stdin.write(f"question {question}\n")
+                    proc.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    self.write("Could not send the question to the live session.\n")
+                return
+            if proc is not None:
+                self.write("Stop the active operation before asking a standalone question.\n")
+                return
+            if self.run_cli(["ask", "--question", question,
+                             "--provider", self.selected_provider()]):
+                self.show_answer_panel()
+
+        def manual_capture(self):
+            """Capture button: read the screen now and answer what is on it.
+
+            Inside a live session this is a ``read-screen`` control line (the
+            read becomes the question). Otherwise it runs one-shot
+            ``ask --read-screen`` with the same consent confirmation as the
+            observation start.
+            """
+            proc = self.proc
+            if self._stdin_live and proc is not None and proc.poll() is None and proc.stdin is not None:
+                try:
+                    proc.stdin.write("read-screen\n")
+                    proc.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    self.write("Could not request a screen read from the live session.\n")
+                return
+            if proc is not None:
+                self.write("Stop the active operation before running a standalone capture.\n")
+                return
+            if not self.confirmation("Read the screen once?",
+                    "The app reads foreground accessibility text and, when no text "
+                    "is readable, takes a local screenshot for OCR and model vision. "
+                    "Only capture applications where assistance is permitted."):
+                self.set_status("Permission declined")
+                return
+            args = ["ask", "--read-screen", "--authorized", "--allow-ocr",
+                    "--provider", self.selected_provider()]
+            if self.run_cli(args):
+                self.show_answer_panel()
 
         def confirmation(self, title, explanation):
             dialog = Gtk.MessageDialog(
@@ -1050,6 +1124,7 @@ def create_window():
             self._events_closed = True
             self._pause_pending = False
             self.pause_supported = False
+            self._stdin_live = False
             if self._live_mode:
                 self.live_state.stop()
                 self.floating.render_state(self.active_provider)
@@ -1234,22 +1309,39 @@ def create_window():
             hint.set_line_wrap(True)
             hint.set_xalign(0)
             grid.attach(hint, 0, 3, 2, 1)
+            # Parallel screen reading: while listening, a reader keeps the
+            # latest screen text (accessibility first, OCR fallback) so spoken
+            # and typed questions carry on-screen context.
+            read_screen = Gtk.CheckButton(label="Read the screen in parallel (context for answers)")
+            read_screen.set_active(bool(getattr(self, "read_screen_check", None)
+                                        and self.read_screen_check.get_active()))
+            read_screen.get_accessible().set_name("Parallel screen reading")
+            grid.attach(read_screen, 0, 4, 2, 1)
             dialog.get_content_area().add(grid)
             dialog.show_all()
             confirmed = dialog.run() == Gtk.ResponseType.OK
-            selection = (source.get_active_text(), device.get_text().strip())
+            selection = (source.get_active_text(), device.get_text().strip(),
+                         read_screen.get_active())
             dialog.destroy()
-            if not confirmed or not self.confirmation("Authorize audio practice listening?",
-                    "Stream the selected source through local Moonshine speech recognition. "
-                    "Finalized speech is sent to your selected AI provider for answers. "
-                    "Pause/Stop end capture immediately. No recording is saved."):
+            if not confirmed:
                 return
-            audio_source, device_name = selection
+            audio_source, device_name, parallel_screen = selection
+            explanation = ("Stream the selected source through local Moonshine speech recognition. "
+                           "Finalized speech is sent to your selected AI provider for answers. "
+                           "Pause/Stop end capture immediately. No recording is saved.")
+            if parallel_screen:
+                explanation += (" With parallel screen reading, the app also reads foreground "
+                                "accessibility text (local OCR fallback) as answer context; "
+                                "screenshots are only sent to vision-capable providers you configure.")
+            if not self.confirmation("Authorize audio practice listening?", explanation):
+                return
             args = ["audio-live", "--authorized", "--source", audio_source,
                     "--stt", "moonshine",
                     "--provider", self.selected_provider()]
             if device_name:
                 args.extend(["--device", device_name])
+            if parallel_screen:
+                args.extend(["--read-screen", "--allow-ocr"])
             if self.run_cli(args):
                 self.show_answer_panel()
 

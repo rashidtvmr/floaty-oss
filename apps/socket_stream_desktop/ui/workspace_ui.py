@@ -108,6 +108,11 @@ def build_workspace(app):
     style(app.start_button, "ss-primary")
     audio = card(sources, "Listen to audio")
     audio.pack_start(label("Microphone or system audio.\nEnglish transcription on device."), False, False, 0)
+    app.read_screen_check = Gtk.CheckButton(label="Also read the screen in parallel")
+    app.read_screen_check.set_tooltip_text(
+        "While listening, keep the latest screen text as context for spoken and typed questions.")
+    app.read_screen_check.get_accessible().set_name("Parallel screen reading")
+    audio.pack_start(app.read_screen_check, False, False, 0)
     app.listen_button = buttons(audio, [("Listen to audio", app.listen_audio)])[0]
     session_row = Gtk.Box(spacing=8)
     app.status = style(Gtk.Label(label="Stopped"), "ss-chip")

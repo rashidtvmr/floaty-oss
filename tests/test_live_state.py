@@ -93,6 +93,7 @@ class LiveStateTests(unittest.TestCase):
         self.assertEqual(set(snapshot), {
             "status", "session_id", "request_id", "question", "question_display",
             "answer", "source", "error", "transcript", "api_request", "api_response",
+            "screen",
         })
         # Without a display field the panel falls back to the raw question.
         self.assertEqual(snapshot["question_display"], snapshot["question"])
@@ -153,6 +154,33 @@ class LiveStateTests(unittest.TestCase):
         self.assertEqual(snapshot["status"], "error")
         self.assertEqual(snapshot["source"], "provider")
         self.assertEqual(snapshot["error"], "Provider unavailable")
+
+    def test_screen_read_updates_screen_view(self):
+        self.state.apply(ev("screen_read", 2, source="accessibility",
+                            status="ok", text="def binary_search(a, x): …"))
+        self.assertEqual(self.state.snapshot()["screen"], "def binary_search(a, x): …")
+        # Unavailable reads render their bounded reason text too.
+        self.state.apply(ev("screen_read", 3, source="system",
+                            status="unavailable", text="y" * 20000))
+        self.assertEqual(len(self.state.snapshot()["screen"]), 12000)
+        # A new session clears the previous screen context.
+        self.state.apply(ev("session_stopped", 4))
+        self.state.apply(ev("session_started", 5, sid="second"))
+        self.assertEqual(self.state.snapshot()["screen"], "")
+
+    def test_screen_read_is_ignored_after_stop(self):
+        self.state.apply(ev("session_stopped", 2))
+        self.assertFalse(self.state.apply(ev("screen_read", 3, source="ocr",
+                                             status="ok", text="late read")))
+        self.assertEqual(self.state.snapshot()["screen"], "")
+
+    def test_manual_question_source_is_accepted(self):
+        self.state.apply(ev("question_detected", 2, "m1", source="manual",
+                            text="Why does this fail?"))
+        snapshot = self.state.snapshot()
+        self.assertEqual(snapshot["source"], "manual")
+        self.assertEqual(snapshot["status"], "thinking")
+        self.assertEqual(snapshot["question"], "Why does this fail?")
 
 
 if __name__ == "__main__":
