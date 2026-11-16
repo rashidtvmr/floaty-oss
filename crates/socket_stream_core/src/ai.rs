@@ -524,7 +524,10 @@ pub async fn stream_answer_with_meta_vision(
         Some(image) => ChatMessage::vision(question, image),
         None => ChatMessage::text("user", question),
     };
-    let body = ChatRequest::new(base_url, model, user_message, true);
+    // Explicit per-profile compatibility mode. Never replay a failed request:
+    // send one buffered request up front to gateways with unreliable SSE.
+    let streaming = std::env::var("SOCKET_STREAM_BUFFERED_ANSWERS").as_deref() != Ok("1");
+    let body = ChatRequest::new(base_url, model, user_message, streaming);
     if let Some(meta) = meta {
         let _ = meta
             .send(ApiEvent::Request {

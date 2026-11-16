@@ -36,12 +36,39 @@ answer reading area; expand it to change settings or start again.
 - **Window…** selects an explicit AT-SPI question window. Fixed-window mode is
   accessibility-only and never silently retargets or falls back to screenshots.
 
+## Manual sending, context and stream compatibility
+
+**Send recognized** sends the latest finalized speech or readable screen text
+through the active session. It does not start capture or silently retry a failed
+request. It is disabled while stopped, paused or answering. For audio with no
+automatic answers, select Mixed/unknown speakers in Audio options.
+
+Live sessions retain up to three successfully completed question/answer pairs
+(2,000 question characters and 4,000 answer characters per turn) in memory for
+follow-ups, alongside current screen context when screen reading is selected.
+Failed/cancelled partial answers are not retained. Start fresh creates a new
+backend session and clears this context; it is never written to logs or disk.
+
+In Providers, **Buffered compatibility** sends a single `stream:false` request
+up front. The panel waits for the whole answer rather than token deltas. It does
+not retry or replay an empty stream and does not enable provider fallback. Use
+this setting for a gateway whose streaming responses are intermittent.
+
 ## Themes
 
 Open panel settings (gear) or workspace **Appearance**. Choose **Light**, **Dark**,
 or **System preference**, then **Save appearance**. The workspace, provider/audio
 dialogs and answer panel preview together. System preference follows GTK theme
 notifications. Font size, opacity and reduced-motion preferences remain separate.
+
+## One desktop instance
+
+The normal GTK launcher now holds a private per-user instance lock. Opening it
+again exits the duplicate launcher and, when PID-safe notification is available,
+restores the existing workspace. It never starts capture or a second live backend
+as a consequence of opening the launcher. Explicit CLI workflows are unaffected.
+Close all older app instances before first running this update: builds predating
+this guard do not hold its lock.
 
 ## Verified scope and limits
 
@@ -56,3 +83,10 @@ isolated official CLI default-model test independently retried the connection an
 timed out; no application change can establish account entitlement from that.
 Physical headphone/Bluetooth switching and native macOS equivalents of these
 new Linux controls remain unverified.
+
+For staged Linux verification, set `SOCKET_STREAM_GTK_NATIVE_E2E=1` when running
+`tests/gtk_workspace_checks.py` under Xvfb. This additionally exercises the real
+CLI, synthetic ASR final events, GTK manual Send, a loopback buffered provider,
+contextual follow-up, Stop/fresh-session reset, and isolated duplicate launching.
+It never records hardware audio or invokes a remote model. Real FFmpeg/Moonshine
+internal-playback tests are separate and use a private Pulse null-sink monitor.

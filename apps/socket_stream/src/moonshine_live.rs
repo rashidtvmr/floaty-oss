@@ -97,16 +97,19 @@ fn control_line(line: &str) -> Option<Result<Control, String>> {
     if let Some(role) = trimmed.strip_prefix("speaker ") {
         return Some(SpeechRole::parse(role).map(Control::Speaker));
     }
-    trimmed.strip_prefix("question ").map(|rest| {
-        let text = rest.trim();
-        if text.is_empty() {
-            Err("Type a question after the question command.".into())
-        } else if text.len() > MAX_MANUAL_QUESTION {
-            Err("Manual question is too long.".into())
-        } else {
-            Ok(Control::Question(text.to_owned()))
-        }
-    })
+    trimmed
+        .strip_prefix("question ")
+        .or_else(|| trimmed.strip_prefix("recognized-question "))
+        .map(|rest| {
+            let text = rest.trim();
+            if text.is_empty() {
+                Err("Type a question after the question command.".into())
+            } else if text.len() > MAX_MANUAL_QUESTION {
+                Err("Manual question is too long.".into())
+            } else {
+                Ok(Control::Question(text.to_owned()))
+            }
+        })
 }
 
 enum Control {
@@ -467,6 +470,7 @@ fn controls() -> mpsc::Receiver<String> {
                 line.as_str(),
                 "pause" | "resume" | "stop" | "read-screen" | "next-question"
             ) || line.starts_with("question ")
+                || line.starts_with("recognized-question ")
                 || line.starts_with("speaker ");
             if recognized && tx.blocking_send(line).is_err() {
                 break;
@@ -698,6 +702,7 @@ async fn run_session(
     let (_unused, mut answer_rx) = watch::channel(AnswerView::default());
     let mut answer_id = String::new();
     let mut answer_sent = 0;
+    let mut conversation = crate::session_context::SessionContext::default();
     let mut request = 0_u64;
     let mut due: Option<Instant> = None;
     let mut interrupt = Box::pin(tokio::signal::ctrl_c());
@@ -736,6 +741,7 @@ async fn run_session(
                 question_prompt
             };
             let image = vision_frame(&provider, screen_frame.as_deref());
+            let prompt = conversation.start(&$text, &prompt);
             emitter.send("ai_input", $source, Some(&answer_id), Some(&prompt))?;
             let (task, rx) = start_answer(provider.clone(), prompt, image);
             answer_task = Some(task);
@@ -771,6 +777,7 @@ async fn run_session(
                         generation += 1;
                         if let Some(mut old) = session.take() { old.stop().await; }
                         answer_task = None;
+                        conversation.finish(false);
                         transcript.pending.clear();
                         manual_pending = None;
                         due = None;
@@ -789,6 +796,7 @@ async fn run_session(
                     }
                     Some("next-question") if !paused => {
                         if answer_task.take().is_some() {
+                            conversation.finish(false);
                             emitter.send("answer_cancelled", label, Some(&answer_id), None)?;
                         }
                         if let Some(text) = manual_pending.take() {
@@ -797,8 +805,12 @@ async fn run_session(
                             due = Some(Instant::now());
                         }
                     }
-                    Some(line) if line.starts_with("question ") => match control_line(line) {
+                    Some(line) if line.starts_with("question ") || line.starts_with("recognized-question ") => match control_line(line) {
                         Some(Ok(Control::Question(text))) => {
+                            if line.starts_with("recognized-question ") {
+                                transcript.pending.clear();
+                                due = None;
+                            }
                             if text.chars().filter(|c| c.is_alphabetic()).count() < 3 {
                                 emitter.send(
                                     "error", "system", None,
@@ -889,6 +901,7 @@ async fn run_session(
                         if transcript.finalize(&text) {
                             due = Some(Instant::now() + Duration::from_millis(900));
                             emitter.send("transcript_updated", label, None, Some(&transcript.display("")))?;
+                            emitter.send("recognized_question", label, None, Some(&transcript.pending))?;
                             emitter.send("speech_status", label, None, Some("Final speech received · checking request gate"))?;
                         }
                     }
@@ -917,6 +930,7 @@ async fn run_session(
                 emitter.send("question_detected", label, Some(&answer_id), Some(&prompt))?;
                 emitter.send("answer_started", label, Some(&answer_id), None)?;
                 let context_prompt = compose_prompt(&permitted_prompt, Some(&screen_context));
+                let context_prompt = conversation.start(&prompt, &context_prompt);
                 let image = vision_frame(&provider, screen_frame.as_deref());
                 emitter.send("ai_input", label, Some(&answer_id), Some(&context_prompt))?;
                 let (task, rx) = start_answer(provider.clone(), context_prompt, image);
@@ -932,6 +946,10 @@ async fn run_session(
                     answer_sent = view.text.len();
                 }
                 if view.done {
+                    if !view.failed {
+                        conversation.delta(&view.text);
+                    }
+                    conversation.finish(!view.failed);
                     if let Some(usage) = &view.usage {
                         emitter.send("token_usage", "provider", Some(&answer_id), Some(&usage.summary()))?;
                     }

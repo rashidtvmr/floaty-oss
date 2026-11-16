@@ -13,6 +13,7 @@ _TYPES = {
     "answer_completed", "api_request", "api_response", "transcript_updated",
     "session_paused", "session_resumed", "error", "session_stopped",
     "screen_read", "token_usage", "speech_status", "ai_input", "answer_cancelled",
+    "recognized_question",
 }
 
 
@@ -35,6 +36,7 @@ class LiveState:
             api_request="", api_response="", transcript="", screen="",
             stage="idle", error_kind="unknown", elapsed=0.0,
             token_usage="Cache usage not reported",
+            recognized_question="",
         )
         self._seq = -1
         self._history = []
@@ -247,6 +249,7 @@ class LiveState:
                 question="", question_display="", answer="",
                 source=source if source in ("microphone", "playback") else "", error="",
                 api_request="", api_response="", transcript="", screen="",
+                recognized_question="",
                 token_usage="Cache usage not reported",
                 stage="listening" if source in ("microphone", "playback") else "reading",
                 error_kind="unknown", elapsed=0.0,
@@ -302,12 +305,18 @@ class LiveState:
             self._view["transcript"] = clean(event.get("text"), 24000)
             return True
 
+        if kind == "recognized_question":
+            self._view["recognized_question"] = clean(event.get("text"), 2000).strip()
+            return True
+
         if kind == "speech_status":
             self._speech_status = clean(event.get("text"), 240)
             return True
 
         if kind == "screen_read":
             self._view["screen"] = clean(event.get("text"), 12000)
+            if event.get("status") == "ok":
+                self._view["recognized_question"] = clean(event.get("text"), 2000).strip()
             self._screen_notice = ("Screen unavailable: " + " ".join(self._view["screen"].split())[:180]
                                    if event.get("status") == "unavailable" else "")
             return True

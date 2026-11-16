@@ -31,6 +31,13 @@ class ProviderSettings(unittest.TestCase):
     def test_load_missing_returns_empty(self):
         self.assertEqual(settings.load_provider_settings(), {})
 
+    def test_buffered_delivery_mode_is_saved_with_its_profile(self):
+        settings.save_provider_profile("Buffered", "openai-compatible", {"SOCKET_STREAM_BUFFERED_ANSWERS": "1"})
+        self.assertEqual(settings.load_provider_settings()["SOCKET_STREAM_BUFFERED_ANSWERS"], "1")
+        settings.save_provider_profile("Streaming", "openai-compatible", {})
+        self.assertEqual(settings.load_provider_settings()["SOCKET_STREAM_BUFFERED_ANSWERS"], "")
+        self.assertEqual(settings.load_provider_profiles()["profiles"]["Buffered"]["settings"]["SOCKET_STREAM_BUFFERED_ANSWERS"], "1")
+
     def test_round_trip_with_user_only_permissions(self):
         env = {"SOCKET_STREAM_API_KEY": "sk-test", "SOCKET_STREAM_MODEL": "gpt-x"}
         path = settings.save_provider_settings(env)

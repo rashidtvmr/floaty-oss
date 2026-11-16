@@ -301,7 +301,8 @@ class FloatingOverlay:
                  on_ask=None, on_capture=None, cursor_blending=True,
                    on_cursor_blending=None, on_next_question=None, theme="light",
                   on_start=None, on_sources=None, on_profile=None, on_model=None,
-                  on_providers=None, on_window=None, on_models=None, on_audio=None):
+                  on_providers=None, on_window=None, on_models=None, on_audio=None,
+                  on_send_recognized=None):
         import gi
 
         gi.require_version("Gdk", "3.0")
@@ -726,6 +727,11 @@ class FloatingOverlay:
         self.capture_button.get_accessible().set_name("Capture screen")
         self.capture_button.connect("clicked", lambda *_: self._on_capture_clicked())
         self.prompt_row.pack_start(self.capture_button, False, False, 0)
+        self.send_recognized_button = style(Gtk.Button(label="Send recognized"), "ss-quiet")
+        self.send_recognized_button.set_tooltip_text("Send the latest finalized speech/screen question in this live session, with recent completed turns and current screen context. Does not start a new capture.")
+        self.send_recognized_button.set_sensitive(False)
+        self.send_recognized_button.connect("clicked", lambda *_: on_send_recognized() if on_send_recognized else None)
+        self.prompt_row.pack_start(self.send_recognized_button, False, False, 0)
 
         self.controls = style(Gtk.Box(spacing=6), "ss-footer")
         layout.pack_start(self.controls, False, False, 0)

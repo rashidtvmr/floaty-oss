@@ -77,3 +77,37 @@ inventory exposed 5 playback monitors and 3 microphone inputs without recording.
 The official Codex default-model CLI independently retried transport and timed out;
 login/catalog success remains explicitly insufficient proof of inference access.
 See `PANEL-SESSION-PROFILES.md` for workflow and remaining hardware/platform limits.
+
+Urgent answer compatibility/manual-send update (2026-11-16): the observed live
+failure was `empty response stream`; native fixed-prompt streaming and buffered
+tests both subsequently succeeded, so a permanent stream-format failure was not
+established. An explicit per-profile buffered option now sends one non-streaming
+request up front, with no automatic replay. The native buffered answer path passed
+against the saved provider using a synthetic prompt only. Send recognized uses the
+existing active live control channel, and completed-turn context is memory-only,
+bounded to three turns and the 64KB provider prompt budget. Failed/cancelled turns
+are excluded and a fresh session starts empty. Rust fmt/Clippy and 200 tests pass;
+Python passes 657 tests (6 skipped); source acceptance passes 39 (7 skipped).
+Ubuntu GTK passes 37 checks (3 skipped). Thirteen Ubuntu loopback speech/profile
+acceptance checks pass, including recognized manual send with earlier completed
+turns and a single buffered request with `stream:false`.
+Independent review approved the scoped changes. The noted shell-environment/UI
+default mismatch was corrected by initializing the buffered preference alongside
+the other provider defaults.
+
+Resumed E2E hardening (2026-11-16): staged Ubuntu GTK checks now include a continuous
+real-CLI pipeline from synthetic finalized speech through the actual Send
+recognized button, one buffered loopback request, contextual follow-up, Stop,
+fresh-session restart and proof that old context is absent. Failed-stream and
+cancellation tests cover both screen and audio paths; screen aborts now discard
+pending context immediately. The real FFmpeg/Moonshine private-monitor test
+produced 5 transcript updates, a manual answer and a context-bearing follow-up,
+without microphone, physical speakers or remote AI; default output was unchanged.
+Forty Ubuntu GTK checks pass with only 3 physical-input checks skipped. The new
+single-instance launcher also passes a real isolated duplicate-process test;
+production instances were subsequently stopped with explicit user authorization
+before reinstalling. Final Python suite passes 661 tests (6 skipped), Rust passes
+200 tests plus fmt/Clippy, and source acceptance passes 41 checks (7 skipped).
+Independent review approved the cancellation and private-instance-lock changes.
+This evidence does not guarantee third-party model
+availability or physical headphone/Bluetooth switching behavior.

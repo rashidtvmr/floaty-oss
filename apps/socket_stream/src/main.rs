@@ -7,6 +7,7 @@ mod live_events;
 mod live_observe;
 mod moonshine_live;
 mod overlay;
+mod session_context;
 mod turn_gate;
 
 use socket_stream_core::a11y::A11yTree;

@@ -592,6 +592,217 @@ class WorkspaceChecks(unittest.TestCase):
         self.assertEqual(self.panel.model_entry.get_text(), "model-b")
         self.assertEqual(controller.load_provider_profiles()["profiles"]["Cloud A"]["settings"]["SOCKET_STREAM_API_KEY"], "fixture-a")
 
+    def test_manual_recognized_send_uses_active_session_without_new_capture(self):
+        import io
+        pipe = io.StringIO()
+        self.app.proc = SimpleNamespace(poll=lambda: None, stdin=pipe)
+        self.app._stdin_live = True
+        try:
+            self.send("session_started")
+            self.send("recognized_question", text="Explain binary search on sorted data.")
+            self.assertTrue(self.panel.send_recognized_button.get_sensitive())
+            self.panel.send_recognized_button.clicked()
+            self.assertEqual(pipe.getvalue(), "recognized-question Explain binary search on sorted data.\n")
+            self.assertFalse(self.panel.send_recognized_button.get_sensitive())
+            self.assertFalse(self.app._starting)
+        finally:
+            self.app.proc = None
+            self.app._stdin_live = False
+
+    @unittest.skipUnless(os.environ.get("SOCKET_STREAM_GTK_NATIVE_E2E") == "1", "opt-in real CLI/GTK loopback integration")
+    def test_real_cli_manual_send_buffered_context_stop_and_fresh_session(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from unittest.mock import patch
+        import source_preflight
+        real_cli = self.old_cli
+        self.assertTrue(real_cli.is_file(), "stage the current native CLI before running this integration")
+        fixture = self.path / "native-live-fixture"
+        worker = fixture / "target/native-helpers/moonshine/socket_stream_moonshine/socket_stream_moonshine"
+        worker.parent.mkdir(parents=True)
+        commands = fixture / "speech.jsonl"
+        commands.write_text("")
+        worker.write_text(f'''#!/usr/bin/python3
+import json,pathlib,time
+commands=pathlib.Path({str(commands)!r})
+print(json.dumps({{"type":"ready","text":""}}),flush=True)
+seen=0
+while True:
+    lines=commands.read_text().splitlines()
+    for line in lines[seen:]:print(line,flush=True)
+    seen=len(lines)
+    time.sleep(0.02)
+''')
+        worker.chmod(0o700)
+        fake_bin = fixture / "bin"
+        fake_bin.mkdir()
+        ffmpeg = fake_bin / "ffmpeg"
+        ffmpeg.write_text("#!/usr/bin/python3\nimport time\ntime.sleep(120)\n")
+        ffmpeg.chmod(0o700)
+        posts = []
+        replies = ("Binary search halves a sorted interval.", "Sorted input lets each comparison eliminate half.", "Fresh session fixture answer.")
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def respond(self, value):
+                payload = json.dumps(value).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_GET(self):
+                self.respond({"data": [{"id": "fixture-model"}]})
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                posts.append(body)
+                self.respond({"choices": [{"message": {"content": replies[min(len(posts)-1, 2)]}}]})
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        original_root, original_cli, original_path = controller.ROOT, controller.CLI, os.environ.get("PATH", "")
+        try:
+            controller.ROOT, controller.CLI = fixture, real_cli
+            os.environ["PATH"] = str(fake_bin) + os.pathsep + original_path
+            controller.save_provider_profile("Native E2E", "openai-compatible", {
+                "SOCKET_STREAM_BASE_URL": f"http://127.0.0.1:{server.server_port}/v1",
+                "SOCKET_STREAM_MODEL": "fixture-model", "SOCKET_STREAM_BUFFERED_ANSWERS": "1"})
+            self.app.provider_book = controller.load_provider_profiles()
+            self.app.refresh_profile_choices()
+            self.panel.profile_select.set_active_id("Native E2E")
+            self.app.audio_source, self.app.audio_device, self.app.speaker_role = "system", "fixture.monitor", "unknown"
+            self.app.audio_check.set_active(True)
+            self.app.screen_check.set_active(False)
+            self.app.confirmation = lambda *_: True  # Synthetic fixtures only; never opens hardware.
+            with patch.object(source_preflight, "check_sources", return_value=([], ["isolated native fixture"])):
+                self.panel.start_button.clicked()
+                self.assertTrue(wait_for(lambda: self.app.proc is not None and self.app.live_state.snapshot()["status"] == "observing", timeout=6000))
+                commands.write_text(json.dumps({"type": "final", "text": "Explain binary search on a sorted array."}) + "\n")
+                self.assertTrue(wait_for(lambda: self.panel.send_recognized_button.get_sensitive(), timeout=6000))
+                pump(1200)
+                self.assertEqual(posts, [], "mixed/manual mode must not invoke AI before manual Send")
+                self.panel.send_recognized_button.clicked()
+                self.assertTrue(wait_for(lambda: replies[0] in self.panel.answer_text() and self.app.live_state.snapshot()["status"] == "ready", timeout=10000))
+                self.panel.prompt_entry.set_text("Why does it require sorted input?")
+                self.panel.ask_button.clicked()
+                self.assertTrue(wait_for(lambda: replies[1] in self.panel.answer_text() and self.app.live_state.snapshot()["status"] == "ready", timeout=10000))
+                self.assertEqual(len(posts), 2)
+                prompt = posts[1]["messages"][-1]["content"]
+                self.assertIn("Earlier question: Explain binary search", prompt)
+                self.assertIn("Earlier answer: " + replies[0], prompt)
+                self.assertIn("Why does it require sorted input?", prompt)
+                self.assertTrue(all(body["stream"] is False for body in posts))
+                self.panel.stop_button.clicked()
+                self.assertTrue(wait_for(lambda: self.app.proc is None, timeout=6000))
+                commands.write_text("")
+                self.panel.start_button.clicked()
+                self.assertTrue(wait_for(lambda: self.app.proc is not None and self.app.live_state.snapshot()["status"] == "observing", timeout=6000))
+                self.assertFalse(self.app.live_state.snapshot()["recognized_question"])
+                commands.write_text(json.dumps({"type": "final", "text": "Explain merge sort for this new session."}) + "\n")
+                self.assertTrue(wait_for(lambda: self.panel.send_recognized_button.get_sensitive(), timeout=6000))
+                self.panel.send_recognized_button.clicked()
+                self.assertTrue(wait_for(lambda: replies[2] in self.panel.answer_text(), timeout=10000))
+                self.assertEqual(len(posts), 3)
+                fresh = posts[2]["messages"][-1]["content"]
+                self.assertNotIn("Earlier completed turns", fresh)
+                self.assertNotIn(replies[0], fresh)
+                self.assertIn("merge sort", fresh)
+                self.panel.stop_button.clicked()
+                self.assertTrue(wait_for(lambda: self.app.proc is None, timeout=6000))
+        finally:
+            if self.app.proc is not None:
+                self.app.stop()
+                wait_for(lambda: self.app.proc is None, timeout=6000)
+            controller.ROOT, controller.CLI = original_root, original_cli
+            os.environ["PATH"] = original_path
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_buffered_compatibility_checkbox_saves_with_profile(self):
+        def edit():
+            dialogs = [d for d in Gtk.Window.list_toplevels() if d.get_title() == "AI provider settings"]
+            if not dialogs:
+                return True
+            dialog = dialogs[0]
+            controls, pending = {}, [dialog]
+            while pending:
+                widget = pending.pop()
+                if isinstance(widget, (Gtk.Entry, Gtk.ComboBoxText, Gtk.CheckButton)):
+                    controls[widget.get_accessible().get_name()] = widget
+                if isinstance(widget, Gtk.Container):
+                    pending.extend(widget.get_children())
+            controls["Profile name"].set_text("Reliable buffered")
+            controls["Profile provider"].set_active(3)
+            controls["API base or full chat-completions URL"].set_text("http://127.0.0.1:9000/v1")
+            controls["Cloud model name"].set_text("fixture-model")
+            controls["Buffered compatible answers"].set_active(True)
+            dialog.response(Gtk.ResponseType.OK)
+            return False
+
+        GLib.timeout_add(60, edit)
+        self.app.settings(None)
+        self.assertEqual(controller.load_provider_settings()["SOCKET_STREAM_BUFFERED_ANSWERS"], "1")
+        self.assertIn("buffered answers", self.app.provider_hint.get_text())
+        self.assertIsNone(self.app.proc)
+
+    def test_shell_buffered_preference_is_visible_with_legacy_profile(self):
+        from unittest.mock import patch
+        import provider_settings
+        controller.save_provider_profile("Legacy", "openai-compatible", {"SOCKET_STREAM_MODEL": "legacy-model"})
+        path = provider_settings.provider_settings_path()
+        data = json.loads(path.read_text())
+        data.pop("SOCKET_STREAM_BUFFERED_ANSWERS", None)
+        data["profiles"]["Legacy"]["settings"].pop("SOCKET_STREAM_BUFFERED_ANSWERS", None)
+        path.write_text(json.dumps(data))  # Temporary synthetic legacy fixture only.
+        with patch.dict(os.environ, {"SOCKET_STREAM_BUFFERED_ANSWERS": "1"}):
+            other = controller.create_window()
+            try:
+                self.assertEqual(other.env["SOCKET_STREAM_BUFFERED_ANSWERS"], "1")
+                self.assertIn("buffered answers", other.provider_hint.get_text())
+                self.assertIsNone(other.proc)
+            finally:
+                other.on_exit()
+                self.assertTrue(wait_for(lambda: getattr(other.floating, "_destroyed", False)))
+
+    @unittest.skipUnless(os.environ.get("SOCKET_STREAM_GTK_NATIVE_E2E") == "1", "opt-in isolated launcher integration")
+    def test_duplicate_launcher_restores_existing_gui_without_starting_another(self):
+        from single_instance import acquire
+        runtime = self.path / "isolated-launcher-runtime"
+        runtime.mkdir(mode=0o700)
+        script = UI / "linux-gtk.py"
+        env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime),
+                   XDG_CONFIG_HOME=str(self.path / "isolated-launcher-config"),
+                   SOCKET_STREAM_CLI=str(self.old_cli))
+        env.pop("SOCKET_STREAM_PREVIEW_DEMO", None)
+        command = [sys.executable, str(script)]
+        first = subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            lock = runtime / "socket-stream-desktop/gtk.lock"
+            self.assertTrue(wait_for(lambda: first.poll() is None and lock.exists()
+                                     and lock.read_text().strip() == str(first.pid), timeout=12000),
+                            "first GUI did not publish readiness")
+            second = subprocess.run(command, env=env, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, timeout=8)
+            self.assertEqual(second.returncode, 0)
+            self.assertIsNone(first.poll(), "duplicate launch must not terminate the existing GUI")
+            self.assertEqual(lock.read_text().strip(), str(first.pid))
+        finally:
+            if first.poll() is None:
+                first.terminate()
+                try:
+                    first.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    first.kill()
+                    first.wait(timeout=3)
+        restarted = acquire(script, runtime=runtime)
+        self.assertIsNotNone(restarted, "the OS must release the lock when the GUI exits")
+        restarted.close()
+
     def test_start_with_unsaved_model_never_persists_or_requests_capture(self):
         from unittest.mock import patch
         import source_preflight

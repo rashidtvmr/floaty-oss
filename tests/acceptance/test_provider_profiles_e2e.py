@@ -17,6 +17,7 @@ class ProfileFallbackE2E(unittest.TestCase):
         if self.binary is None:
             self.skipTest("build CLI first")
         self.posts = []
+        self.bodies = []
         self.primary = self.server(False)
         self.backup = self.server(True)
         self.env = dict(os.environ, SOCKET_STREAM_BASE_URL=self.primary, SOCKET_STREAM_MODEL="primary-model",
@@ -27,6 +28,7 @@ class ProfileFallbackE2E(unittest.TestCase):
 
     def server(self, backup):
         posts = self.posts
+        bodies = self.bodies
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_args):
@@ -45,6 +47,7 @@ class ProfileFallbackE2E(unittest.TestCase):
 
             def do_POST(self):
                 data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                bodies.append(data)
                 posts.append((backup, data["model"], self.headers.get("Authorization")))
                 if backup:
                     self.send(200, {"choices": [{"message": {"content": "A short fallback answer."}}]})
@@ -89,3 +92,14 @@ class ProfileFallbackE2E(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("one provider at a time", result.stderr + result.stdout)
         self.assertFalse(self.posts)
+
+    def test_buffered_compatibility_sends_one_non_streaming_request(self):
+        self.env.update(SOCKET_STREAM_BASE_URL=self.backup, SOCKET_STREAM_MODEL="backup-model",
+                        SOCKET_STREAM_BUFFERED_ANSWERS="1")
+        self.env.pop("SOCKET_STREAM_FALLBACK_CONFIG", None)
+        result = self.ask()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.bodies), 1, "compatibility must not retry or duplicate a request")
+        self.assertIs(self.bodies[0]["stream"], False)
+        self.assertIn("A short fallback answer.", result.stdout)
+        self.assertNotIn("fixture-key", result.stdout + result.stderr)

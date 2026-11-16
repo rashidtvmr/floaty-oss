@@ -172,6 +172,7 @@ fn control_command(input: &str) -> Option<ControlCommand> {
         "next-question" => Some(ControlCommand::NextQuestion),
         _ => line
             .strip_prefix("question ")
+            .or_else(|| line.trim().strip_prefix("recognized-question "))
             .map(|rest| ControlCommand::Question(rest.trim().to_owned())),
     }
 }
@@ -741,6 +742,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
     // One queued manual question while an answer is still streaming; latest
     // request wins once the current answer completes.
     let mut manual_pending: Option<String> = None;
+    let mut conversation = crate::session_context::SessionContext::default();
     macro_rules! emit {
         ($kind:expr, $source:expr, $request:expr, $content:expr) => {
             if let Err(error) = events.send($kind, $source, $request, $content) {
@@ -788,6 +790,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             last_request.clear();
                             last_screen = None;
                             if let Some(task) = pending.take() { task.abort(); }
+                            conversation.finish(false);
                             emit!("session_paused", "system", None, None);
                         }
                         Some(ControlCommand::Resume) if paused => {
@@ -799,6 +802,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                         Some(ControlCommand::NextQuestion) if !paused => {
                             if let Some(task) = pending.take() {
                                 task.abort();
+                                conversation.finish(false);
                                 emit!("answer_cancelled", "system", Some(&last_request), None);
                             }
                             // Ignore late messages from the cancelled worker.
@@ -808,6 +812,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                                 let rid = format!("manual-{request_number}");
                                 last_request.clone_from(&rid);
                                 let prompt = compose_prompt(&text, last_screen.as_deref());
+                                let prompt = conversation.start(&text, &prompt);
                                 emit_question!("manual", &rid, &text, &text);
                                 emit!("answer_started", "manual", Some(&rid), None);
                                 pending = Some(spawn_model_task(provider.clone(), rid, prompt, sender.clone()));
@@ -823,6 +828,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                                 let rid = format!("manual-{request_number}");
                                 last_request.clone_from(&rid);
                                 let prompt = compose_prompt(&text, last_screen.as_deref());
+                                let prompt = conversation.start(&text, &prompt);
                                 emit_question!("manual", &rid, &text, &text);
                                 emit!("answer_started", "manual", Some(&rid), None);
                                 pending = Some(spawn_model_task(
@@ -847,6 +853,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                                         last_request.clone_from(&rid);
                                         emit_question!(&source, &rid, &text, &display);
                                         emit!("answer_started", &source, Some(&rid), None);
+                                        let text = conversation.start(&display, &text);
                                         pending = Some(spawn_model_task(
                                             provider.clone(), rid, text, sender.clone(),
                                         ));
@@ -887,6 +894,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             last_request.clone_from(&rid);
                             emit_question!(source, &rid, &text, &display);
                             emit!("answer_started", source, Some(&rid), None);
+                            let text = conversation.start(&display, &text);
                             pending = Some(spawn_model_task(
                                 provider.clone(), rid, text, sender.clone(),
                             ));
@@ -929,6 +937,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                     }
                     ModelMessage::Delta { request, text } => {
                         if request == last_request {
+                            conversation.delta(&text);
                             emit!("answer_delta", "system", Some(&request), Some(&text));
                         }
                     }
@@ -945,6 +954,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                     ModelMessage::Finished { request, outcome } => {
                         if request != last_request { continue; }
                         pending = None;
+                        conversation.finish(outcome.is_ok());
                         match outcome {
                             Ok(()) => emit!("answer_completed", "system", Some(&request), None),
                             Err(_) => emit!("error", "system", Some(&request),
@@ -960,6 +970,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             let rid = format!("manual-{request_number}");
                             last_request.clone_from(&rid);
                             let prompt = compose_prompt(&text, last_screen.as_deref());
+                            let prompt = conversation.start(&text, &prompt);
                             emit_question!("manual", &rid, &text, &text);
                             emit!("answer_started", "manual", Some(&rid), None);
                             pending = Some(spawn_model_task(

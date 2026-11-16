@@ -172,6 +172,24 @@ while True:
         self.until("answer_completed")
         self.stop()
 
+    def test_recognized_manual_send_preserves_completed_session_context(self):
+        self.launch("unknown")
+        self.speech("Explain binary search on a sorted array.")
+        recognized = self.until("recognized_question")[-1]
+        self.assertIn("binary search", recognized["text"])
+        self.command("recognized-question " + recognized["text"])
+        first = self.until("answer_completed")
+        first_prompt = next(e["text"] for e in first if e["type"] == "ai_input")
+        self.assertNotIn("Earlier completed turns", first_prompt)
+        first_answer = "".join(e.get("text", "") for e in first if e["type"] == "answer_delta")
+        self.command("question Why does that need sorted input?")
+        second = self.until("answer_completed")
+        prompt = next(e["text"] for e in second if e["type"] == "ai_input")
+        self.assertIn("Earlier question: Explain binary search", prompt)
+        self.assertIn(first_answer[:80], prompt)
+        self.assertIn("Why does that need sorted input?", prompt)
+        self.stop()
+
     def test_flow_reports_actual_gate_and_composed_ai_input(self):
         self.launch("interviewee")
         self.speech("Explain binary search")
@@ -212,7 +230,9 @@ while True:
         second = self.until("answer_completed")
         sent = next(e["text"] for e in second if e["type"] == "ai_input")
         self.assertIn("merge sort", sent)
-        self.assertNotIn("binary search", sent)
+        current = sent.split("Current question and current screen context:\n")[-1]
+        self.assertNotIn("binary search", current, "stale screen text must not replace the current question")
+        self.assertIn("Earlier completed turns", sent, "completed earlier turns are retained separately for follow-ups")
         self.stop()
 
     def _assert_next_closes_previous_http_stream(self, screen_only):
@@ -232,8 +252,8 @@ while True:
                 self.wfile.write(body)
 
             def do_POST(self):
-                self.rfile.read(int(self.headers.get("Content-Length", "0")))
-                count.append(True)
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+                count.append(body)
                 first = len(count) == 1
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -288,6 +308,9 @@ while True:
         self.assertNotEqual(next_id, first["request_id"])
         self.assertTrue(all(e["request_id"] == next_id for e in events if e["type"] == "answer_delta"))
         self.assertTrue(disconnected.wait(3), "Next must close the old HTTP stream, not just hide its output")
+        follow_up = count[1]["messages"][-1]["content"]
+        self.assertNotIn("First partial", follow_up, "cancelled answer text must not become conversation context")
+        self.assertNotIn("Earlier completed turns", follow_up)
         self.assertIsNone(self.proc.poll(), "capture session must remain running")
         self.stop()
 
@@ -296,6 +319,81 @@ while True:
 
     def test_next_question_closes_screen_answer_stream_and_starts_queued_question(self):
         self._assert_next_closes_previous_http_stream(True)
+
+    def _assert_completed_context_survives_failed_turn(self, screen_only):
+        prompts = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                payload = b'{"data":[{"id":"fixture"}]}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                prompts.append(body["messages"][-1]["content"])
+                failed = len(prompts) == 2
+                payload = (("data: " + json.dumps({"choices": [{"delta": {"content": "FAILED_PARTIAL_MUST_NOT_RETURN"}}]})
+                            + "\n\ndata: invalid-fixture-event\n\n").encode() if failed else
+                           json.dumps({"choices": [{"message": {"content": "Completed fixture answer."}}]}).encode())
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream" if failed else "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def close_server():
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        self.addCleanup(close_server)
+        if screen_only:
+            helper = (self.root / "target/native-helpers/socket_stream_a11y"
+                      if sys.platform == "darwin" else self.root / "scripts/linux-accessibility.py")
+            # Synthetic own-window status prevents unrelated automatic questions.
+            helper.write_text(f"#!{sys.executable}\nraise SystemExit(4)\n")
+            helper.chmod(0o700)
+        self.launch("unknown", provider="openai-compatible", screen_only=screen_only, extra_env={
+            "SOCKET_STREAM_BASE_URL": f"http://127.0.0.1:{server.server_port}/v1",
+            "SOCKET_STREAM_MODEL": "fixture", "SOCKET_STREAM_API_KEY": "",
+            "SOCKET_STREAM_BUFFERED_ANSWERS": "",
+        })
+        self.command("question FIRST_COMPLETED_QUESTION explain binary search")
+        self.until("answer_completed")
+        self.command("question SECOND_FAILED_QUESTION explain merge sort")
+        deadline = time.monotonic() + 10
+        while True:
+            event = self.events.get(timeout=max(0.001, deadline - time.monotonic()))
+            self.assertIsNotNone(event)
+            self.assertLess(time.monotonic(), deadline)
+            if event["type"] == "error":
+                self.assertIsNotNone(event.get("request_id"))
+                break
+        self.command("recognized-question THIRD_FOLLOWUP explain the completed solution")
+        self.until("answer_completed")
+        self.assertEqual(len(prompts), 3, "failed streams must never be replayed automatically")
+        self.assertIn("FIRST_COMPLETED_QUESTION", prompts[2])
+        self.assertIn("Earlier answer: Completed fixture answer.", prompts[2])
+        self.assertNotIn("SECOND_FAILED_QUESTION", prompts[2])
+        self.assertNotIn("FAILED_PARTIAL_MUST_NOT_RETURN", prompts[2])
+        self.assertIn("THIRD_FOLLOWUP", prompts[2])
+        self.stop()
+
+    def test_audio_context_excludes_failed_stream_and_retains_completed_answer(self):
+        self._assert_completed_context_survives_failed_turn(False)
+
+    def test_screen_context_excludes_failed_stream_and_retains_completed_answer(self):
+        self._assert_completed_context_survives_failed_turn(True)
 
     def test_interviewer_questions_answered_statements_suppressed_and_role_switch_safe(self):
         self.launch("interviewer")

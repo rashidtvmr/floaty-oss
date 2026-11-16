@@ -257,6 +257,7 @@ def create_window():
                     "SOCKET_STREAM_OLLAMA_URL": "http://127.0.0.1:11434/v1",
                     "SOCKET_STREAM_OLLAMA_MODEL": "qwen2.5-coder:1.5b",
                     "SOCKET_STREAM_CODEX_MODEL": "",
+                    "SOCKET_STREAM_BUFFERED_ANSWERS": "",
                 }.items()
             }
             # Saved provider settings (API base/model/key) restore into memory;
@@ -282,6 +283,7 @@ def create_window():
                 on_profile=self.select_provider_profile, on_model=self.panel_model,
                 on_providers=lambda: self.settings(None), on_window=self.choose_question_window,
                 on_models=self.panel_fetch_models, on_audio=self.audio_options,
+                on_send_recognized=self.send_recognized_question,
                 **self.appearance,
             )
             build_workspace(self)
@@ -1095,6 +1097,8 @@ def create_window():
                 label = "Codex CLI · " + (self.env.get("SOCKET_STREAM_CODEX_MODEL") or "CLI default")
                 return label + (f" · fallback: {self.fallback_profile}" if self.fallback_profile else "")
             label = f"{selected} · {model}" if model else f"{selected} · model not configured"
+            if selected == "openai-compatible" and self.env.get("SOCKET_STREAM_BUFFERED_ANSWERS") == "1":
+                label += " · buffered answers"
             return label + (f" · fallback: {self.fallback_profile}" if self.fallback_profile else "")
 
         def update_start_button(self, *_args):
@@ -1136,6 +1140,10 @@ def create_window():
             self.feedback(self.session_message, message, error=bool(view["live_error"]))
             self.control_stop_button.set_sensitive(active and not self.stopping)
             self.floating.stop_button.set_sensitive(active and not self.stopping)
+            self.floating.send_recognized_button.set_sensitive(
+                active and self._stdin_live and not self.stopping
+                and bool(self.live_state.snapshot().get("recognized_question"))
+                and view["session_status"] not in ("thinking", "paused", "stopped"))
             self.provider.set_sensitive(self.proc is None)
             self.profile_select.set_sensitive(self.proc is None and not self._starting)
             self.use_codex_button.set_sensitive(self.proc is None and not self._starting)
@@ -1357,6 +1365,22 @@ def create_window():
             except (BrokenPipeError, OSError):
                 self.write("Could not send pause/resume to the observation process.\n")
 
+        def send_recognized_question(self):
+            text = sanitize_manual_question(self.live_state.snapshot().get("recognized_question", ""))
+            proc = self.proc
+            if not text or not self._stdin_live or proc is None or proc.poll() is not None or proc.stdin is None:
+                self.panel_feedback("Start a session and recognize a question before sending.", True)
+                return False
+            try:
+                proc.stdin.write(f"recognized-question {text}\n")
+                proc.stdin.flush()
+            except (OSError, ValueError):
+                self.panel_feedback("Could not send the recognized question. No new capture was started.", True)
+                return False
+            self.floating.send_recognized_button.set_sensitive(False)
+            self.panel_feedback("Recognized question sent with this session's context. No request was replayed automatically.")
+            return True
+
         def send_manual_question(self, text):
             """Typed question from the answer panel.
 
@@ -1472,7 +1496,8 @@ def create_window():
                              + ("only the selected window's accessibility text, even when unfocused; no screenshots or OCR. "
                                 if self.question_window_target is not None else
                                 "foreground accessibility text and may use local OCR when enabled. ") +
-                            "New screen questions are sent to the selected AI provider automatically. "
+                             "New screen questions are sent to the selected AI provider automatically. "
+                             "Follow-ups include up to three completed turns from this live session; Start fresh clears that context. "
                             + (f"On failure, saved fallback {self.fallback_profile} may also receive the question/text and incur charges. " if self.fallback_profile else "") +
                             "Only selected sources are used, after confirmation. Only capture "
                            "applications where assistance is permitted.")
@@ -1834,6 +1859,7 @@ def create_window():
                 for key, entry in entries.items():
                     entry.set_text(str(item["settings"].get(key, "")))
                 codex_entry.set_text(str(item["settings"].get("SOCKET_STREAM_CODEX_MODEL", "")))
+                buffered_answers.set_active(item["settings"].get("SOCKET_STREAM_BUFFERED_ANSWERS") == "1")
                 provider_fields()
 
             saved_profiles.connect("changed", load_profile)
@@ -1854,6 +1880,7 @@ def create_window():
                 saved_profiles.set_active(-1)
                 profile_name.set_text((profile_name.get_text() + " copy") if duplicate else "")
                 if not duplicate:
+                    buffered_answers.set_active(False)
                     for key, entry in entries.items():
                         entry.set_text({"SOCKET_STREAM_BASE_URL": "https://api.openai.com/v1",
                                         "SOCKET_STREAM_OLLAMA_URL": "http://127.0.0.1:11434/v1"}.get(key, ""))
@@ -1866,6 +1893,7 @@ def create_window():
                 old, new = saved_profiles.get_active_id(), profile_name.get_text().strip()
                 draft_entries = {key: entry.get_text() for key, entry in entries.items()}
                 draft_codex, draft_provider = codex_entry.get_text(), profile_provider.get_active()
+                draft_buffered = buffered_answers.get_active()
                 try:
                     rename_provider_profile(old, new)
                     self.provider_book = load_provider_profiles()
@@ -1877,6 +1905,7 @@ def create_window():
                         entries[key].set_text(value)
                     codex_entry.set_text(draft_codex)
                     profile_provider.set_active(draft_provider)
+                    buffered_answers.set_active(draft_buffered)
                     self.sync_panel_session()
                     profile_message.set_text("Profile renamed. Credentials and model are unchanged; other edits still need Save.")
                 except (ValueError, OSError):
@@ -1920,6 +1949,7 @@ def create_window():
                     widget.set_visible(chosen == "codex")
                     widget.set_no_show_all(chosen != "codex")
                 fetch_button.set_sensitive(chosen != "mock")
+                buffered_answers.set_sensitive(chosen == "openai-compatible")
                 fetch_button.set_label("Fetch Codex models" if chosen == "codex" else "Fetch models")
                 model_note.set_text("Codex uses official ChatGPT login; no API key is needed here. Blank model uses the Codex default. Listing models does not prove inference access."
                                     if chosen == "codex" else "Choose a model from Fetch models, or type its ID. Listing does not prove inference access or quota.")
@@ -1967,6 +1997,11 @@ def create_window():
 
             fetch_button.connect("clicked", fetch_models)
             settings_body.pack_start(grid, False, False, 0)
+            buffered_answers = Gtk.CheckButton(label="Buffered compatibility: wait for the complete answer (use when streams are empty or interrupted)")
+            buffered_answers.get_accessible().set_name("Buffered compatible answers")
+            buffered_answers.get_child().set_line_wrap(True)
+            buffered_answers.set_active(self.env.get("SOCKET_STREAM_BUFFERED_ANSWERS") == "1")
+            settings_body.pack_start(buffered_answers, False, False, 8)
             settings_scroll = Gtk.ScrolledWindow()
             settings_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
             settings_scroll.add(settings_body)
@@ -1987,7 +2022,8 @@ def create_window():
                     draft = {key: control.get_text().strip() for key, control in entries.items()}
                     draft["SOCKET_STREAM_CODEX_MODEL"] = validated_model(codex_model) if codex_model else ""
                     draft["SOCKET_STREAM_PROVIDER"] = chosen_provider
-                    relevant = {"openai-compatible": {"SOCKET_STREAM_BASE_URL", "SOCKET_STREAM_MODEL", "SOCKET_STREAM_API_KEY"},
+                    draft["SOCKET_STREAM_BUFFERED_ANSWERS"] = "1" if buffered_answers.get_active() else ""
+                    relevant = {"openai-compatible": {"SOCKET_STREAM_BASE_URL", "SOCKET_STREAM_MODEL", "SOCKET_STREAM_API_KEY", "SOCKET_STREAM_BUFFERED_ANSWERS"},
                                 "ollama": {"SOCKET_STREAM_OLLAMA_URL", "SOCKET_STREAM_OLLAMA_MODEL"},
                                 "codex": {"SOCKET_STREAM_CODEX_MODEL"}}.get(chosen_provider, set())
                     draft = {key: (value if key in relevant or key == "SOCKET_STREAM_PROVIDER" else "")
@@ -2267,10 +2303,25 @@ def create_window():
 
 
 def main():
+    from single_instance import acquire
+    try:
+        guard = acquire(__file__)
+    except (OSError, ValueError):
+        raise SystemExit("SocketStream could not secure its private instance lock. Check your runtime directory permissions.") from None
+    if guard is None:
+        return  # Existing instance is restored; never launch another capture UI.
+    try:
+        _run_gui(guard)
+    finally:
+        guard.close()
+
+
+def _run_gui(guard):
     window = create_window()
     from gi.repository import Gtk, GLib
 
     signal.signal(signal.SIGUSR1, lambda *_: GLib.idle_add(window.restore_from_background))
+    guard.ready()
     window.show_all()
     if os.environ.get("SOCKET_STREAM_PREVIEW_DEMO") == "1":
         def show_preview():

@@ -159,7 +159,7 @@ class LiveStateTests(unittest.TestCase):
         self.assertEqual(set(snapshot), {
             "status", "session_id", "request_id", "question", "question_display",
             "answer", "source", "error", "transcript", "api_request", "api_response", "token_usage",
-            "screen", "stage", "error_kind", "elapsed",
+            "screen", "stage", "error_kind", "elapsed", "recognized_question",
         })
         # Without a display field the panel falls back to the raw question.
         self.assertEqual(snapshot["question_display"], snapshot["question"])
@@ -172,6 +172,11 @@ class LiveStateTests(unittest.TestCase):
         self.assertTrue(self.state.apply(ev("transcript_updated", 4, text="\x1b[31mheard\x00")))
         self.assertEqual(self.state.snapshot()["transcript"], "heard")
         self.assertEqual(self.state.snapshot()["answer"], "Split the range")
+
+    def test_recognized_question_is_bounded_and_does_not_store_extra_capture_data(self):
+        self.assertTrue(self.state.apply(ev("recognized_question", 2, text="Q" * 9000, api_key="PRIVATE_KEY")))
+        self.assertEqual(len(self.state.snapshot()["recognized_question"]), 2000)
+        self.assertNotIn("PRIVATE_KEY", json.dumps(self.state.snapshot()))
         self.assertFalse(self.state.apply(ev("transcript_updated", 5, sid="other", text="foreign")))
         self.state.apply(ev("session_paused", 6))
         self.assertFalse(self.state.apply(ev("transcript_updated", 7, text="paused")))
