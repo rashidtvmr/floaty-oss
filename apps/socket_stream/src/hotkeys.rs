@@ -8,6 +8,14 @@ use socket_stream_core::shortcuts::{
     DEFAULT_BINDINGS, ShortcutMap, ShortcutPlatform, detect_platform, platform_notes,
 };
 
+/// The main control window's title, anchored so the answer panel
+/// (`SocketStream — Practice Answer`) is never matched. Linux GTK sets exactly
+/// `SocketStream — Stopped`, `SocketStream — Active` or `SocketStream —
+/// Stopping`, so the status is a single alphabetic word. The pattern avoids
+/// `|`/`+` so it is valid whether xdotool compiles it as a basic or an extended
+/// POSIX regex.
+const X11_CONTROL_TITLE_PATTERN: &str = "^SocketStream — [A-Za-z][A-Za-z]*$";
+
 /// Entry point wired by `main.rs` as the `hotkeys` dispatch arm.
 ///
 /// `args` is the full argument list (including the leading `hotkeys`), matching
@@ -127,31 +135,36 @@ fn list() -> Result<(), String> {
 }
 
 fn init(force: bool) -> Result<(), String> {
-    let path = Config::default_path();
-    if path.exists() && !force {
-        return Err(format!(
-            "{} already exists; re-run with --force to overwrite it",
-            path.display()
-        ));
-    }
-    let config = Config::default();
-    config.save().map_err(|e| e.to_string())?;
-    println!("Wrote default configuration to {}", path.display());
+    // The existence check happens inside the same locked update, so two
+    // concurrent `hotkeys init` runs cannot both believe the file is absent.
+    let written = Config::init_shortcuts(None, force).map_err(|e| e.to_string())?;
+    println!("Reset shortcuts to defaults in {}", written.display());
     println!(
         "Shortcuts are enabled by default. Rebind under \"shortcuts\".\"bindings\" \
-         (see docs/SHORTCUTS.md)."
+         (see docs/SHORTCUTS.md). Other settings (appearance, a11y, ocr, overlay, unknown keys) are preserved."
     );
     Ok(())
 }
 
 /// The platform-native registration snippet. Pure so it can be unit tested.
 fn snippet_for(platform: ShortcutPlatform) -> String {
+    const LINUX_ONLY: &[&str] = &[
+        "listen_audio",
+        "pin_question",
+        "previous_question",
+        "next_question",
+        "follow_latest",
+    ];
     let mut out = String::new();
     match platform {
         ShortcutPlatform::X11 => {
             out.push_str(
-                "# Out-of-focus global shortcuts for SocketStream on X11.\n\
+                "# Out-of-focus global shortcuts for SocketStream on X11 (17 actions).\n\
+                 # User-managed snippet (not installed or managed automatically by the app).\n\
                  # Save as ~/.config/sxhkd/sxhkdrc and run sxhkd. Requires xdotool.\n\
+                 # Targets the main control window only, identified by its status title\n\
+                 # (\"SocketStream — Stopped\"/\"Active\"/\"Stopping\"). The answer panel is\n\
+                 # titled \"SocketStream — Practice Answer\" and is deliberately not matched.\n\
                  # SocketStream installs nothing by itself and grabs no keys.\n\
                  #\n",
             );
@@ -162,8 +175,9 @@ fn snippet_for(platform: ShortcutPlatform) -> String {
                 out.push_str(&format!("# {action}: {display}\n"));
                 out.push_str(&format!("{}\n", sxhkd_keys(value)));
                 out.push_str(&format!(
-                    "    xdotool search --name \"SocketStream\" windowactivate --sync key --clearmodifiers {}\n",
-                    display.to_ascii_lowercase()
+                    "    xdotool search --limit 1 --name '{X11_CONTROL_TITLE_PATTERN}' \
+                     windowactivate --sync key --clearmodifiers {}\n",
+                    xdotool_keys(value)
                 ));
             }
         }
@@ -172,8 +186,9 @@ fn snippet_for(platform: ShortcutPlatform) -> String {
                 "# Wayland: out-of-focus global shortcuts are owned by the compositor.\n\
                  # SocketStream installs no grab. Bind these keys in your desktop's own\n\
                  # settings, or use the org.freedesktop.portal.GlobalShortcuts portal when\n\
-                 # your desktop implements it. The in-app accelerators below then work\n\
-                 # while the SocketStream window is focused:\n#\n",
+                 # your desktop implements it. The 17 in-app accelerators below then work\n\
+                 # while the SocketStream main/control window is focused (not the overlay\n\
+                 # answer panel):\n#\n",
             );
             push_binding_list(&mut out);
         }
@@ -181,21 +196,38 @@ fn snippet_for(platform: ShortcutPlatform) -> String {
             out.push_str(
                 "# macOS: the SocketStream app registers these as NSMenu key equivalents\n\
                  # (active while the app is focused) and as a global key monitor while it\n\
-                 # runs. It installs no login item and no background grab.\n#\n",
+                 # runs. It installs no login item and no background grab.\n\
+                 # macOS currently wires 12 of the 17 actions. The five Linux-only Q&A\n\
+                 # actions are not implemented on macOS yet: listen_audio, pin_question,\n\
+                 # previous_question, next_question, follow_latest. Arrow keysyms\n\
+                 # (Left/Right) and the aliases for them exist in the shared Rust/Python\n\
+                 # model but are unsupported on the Swift side, so do not rebind shared\n\
+                 # actions to arrows expecting them to work on macOS.\n#\n",
             );
-            push_binding_list(&mut out);
+            for (action, value) in DEFAULT_BINDINGS {
+                let display = socket_stream_core::shortcuts::Accelerator::parse(value)
+                    .map(|a| a.display())
+                    .unwrap_or_else(|_| value.to_owned());
+                if LINUX_ONLY.contains(&action) {
+                    out.push_str(&format!(
+                        "#   {action}: {display}  (Linux-only, not wired on macOS yet)\n"
+                    ));
+                } else {
+                    out.push_str(&format!("#   {action}: {display}\n"));
+                }
+            }
         }
         ShortcutPlatform::Unknown => {
             out.push_str(
                 "# Session type not detected; shortcuts work only while the SocketStream\n\
-                 # window is focused. No global grab is installed.\n#\n",
+                 # main/control window is focused. No global grab is installed.\n#\n",
             );
             push_binding_list(&mut out);
         }
     }
     out.push('\n');
     out.push_str(
-        "SocketStream never installs a global hotkey grab silently and never bypasses OS permission.\n",
+        "# SocketStream never installs a global hotkey grab silently and never bypasses OS permission.\n",
     );
     out
 }
@@ -209,13 +241,60 @@ fn push_binding_list(out: &mut String) {
     }
 }
 
-/// Render an accelerator in sxhkd syntax (`ctrl + alt + s`).
+/// Map a shared accelerator key name to its X keysym spelling.
+///
+/// sxhkd and xdotool both resolve keysyms through `XStringToKeysym`, which is
+/// case-sensitive: `Left` is a keysym, `left` is not, and `enter` must be
+/// `Return`. Letters, digits and the lowercase punctuation keysyms (`comma`,
+/// `period`, `space`, ...) are already correct.
+fn keysym(key: &str) -> String {
+    match key {
+        "left" => "Left".to_owned(),
+        "right" => "Right".to_owned(),
+        "up" => "Up".to_owned(),
+        "down" => "Down".to_owned(),
+        "enter" => "Return".to_owned(),
+        "escape" => "Escape".to_owned(),
+        "tab" => "Tab".to_owned(),
+        "backspace" => "BackSpace".to_owned(),
+        "equals" => "equal".to_owned(),
+        other => match other.strip_prefix('f') {
+            Some(digits) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => {
+                format!("F{digits}")
+            }
+            _ => other.to_owned(),
+        },
+    }
+}
+
+/// Render an accelerator in sxhkd syntax (`ctrl + alt + Left`).
 fn sxhkd_keys(value: &str) -> String {
     value
         .split('+')
-        .map(|part| part.trim().to_ascii_lowercase())
+        .map(|part| {
+            let part = part.trim().to_ascii_lowercase();
+            match part.as_str() {
+                "ctrl" | "alt" | "shift" | "meta" => part,
+                _ => keysym(&part),
+            }
+        })
         .collect::<Vec<_>>()
         .join(" + ")
+}
+
+/// Render an accelerator for `xdotool key` (`ctrl+alt+Left`).
+fn xdotool_keys(value: &str) -> String {
+    value
+        .split('+')
+        .map(|part| {
+            let part = part.trim().to_ascii_lowercase();
+            match part.as_str() {
+                "ctrl" | "alt" | "shift" | "meta" => part,
+                _ => keysym(&part),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+")
 }
 
 #[cfg(test)]
@@ -267,12 +346,15 @@ mod tests {
         assert!(x11.contains("sxhkd"));
         assert!(x11.contains("ctrl + alt + s"));
         assert!(x11.contains("xdotool"));
+        assert!(x11.contains("17 actions"));
 
         let wayland = snippet_for(ShortcutPlatform::Wayland);
         assert!(wayland.contains("GlobalShortcuts"));
 
         let macos = snippet_for(ShortcutPlatform::MacOs);
         assert!(macos.contains("NSMenu"));
+        assert!(macos.contains("12 of the 17"));
+        assert!(macos.contains("Linux-only"));
 
         for platform in [
             ShortcutPlatform::X11,
@@ -287,8 +369,102 @@ mod tests {
     }
 
     #[test]
+    fn x11_snippet_targets_control_title_not_the_answer_panel() {
+        let x11 = snippet_for(ShortcutPlatform::X11);
+        assert!(x11.contains(X11_CONTROL_TITLE_PATTERN));
+        assert!(x11.contains("--name '^SocketStream — [A-Za-z][A-Za-z]*$'"));
+        // The old broad match also found the answer panel.
+        assert!(!x11.contains("--name \"SocketStream\""));
+        assert!(!x11.contains("--name 'SocketStream'"));
+        assert!(x11.contains("Practice Answer"));
+    }
+
+    #[test]
+    fn x11_control_pattern_excludes_panel_title_and_matches_status_titles() {
+        // The pattern is an anchored dash + single alphabetic word; assert the
+        // literal shapes rather than compile a regex (std has none).
+        assert!(X11_CONTROL_TITLE_PATTERN.starts_with("^SocketStream — "));
+        assert!(X11_CONTROL_TITLE_PATTERN.ends_with('$'));
+        assert!(X11_CONTROL_TITLE_PATTERN.contains("[A-Za-z]"));
+        for status in ["Stopped", "Active", "Stopping"] {
+            let title = format!("SocketStream — {status}");
+            assert!(
+                title
+                    .strip_prefix("SocketStream — ")
+                    .unwrap()
+                    .chars()
+                    .all(|c| c.is_ascii_alphabetic())
+            );
+        }
+        assert!(
+            "SocketStream — Practice Answer"
+                .strip_prefix("SocketStream — ")
+                .unwrap()
+                .contains(' ')
+        );
+    }
+
+    #[test]
+    fn x11_snippet_uses_x_keysyms_for_named_keys() {
+        let x11 = snippet_for(ShortcutPlatform::X11);
+        assert!(x11.contains("ctrl + alt + Left"));
+        assert!(x11.contains("ctrl + alt + Right"));
+        assert!(x11.contains("key --clearmodifiers ctrl+alt+Left"));
+        assert!(x11.contains("key --clearmodifiers ctrl+alt+Right"));
+        assert!(!x11.contains("ctrl+alt+left"));
+        assert!(!x11.contains("ctrl + alt + left"));
+    }
+
+    #[test]
+    fn every_platform_snippet_is_valid_sxhkdrc_shaped() {
+        for platform in [
+            ShortcutPlatform::X11,
+            ShortcutPlatform::Wayland,
+            ShortcutPlatform::MacOs,
+            ShortcutPlatform::Unknown,
+        ] {
+            let snippet = snippet_for(platform);
+            for line in snippet.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if line.starts_with('#') || line.starts_with(' ') {
+                    continue;
+                }
+                // Only sxhkd key-binding lines may be unindented and uncommented.
+                assert!(
+                    line.contains(" + "),
+                    "unexpected non-comment sxhkdrc line for {platform:?}: {line:?}"
+                );
+            }
+            let last = snippet
+                .lines()
+                .rfind(|line| !line.trim().is_empty())
+                .expect("snippet has content");
+            assert!(
+                last.starts_with('#'),
+                "final honesty line must be a comment: {last:?}"
+            );
+        }
+    }
+
+    #[test]
     fn sxhkd_renders_spaced_modifiers() {
         assert_eq!(sxhkd_keys("ctrl+alt+shift+o"), "ctrl + alt + shift + o");
         assert_eq!(sxhkd_keys("ctrl+alt+comma"), "ctrl + alt + comma");
+    }
+
+    #[test]
+    fn sxhkd_and_xdotool_map_named_keysyms() {
+        assert_eq!(sxhkd_keys("ctrl+alt+left"), "ctrl + alt + Left");
+        assert_eq!(sxhkd_keys("ctrl+alt+right"), "ctrl + alt + Right");
+        assert_eq!(sxhkd_keys("ctrl+alt+up"), "ctrl + alt + Up");
+        assert_eq!(sxhkd_keys("ctrl+alt+down"), "ctrl + alt + Down");
+        assert_eq!(sxhkd_keys("ctrl+f12"), "ctrl + F12");
+        assert_eq!(sxhkd_keys("ctrl+alt+enter"), "ctrl + alt + Return");
+        assert_eq!(sxhkd_keys("ctrl+alt+equals"), "ctrl + alt + equal");
+        assert_eq!(sxhkd_keys("ctrl+alt+backspace"), "ctrl + alt + BackSpace");
+        assert_eq!(xdotool_keys("ctrl+alt+left"), "ctrl+alt+Left");
+        assert_eq!(xdotool_keys("ctrl+alt+shift+o"), "ctrl+alt+shift+o");
     }
 }

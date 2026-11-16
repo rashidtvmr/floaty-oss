@@ -59,7 +59,7 @@ class ArgumentParsing(unittest.TestCase):
         self.assertTrue(args.compact)
 
     def test_default_panel_opacity_is_slightly_transparent(self):
-        self.assertEqual(overlay.parse_args([]).opacity, 0.94)
+        self.assertEqual(overlay.parse_args([]).opacity, 0.90)
 
     def test_panel_opacity_can_be_configured_within_subtle_range(self):
         self.assertEqual(overlay.parse_args(["--opacity", "0.9"]).opacity, 0.9)

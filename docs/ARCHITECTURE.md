@@ -16,7 +16,13 @@ Low-overhead Rust desktop assistant for coding practice, accessibility assistanc
 - `crates/socket_stream_core/src/a11y.rs` parses that JSON into an `A11yTree` and renders it under a `TokenBudget` in `focused`, `tree`, `text` or `auto` mode. Rendering is pure and deterministic: structural roles are skipped, protected nodes never render text, duplicate `(role, text)` pairs are emitted once, and the budget caps tokens, nodes, depth and characters and sets `truncated`. The default mode is `tree` and the default budget is depth 20 / 800 nodes / 32k chars / 4000 tokens: a browser nests its page content (`AXWebArea`) about eight levels below the window and the question several levels below that, so `focused`/`auto` (and the old depth-8 budget) returned only the browser chrome, never the page.
 - `A11yTree::image_regions` returns image/graphic nodes worth OCR, largest first and bounded by the budget. This is what makes region OCR resource-efficient: instead of OCR-ing a whole frame, `ocr.rs` crops only those rectangles (`sips`/`magick`/`convert`) and runs Tesseract on them, with a small bounded cache keyed by screenshot path and region. If no crop tool exists it returns an error rather than silently OCR-ing the whole screen. OCR remains opt-in.
 - `crates/socket_stream_core/src/config.rs` reads a JSON config from `$SOCKET_STREAM_CONFIG`, else `$XDG_CONFIG_HOME/socket_stream/config.json`, else `~/.config/socket_stream/config.json`. It controls the a11y mode and budget, the OCR policy, the shortcut bindings and the overlay defaults. A missing file means defaults; a malformed file is reported, never silently ignored. CLI flags override the file, which overrides the defaults.
-- `crates/socket_stream_core/src/shortcuts.rs` holds the twelve stable action names and their accelerators, parses and validates bindings, and reports platform notes. The desktop shells register them with their own toolkits; out-of-focus global grabs require the desktop's own hotkey tool and the app never installs a grab silently. Every shortcut is also reachable from the UI without a keyboard.
+- `crates/socket_stream_core/src/shortcuts.rs` holds seventeen stable action names and their accelerators (Linux set includes five Q&A actions; macOS currently implements 12), parses and validates bindings, and reports platform notes. The desktop shells register them with their own toolkits; out-of-focus global grabs require the desktop's own hotkey tool and the app never installs a grab silently. Every shortcut is also reachable from the UI without a keyboard.
+- Linux shortcut/appearance saves and Rust shortcut resets share a POSIX `flock`
+  on `<config>.lock`, no-follow regular-file reads and atomic `0600` replacement.
+  They merge against the current JSON under the lock, retaining unrelated and
+  unknown fields. Binding maps are full snapshots. Malformed/non-object JSON and
+  symlink/non-regular targets are refused. Appearance lives in `desktop.appearance`;
+  the legacy `overlay` section remains separate. See [SHORTCUTS.md](SHORTCUTS.md).
 - All of this keeps the permission-based model: accessibility is read only for the authorized foreground application, OCR only runs after explicit opt-in, and no capture happens when the accessibility text is sufficient.
 
 ## Audio
@@ -28,6 +34,10 @@ Low-overhead Rust desktop assistant for coding practice, accessibility assistanc
 - OpenAI-compatible chat completions use BYOK. Send extracted text, not screenshots. HTTPS is required for nonlocal URLs. Explicit provider fallback never silently uses a second API service.
 - Codex provider invokes the user-installed, officially authenticated CLI with read-only sandbox and stdin prompt. Subscription plan restrictions and availability apply; this isn't an API-key substitution.
 - No assistant has privilege to execute code extracted from a captured screen. Screen text is untrusted data.
+- Shared system instructions keep the `Question:`/`Answer:` envelope and request
+  complete runnable coding solutions, assumptions, approach, complexity and edge
+  cases. The reading UI strips that envelope and renders inert Markdown spans;
+  it never executes model output or loads embedded resources.
 
 ## Execution
 - Session controls: Stopped / Active / Paused.
@@ -35,6 +45,26 @@ Low-overhead Rust desktop assistant for coding practice, accessibility assistanc
 - Bounded dedup cache; configurable sampling interval (2-3600s), maximum iterations (1-1000).
 - Rust CLI is fully wired. macOS AppKit and Linux GTK3 thin native windows launch the Rust core with explicit session consent. The installed macOS bundle has been driven end-to-end with the mock provider, real OS permissions, the floating panel, and capture-exclusion checks; Linux GUI runtime testing is still incomplete.
 - Slint prototype remains excluded from the workspace; the platform-native shells avoid adding WebKitGTK or an Electron runtime.
+
+### Linux GTK workspace
+
+- `linux-gtk.py` owns process control and exposes `create_window()` for real GTK
+  integration checks. `workspace_ui.py` builds the light Session, Capture sources,
+  Appearance, Shortcuts and Tools pages. `ui_theme.py` supplies scoped GTK CSS.
+- `live_state.py` separates the live-engine `snapshot()` from `display_snapshot()`
+  and its bounded 24-pair, in-memory history. Pinning selects a presentation pair
+  without redirecting tokens. Eviction preserves the pinned pair; a new process
+  receives a fresh state instance. Pause/completion/error close the request gate.
+- The controller and `FloatingOverlay` share that instance. A generation/process
+  check rejects stale main-loop callbacks. Stop closes the instance immediately,
+  including queued startup; process stdout/stdin are closed after the reader ends.
+- `answer_format.py` parses a small inert Markdown subset. Paragraphs wrap, fenced
+  code preserves indentation and horizontal access, and streaming updates preserve
+  a reader's scroll position. Copy returns the selected answer's raw Markdown.
+- `Gtk.AccelGroup` registers all seventeen actions on the control window only.
+  The shortcut editor suppresses dispatch during recording/entry edits, validates
+  duplicates and applies changes on Save. Appearance previews are immediate and
+  become persistent on Save. See [READABLE-ANSWER-UI.md](READABLE-ANSWER-UI.md).
 
 ### macOS AppKit shell
 
@@ -51,7 +81,11 @@ Low-overhead Rust desktop assistant for coding practice, accessibility assistanc
 - Capture exclusion is Linux-only and compositor-specific. X11 uses `Gdk.Window.set_override_redirect` (verified `Override Redirect State: yes` on GTK 3.24.52) plus `_NET_WM_STATE_SKIP_TASKBAR/PAGER` and a notification window type; compositors exposing `_NET_WM_STATE_SKIP_CAPTURE` may honour it. On GNOME Wayland the app starts GTK with `GDK_BACKEND=x11` and uses the X11 dock type so the panel stays above fullscreen windows; KDE, niri and Hyprland stay on Wayland for their capture rules. GNOME Shell 50/mutter 18, X11 and sway have no per-window capture-exclusion rule.
 - `apps/socket_stream_desktop/ui/capture_rules.py` writes the documented per-window rules for niri (`block-out-from "screen-capture"`), Hyprland 0.53+ (`no_screen_share = true`) and KDE Plasma/KWin 6.7+ Wayland (`excludefromcapture`), only after an explicit setup action. It backs up the original file, validates/rolls back, and removes its managed block and KWin registry entry. The panel advertises `app_id`/`WM_CLASS` `socket_stream_overlay` (runtime-verified on GNOME 50 / GTK 3.24.52) so an exact-match rule targets the panel, not every SocketStream window.
 - `native/mutter-capture-filter` adds an opt-in capture-only actor predicate and filtered offscreen rendering to a custom Mutter 50.1 build. It requires compositor deployment and `SOCKET_STREAM_CAPTURE_EXCLUDE=1` in that compositor's environment; app environment flags cannot activate it in stock GNOME. Its README tracks runtime coverage.
-- Panel opacity is 94% by default. On Wayland the toplevel uses the RGBA visual, so GTK renders it with alpha; on X11 GTK uses `gdk_window_set_opacity`, which needs a compositing manager.
+- Linux panel background opacity defaults to 90% (55–100% configurable); text is
+  opaque at rest. Scoped RGBA CSS paints a command capsule and answer card with a
+  transparent gap. A compositor is required for transparency; otherwise surfaces
+  become opaque. Map fades use 140 ms; stack/revealer transitions use 160 ms.
+  Reduced motion and GTK's animation preference disable these transitions.
 - No Linux API can guarantee exclusion from full-screen capture (unlike Windows `WDA_EXCLUDEFROMCAPTURE` or macOS `sharingType`). `ScreenShareWatcher` polls (default 2 s) for status, but the panel stays visible across focus changes and detected shares. It may appear in a full-screen capture unless a documented compositor rule is configured and real-share tested; only an explicit user hide/close changes its visibility.
 - The overlay is a normal, identifiable process. It never masquerades as a system component, bypasses an OS permission prompt, or hides capture from the user.
 

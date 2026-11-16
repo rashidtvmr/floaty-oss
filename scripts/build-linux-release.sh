@@ -65,10 +65,13 @@ done
 if [ -f "$ROOT/tests/acceptance/test_provider_e2e.py" ]; then
     cp "$ROOT/tests/acceptance/test_provider_e2e.py" "$PKG/tests/acceptance/test_provider_e2e.py"
 fi
+cp "$ROOT/tests/acceptance/test_config_persistence.py" "$PKG/tests/acceptance/test_config_persistence.py"
 cp "$ROOT/docs/LINUX-TESTING.md" "$PKG/README-LINUX.md"
 cp "$ROOT/docs/AUTH-AND-ENDPOINTS.md" "$PKG/AUTH-AND-ENDPOINTS.md"
 cp "$ROOT/docs/STEALTH-OVERLAY.md" "$PKG/STEALTH-OVERLAY.md"
+cp "$ROOT/docs/GNOME-CAPTURE-EXCLUSION.md" "$PKG/GNOME-CAPTURE-EXCLUSION.md"
 cp "$ROOT/docs/MOONSHINE.md" "$PKG/MOONSHINE.md"
+cp "$ROOT/docs/READABLE-ANSWER-UI.md" "$PKG/READABLE-ANSWER-UI.md"
 if [ -f "$ROOT/docs/SHORTCUTS.md" ]; then
     cp "$ROOT/docs/SHORTCUTS.md" "$PKG/SHORTCUTS.md"
 fi

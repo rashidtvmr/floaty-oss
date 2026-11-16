@@ -80,11 +80,14 @@ composition**, not on return.
 Linux coverage therefore requires the compositor-specific mechanisms in the table
 above; no application-level flag reaches the GNOME screen-cast path.
 
-### 2.2 Runtime verification on the target desktop
+### 2.2 Historical panel verification on the target desktop
 
 Measured on **Ubuntu 26.04.1, GNOME Shell 50.1, mutter 18, Wayland session,
 GTK 3.24.52**, by running the real `floating_overlay.py` module (not a mock) under
-`WAYLAND_DEBUG=1` and inspecting the X11 XWayland window with `xwininfo`/`xprop`:
+`WAYLAND_DEBUG=1` and inspecting the X11 XWayland window with `xwininfo`/`xprop`.
+These 2026-11-15 measurements precede the reading-workspace redesign and retain
+its original 94% whole-window opacity and geometry. The current GTK panel uses
+90% background-only alpha; see section 4 and [READABLE-ANSWER-UI.md](READABLE-ANSWER-UI.md).
 
 | Check | Wayland (`GDK_BACKEND=wayland`) | X11 (`GDK_BACKEND=x11`) |
 |---|---|---|
@@ -297,14 +300,19 @@ removal of an existing managed GNOME override remains available.
 ```python
 class FloatingOverlay:
     def __init__(self, plan=None, session=None, *, stealth=True, compact=False,
-                 opacity=0.94, on_stop=None, on_pause=None, on_copy=None,
-                 on_minimize=None)
+                 opacity=0.90, on_stop=None, on_pause=None, on_copy=None,
+                 on_minimize=None, on_settings=None, state=None,
+                 on_selection_changed=None, font_size=16, reduced_motion=False)
     def show(self); def hide(self); def toggle(self)
     def is_visible(self) -> bool
     def set_question(self, text); def set_answer(self, text); def append_answer(self, text)
     def set_status(self, text); def set_stealth(self, enabled: bool)
     def apply_share_state(self, active: bool)
     def feed_event(self, event: dict) -> bool     # delegates to LiveState
+    def render_state(self, provider=None)
+    def pin_question(self, request_id=None); def toggle_pin(self)
+    def follow_latest(self); def step_question(self, offset)
+    def apply_appearance(self, *, opacity=None, font_size=None, reduced_motion=None)
     def run(self)                                 # Gtk.main()
     def destroy(self)
 
@@ -330,7 +338,7 @@ chosen once per process.
 python3 floating_overlay.py --stdin
 python3 floating_overlay.py --provider ollama [--interval 4] [--allow-ocr] [--portal]
 python3 floating_overlay.py --provider ollama --cli /path/to/socket_stream
-                            [--stealth | --no-stealth] [--compact] [--opacity 0.94]
+                            [--stealth | --no-stealth] [--compact] [--opacity 0.90]
 ```
 
 `--stdin` consumes JSONL events (schema 1) on stdin. `--provider` spawns
@@ -359,11 +367,14 @@ so the panel stays above normal and fullscreen windows without taking focus. Set
 be covered. On KDE, niri and Hyprland the app stays on Wayland so their capture rules keep
 matching. A native X11 session uses the existing override-redirect plan.
 
-The GTK panel requests 94% opacity by default (`--opacity` accepts 0.85–1.0). Verified on
-the target: on Wayland the toplevel uses the RGBA visual and GTK paints it with
-`cairo_paint_with_alpha`, so the panel is genuinely semi-transparent; on X11 GTK calls
-`gdk_window_set_opacity`, which requires a compositing manager. Opacity is a visual
-presentation setting, not a capture-exclusion mechanism.
+The current GTK panel uses **90% background opacity** by default (`--opacity`
+accepts 0.55–1.0). Scoped RGBA CSS paints a separate command capsule and answer
+card; text stays opaque at rest. GTK uses an RGBA visual and a compositing manager
+for actual transparency; surfaces fall back to opaque when compositing is absent.
+The desktop **Appearance** page controls background alpha, text size and reduced
+motion. Map fades take 140 ms; stack/revealer transitions take 160 ms. These are
+disabled by reduced motion or GTK's animation preference. Native Wayland compact
+resize remains compositor-dependent. Opacity does not establish capture exclusion.
 
 ## 4.1 Setting up a compositor capture rule
 
@@ -413,6 +424,8 @@ its own validator; `verified` stays false until a real capture is inspected, and
 - `tests/test_floating_overlay.py` — import without GTK, CLI argument parsing, opacity,
   panel identity during realize and map, X11 override-redirect fallbacks, GTK3/Gdk
   version pinning, event feeding, visibility across share/focus changes.
+- `tests/gtk_workspace_checks.py` — real GTK rendering, pin/history, settings,
+  lifecycle and pointer/keyboard checks; see [READABLE-ANSWER-UI.md](READABLE-ANSWER-UI.md).
 - `tests/test_overlay_probe.py` — probe has no auto-hide path; configured/runtime status
   stays separated in its report.
 - `security-lab/overlay_probe.py` — a human-run GTK probe for real screen-share QA. It

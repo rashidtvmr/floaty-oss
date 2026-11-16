@@ -17,3 +17,4 @@ __pycache__/
 !/models/ggml-tiny.en.bin
 /models/*.bin.part
 /dist/
+.repowise/

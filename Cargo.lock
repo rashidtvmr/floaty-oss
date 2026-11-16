@@ -854,6 +854,7 @@ dependencies = [
 name = "socket_stream_core"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "reqwest",
  "serde",
  "serde_json",

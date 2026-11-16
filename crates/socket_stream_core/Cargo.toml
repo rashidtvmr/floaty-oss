@@ -16,3 +16,9 @@ tokio.workspace = true
 reqwest.workspace = true
 thiserror.workspace = true
 tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# Direct POSIX flock/O_NOFOLLOW wrappers for config persistence. Already in
+# Cargo.lock via the CLI, so this adds no new crate; it keeps the workspace MSRV
+# at 1.88 instead of requiring File::lock (stabilized in 1.89).
+libc = "0.2"

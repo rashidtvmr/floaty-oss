@@ -46,7 +46,7 @@ speech model available, mock `analyze-file`, sample OCR, Moonshine runtime
 runner cannot exercise the desktop GUI, real capture permissions, or a live
 screencast; those remain manual on-desktop steps.
 
-The subsequent release at commit **`4c4eba9`** is now installed at
+The subsequent capture release at commit **`4c4eba9`** was installed at
 `/opt/socket_stream`: archive SHA-256
 `6cd60e591d70d376a4d2d8220adb2f422c533ffd3007d68012c3d2c3b35fc14e`,
 162,879,928 bytes. Eleven packaged source/page files matched the commit, and the
@@ -100,18 +100,18 @@ click **Start observation**. A separate labeled GTK answer panel opens, and
 foreground accessibility text is evaluated first. The normal workflow does
 not prompt for a screen share when AT-SPI provides readable question text.
 The selected provider is checked before capture begins; mock is explicitly
-identified as preview-only. The panel shows the current question, answer,
-source, provider, and status. Use **Pause/Resume** to suspend observation and
+identified as preview-only. The panel keeps the selected question and answer
+together; **Pin question** holds that pair while newer questions arrive. Use
+history or **Follow latest** to change the selection. Use **Pause/Resume** to suspend observation and
 discard in-flight answers; **Stop** ends the authorized observation process.
-Diagnostic output is under the
-collapsed **Advanced tools and diagnostics** section.
+Diagnostic output is on the **Tools & diagnostics** page.
 
-For an offline, no-inference UI test, open Advanced tools and click
+For an offline, no-inference UI test, open **Tools & diagnostics** and click
 **Replay demo**. This loads a bundled synthetic JSONL fixture containing two
 questions and deliberate stale-answer events; it does not read the screen,
 open a portal, listen to audio, or call AI.
 
-Check **Enable local OCR fallback** only when the accessible question text is
+On **Capture sources**, check **Enable local OCR fallback** only when the accessible question text is
 unavailable. On GNOME/KDE Wayland this will invoke the normal, user-approved
 desktop ScreenCast source chooser as needed; rejection fails closed. There is
 no invisible or permission-bypassing screenshot path. If the accessibility
@@ -127,6 +127,12 @@ audio practice, and local AI start/stop. Saved provider settings, including an A
 key when saved, persist in `~/.config/socket_stream/provider-settings.json`
 (or the XDG config directory) with mode `0600`; the key input is masked. That
 configuration lives outside the application installation directory.
+
+The workspace also has **Appearance** and **Shortcuts** pages. Appearance previews
+background opacity (55–100%), answer text size (13–22 px) and reduced motion;
+Save persists it. Shortcuts can be typed or recorded and apply on Save. The
+floating panel renders Markdown and retains up to 24 Q&A pairs in session memory.
+See [the reading-workspace record](READABLE-ANSWER-UI.md) for design and GTK checks.
 
 For a no-fee local model, install Ollama from its official Linux distribution
 and pull the selected model once:
@@ -145,8 +151,9 @@ The standalone floating answer panel can run without the main GTK window:
 It execs `apps/socket_stream_desktop/ui/floating_overlay.py`, which consumes the same
 JSONL event stream as the desktop shell and performs no capture of its own. Add
 `--allow-ocr` and `--portal` to permit the user-approved ScreenCast fallback, and
-`--compact` for the small panel and `--opacity 0.94` for slight transparency (range
-0.85–1.0). `--stealth` (the default) enables best-effort
+`--compact` for the small panel and `--opacity 0.90` for background transparency
+(range 0.55–1.0). Glyphs stay opaque at rest; a compositor is required for alpha.
+`--stealth` (the default) enables best-effort
 capture-exclusion hints; `--no-stealth` disables those hints. Neither option
 changes panel visibility.
 
@@ -163,8 +170,9 @@ Best-effort exclusion is Linux-only and cannot guarantee invisibility:
   layer-shell. The app therefore starts GTK with `GDK_BACKEND=x11` and gives the
   panel the X11 **dock** type, which mutter keeps above fullscreen windows without
   focusing it. Verified on the target over a fullscreen window. Set
-  `GDK_BACKEND=wayland` to opt out; the panel is then a normal toplevel and can be
-  covered. Stock GNOME Shell 50 / mutter 18 and sway have no per-window
+   `GDK_BACKEND=wayland` to opt out; the panel is then a normal toplevel and can be
+   covered. Native Wayland positioning and compact resize requests depend on the
+   compositor. Stock GNOME Shell 50 / mutter 18 and sway have no per-window
   capture-exclusion rule. GNOME's custom Mutter runtime is a separate deployment
   and must be loaded by a fresh desktop login before it can filter a share.
 - KDE, niri and Hyprland stay on Wayland so their capture rules keep applying.
@@ -306,8 +314,12 @@ found in the tree, so it never OCRs the whole screen.
 
 A JSON config file controls the a11y mode, OCR policy, shortcuts and overlay
 defaults. It is read from `$SOCKET_STREAM_CONFIG`, else
-`$XDG_CONFIG_HOME/socket_stream/config.json`, else `~/.config/socket_stream/config.json`.
-A missing file uses defaults; a malformed file is reported, not ignored. Keys:
+`$XDG_CONFIG_HOME/socket_stream/config.json`, else `$HOME/.config/socket_stream/config.json`,
+or `./.socket_stream.json` when HOME is unavailable. A missing file uses defaults.
+The CLI reports malformed config; the desktop starts with defaults and reports
+invalid appearance data. Shared writes use a POSIX lock and atomic `0600`
+replacement, preserving unrelated fields and refusing malformed/non-object JSON
+and symlink/non-regular config or lock files. Keys:
 
     a11y.mode            auto | focused | tree | text (default tree)
     a11y.max_tokens      token budget for the rendered tree (default 4000)
@@ -323,12 +335,17 @@ A missing file uses defaults; a malformed file is reported, not ignored. Keys:
     shortcuts.bindings   action -> accelerator map
     overlay.stealth      best-effort capture exclusion default
     overlay.compact      compact panel default
+    desktop.appearance.opacity        GTK background alpha (default 0.90)
+    desktop.appearance.font_size      GTK answer text size (default 16)
+    desktop.appearance.reduced_motion disable GTK transitions (default false)
 
 ## Global shortcuts
 
-Twelve configurable actions (start, stop, pause_resume, toggle_overlay,
+Seventeen Linux actions (start, stop, pause_resume, toggle_overlay,
 show_overlay, hide_overlay, copy_answer, compact_toggle, toggle_stealth,
-open_settings, refresh_question, quit) are managed from the CLI:
+open_settings, refresh_question, quit, listen_audio, pin_question, previous_question,
+next_question, follow_latest) can be edited on the **Shortcuts** page or inspected
+from the CLI. macOS retains twelve actions. See [SHORTCUTS.md](SHORTCUTS.md).
 
     ./socket_stream hotkeys list
     ./socket_stream hotkeys init
@@ -336,10 +353,11 @@ open_settings, refresh_question, quit) are managed from the CLI:
 
 `hotkeys list` prints the resolved bindings and the detected platform.
 `hotkeys init` writes a default config file and refuses to overwrite one without
-`--force`. `hotkeys print` prints the platform-native registration snippet (an
+`--force`; force resets shortcuts while preserving other settings. `hotkeys print`
+prints a user-managed registration example (an
 `sxhkdrc` block for X11, a note about `org.freedesktop.portal.GlobalShortcuts`
 for Wayland, and the in-app equivalents for macOS). It never installs anything.
-In-app shortcuts work while the window is focused; out-of-focus global grabs
+In-app shortcuts work while the **control window** is focused; out-of-focus global grabs
 require the desktop's own hotkey tool and are never installed silently.
 
 ## Offline mock provider and soak harness
@@ -356,17 +374,18 @@ duration (`--minutes 180` for a three-hour run) to check memory and subprocess
 cleanup. Neither reads the
 screen, opens a portal, listens to audio, or calls a real API.
 
-## Still needs a real Linux desktop
+## Desktop verification and remaining coverage
 
-The accessibility-tree helper, region OCR, config file and shortcut registry are
-implemented and covered by unit tests, but the following were not exercised on
-real hardware from this cross-compiled archive: AT-SPI2 tree output on a live
-GNOME/KDE session, region cropping with the distro ImageMagick, in-app GTK
-accelerators, and out-of-focus global shortcuts under X11 and Wayland. Verify
-these on the intended test machine and record the session type and compositor.
+The reading workspace has real GTK checks on Xvfb and GNOME/XWayland, including
+appearance/shortcut persistence, pinning, scrolling, process lifetime and
+compositor-delivered drag/resize and Super+F8 input. Exact results are in
+[READABLE-ANSWER-UI.md](READABLE-ANSWER-UI.md). AT-SPI2 foreground-tree capture,
+region cropping with the distro ImageMagick, native Wayland UI outside GNOME and
+out-of-focus global registration still need their own desktop E2E checks.
 
-The floating panel itself **was** verified on Ubuntu 26.04.1 / GNOME Shell 50.1 /
-mutter 18 / GTK 3.24.52 by running the real module:
+The **pre-redesign panel** was verified on Ubuntu 26.04.1 / GNOME Shell 50.1 /
+mutter 18 / GTK 3.24.52 by running the real module. These are retained historical
+measurements; the current design uses 90% background-only alpha and larger sizes:
 
 - Wayland: the toplevel advertised `app_id=socket_stream_overlay`, stayed mapped,
   reported opacity 0.94, and used the RGBA visual (GTK paints it with alpha).
@@ -378,7 +397,7 @@ mutter 18 / GTK 3.24.52 by running the real module:
   override-redirect, centred at (700, 355) on 1920×1080, and **visually above a
   fullscreen window** in a real screenshot while staying translucent.
 
-These observations concern the stock compositor. Custom Mutter deployment and
+Those baseline observations concern the stock compositor. Custom Mutter deployment and
 live-capture results are tracked separately in
 [`../native/mutter-capture-filter/VERIFICATION.md`](../native/mutter-capture-filter/VERIFICATION.md).
 
@@ -391,6 +410,11 @@ has no per-window exclusion API. The custom runtime adds capture-render filterin
 for that pinned distribution build.
 
 ## Microphone and system-audio practice
+
+The current bundle includes **English Moonshine** streaming speech. **Listen to
+audio** opens microphone/system source and authorization selection. Its bundled
+runtime and synthetic PCM tests are recorded in [MOONSHINE.md](MOONSHINE.md);
+real device permission/latency checks remain separate.
 
 The bundle includes a small English Whisper model when built with one.
 Install or build official whisper.cpp and put whisper-cli in PATH. Then run:

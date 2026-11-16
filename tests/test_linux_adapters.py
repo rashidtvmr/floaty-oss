@@ -22,26 +22,56 @@ ATSPI = SimpleNamespace(StateType=SimpleNamespace(ACTIVE="ACTIVE", FOCUSED="FOCU
 
 
 class LiveHandoffTests(unittest.TestCase):
-    def test_real_delivery_closure_bounds_callbacks_and_stops_on_saturation(self):
+    def setUp(self):
         tree = ast.parse((ROOT / "apps/socket_stream_desktop/ui/linux-gtk.py").read_text())
         function = next(node for node in ast.walk(tree)
                         if isinstance(node, ast.FunctionDef) and node.name == "deliver")
-        queued, delivered, stopped = [], [], []
-        slots = threading.BoundedSemaphore(32)
-        scope = dict(pending_ui=slots,
-                     proc=SimpleNamespace(terminate=lambda: stopped.append(True)),
-                     GLib=SimpleNamespace(idle_add=lambda callback: queued.append(callback)))
+        self.queued, self.delivered, self.stopped = [], [], []
+        self.slots = threading.BoundedSemaphore(32)
+        proc = SimpleNamespace(terminate=lambda: self.stopped.append(True))
+        self.controller = SimpleNamespace(proc=proc, _process_generation=3,
+                                          _events_closed=False, _exiting=False)
+        scope = dict(pending_ui=self.slots, proc=proc, self=self.controller,
+                     generation=3, live_mode=True,
+                     GLib=SimpleNamespace(idle_add=lambda callback: self.queued.append(callback)))
         exec(compile(ast.Module(body=[function], type_ignores=[]), "live-handoff", "exec"), scope)
-        send = scope["deliver"]
+        self.send = scope["deliver"]
+
+    def test_real_delivery_closure_bounds_callbacks_and_stops_on_saturation(self):
         for index in range(32):
-            self.assertTrue(send(delivered.append, index))
-        self.assertFalse(send(delivered.append, "overflow"))
-        self.assertEqual(len(queued), 32)
-        self.assertEqual(stopped, [True])
-        self.assertFalse(queued.pop(0)())
-        self.assertEqual(delivered, [0])
-        self.assertTrue(send(delivered.append, "reused"))
-        self.assertEqual(len(queued), 32)
+            self.assertTrue(self.send(self.delivered.append, index))
+        self.assertFalse(self.send(self.delivered.append, "overflow"))
+        self.assertEqual(len(self.queued), 32)
+        self.assertEqual(self.stopped, [True])
+        self.assertFalse(self.queued.pop(0)())
+        self.assertEqual(self.delivered, [0])
+        self.assertTrue(self.send(self.delivered.append, "reused"))
+        self.assertEqual(len(self.queued), 32)
+
+    def test_stale_or_stopped_delivery_releases_its_slot_without_mutating_ui(self):
+        for attribute, value in (("_events_closed", True), ("_exiting", True),
+                                 ("_process_generation", 4), ("proc", object())):
+            with self.subTest(attribute=attribute):
+                previous = getattr(self.controller, attribute)
+                self.assertTrue(self.send(self.delivered.append, "late event"))
+                setattr(self.controller, attribute, value)
+                self.assertFalse(self.queued.pop(0)())
+                self.assertEqual(self.delivered, [])
+                # Every stale callback must return its bounded ownership slot.
+                acquired = [self.slots.acquire(blocking=False) for _ in range(32)]
+                self.assertTrue(all(acquired))
+                for _ in acquired:
+                    self.slots.release()
+                setattr(self.controller, attribute, previous)
+
+    def test_callback_error_also_releases_its_slot(self):
+        def fail():
+            raise ValueError("synthetic callback error")
+
+        self.assertTrue(self.send(fail))
+        with self.assertRaisesRegex(ValueError, "synthetic"):
+            self.queued.pop(0)()
+        self.assertTrue(all(self.slots.acquire(blocking=False) for _ in range(32)))
 
 
 class Node:
@@ -126,8 +156,8 @@ class LinuxAdapterTests(unittest.TestCase):
         self.assertEqual(GTK.capture_status(exited), "Stopped")
 
     def test_floating_panel_compact_mode_keeps_normal_visible_window_sizes(self):
-        self.assertEqual(GTK.floating_panel_size(False), (520, 370))
-        self.assertEqual(GTK.floating_panel_size(True), (360, 250))
+        self.assertEqual(GTK.floating_panel_size(False), (720, 620))
+        self.assertEqual(GTK.floating_panel_size(True), (560, 420))
 
     def test_minimize_iconifies_main_window_without_touching_panel(self):
         class Window:
@@ -145,6 +175,12 @@ class LinuxAdapterTests(unittest.TestCase):
         for interval in (0, 1, 3601):
             with self.assertRaises(ValueError):
                 GTK.observe_args("mock", interval)
+
+    def test_linux_meta_alias_uses_the_super_modifier(self):
+        gdk = SimpleNamespace(ModifierType=SimpleNamespace(
+            CONTROL_MASK=4, MOD1_MASK=8, SHIFT_MASK=1, SUPER_MASK=1 << 26, META_MASK=1 << 28))
+        mask = GTK.gtk_modifier_mask(gdk, GTK.Accelerator.parse("ctrl+meta+f8"))
+        self.assertEqual(mask, 4 | (1 << 26))
 
     def test_stop_only_terminates_owned_process_group(self):
         from unittest import mock

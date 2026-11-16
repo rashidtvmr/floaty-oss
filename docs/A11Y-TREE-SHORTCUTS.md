@@ -2,7 +2,9 @@
 
 **Tickets:** `A11Y-TREE-006`, `OCR-REGION-007`, `HOTKEYS-008`, `CODEX-DEVICE-009`
 **Target:** Linux x86-64 (X11 + Wayland) primary; macOS kept working. Windows out of scope.
-**Status:** interfaces frozen; implementation in progress.
+**Status:** original interfaces implemented; section 3 extended for the Linux
+reading workspace (2026-11-16). Platform verification is tracked in
+[ACCEPTANCE.md](ACCEPTANCE.md).
 
 This document is the single contract every implementation agent builds against. Do not
 change a signature here without changing every consumer in the same commit.
@@ -314,7 +316,11 @@ tool exists.
 ### 3.1 Actions (stable names, used in config and CLI)
 
 `start`, `stop`, `pause_resume`, `toggle_overlay`, `show_overlay`, `hide_overlay`,
-`copy_answer`, `compact_toggle`, `toggle_stealth`, `open_settings`, `refresh_question`, `quit`.
+`copy_answer`, `compact_toggle`, `toggle_stealth`, `open_settings`, `refresh_question`, `quit`,
+`listen_audio`, `pin_question`, `previous_question`, `next_question`, `follow_latest`.
+
+The shared Rust/Python contract has seventeen actions; macOS Swift implements
+the original twelve. The five Q&A actions and arrow-key bindings are Linux-only.
 
 `hide_overlay` is the "hide the app from screen" action. In the Linux GTK shell,
 the shortcut is intentionally show-only/reminder behavior: closing requires
@@ -324,7 +330,7 @@ Focus and screen-share state never automatically hide or restore it.
 ### 3.2 Rust contract — `crates/socket_stream_core/src/shortcuts.rs` (new)
 
 ```rust
-pub const ACTIONS: [&str; 12] = [ ... ]; // the names above, in order
+pub const ACTIONS: [&str; 17] = [ ... ]; // the names above, in order
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Accelerator {
@@ -384,13 +390,21 @@ Default bindings (also written to a fresh config file):
 | open_settings | `ctrl+alt+comma` |
 | refresh_question | `ctrl+alt+r` |
 | quit | `ctrl+alt+q` |
+| listen_audio | `ctrl+alt+a` |
+| pin_question | `ctrl+alt+b` |
+| previous_question | `ctrl+alt+left` |
+| next_question | `ctrl+alt+right` |
+| follow_latest | `ctrl+alt+l` |
 
 ### 3.3 CLI — `apps/socket_stream/src/hotkeys.rs` (new)
 
 `socket_stream hotkeys` subcommands:
 
 - `hotkeys list` — print the resolved bindings and the platform.
-- `hotkeys init [--force]` — write a default config file, refusing to overwrite without `--force`.
+- `hotkeys init [--force]` — write default shortcuts, refusing an existing file
+  without `--force`. Force resets only `shortcuts.enabled` and `shortcuts.bindings`,
+  preserving other settings and unknown siblings. Writes share a POSIX lock and
+  atomic replace with the GTK editor; malformed/non-object files are refused.
 - `hotkeys print` — print the platform-native registration snippet (an `sxhkdrc` block for X11,
   a note about `org.freedesktop.portal.GlobalShortcuts` for Wayland, and the in-app equivalents
   for macOS). It never installs anything by itself.
@@ -399,12 +413,14 @@ Default bindings (also written to a fresh config file):
 
 - `apps/socket_stream_desktop/ui/shortcuts.py` (new, pure stdlib): parse accelerators, hold the
   action -> callback map, and dispatch a key event. GTK-agnostic so it is unit testable.
-- `linux-gtk.py`: register GTK accelerators (`Gtk.AccelGroup`) for every action, add a
-  `Shortcuts` help dialog listing them, and wire `hide_overlay` to the floating overlay's
-  `hide()`. Global (out-of-focus) shortcuts are documented as requiring the desktop's own
-  hotkey tool; the app never installs a grab silently.
-- `mac-app.swift`: register `NSMenu` key equivalents for every action plus a
-  `NSEvent.addGlobalMonitorForEvents` path for the global ones, and a Shortcuts menu.
+- `linux-gtk.py`: register seventeen GTK accelerators (`Gtk.AccelGroup`) on the
+  control window and provide a Shortcuts page with recording, validation,
+  enable/disable, Save and Reset. Save applies immediately; Reset edits the form
+  until saved. `open_settings` opens Appearance. `hide_overlay` retains its
+  reminder-only behavior; the panel's Close control calls `hide()` explicitly.
+  Global registration needs the desktop's own tool; the app installs no grab.
+- `mac-app.swift`: register `NSMenu` key equivalents for its twelve actions plus
+  a `NSEvent.addGlobalMonitorForEvents` path and a Shortcuts menu.
 - Every shortcut is also reachable from the UI without a keyboard, and every shortcut is listed
   in `docs/SHORTCUTS.md`.
 

@@ -1,62 +1,73 @@
 # SocketStream shortcuts
 
-**Ticket:** `HOTKEYS-008`
-**Contract:** `docs/A11Y-TREE-SHORTCUTS.md` section 3
-**Status:** implemented; end-to-end verification on real X11/Wayland/macOS hardware is pending.
+**Ticket:** `HOTKEYS-008` · **Contract:** [A11Y-TREE-SHORTCUTS.md](A11Y-TREE-SHORTCUTS.md), section 3
 
-SocketStream has twelve stable actions exposed through keyboard accelerators,
-desktop controls and the CLI (`socket_stream hotkeys`), subject to platform-specific
-behavior noted below. The accelerator set is configurable.
+Linux GTK implements **seventeen editable in-app actions**. They work while the
+control window is focused. macOS retains twelve Swift actions. See
+[UI verification](READABLE-ANSWER-UI.md) for the exact tested scope.
 
 ## Actions and defaults
 
-| Action | Default | What it does | UI equivalent |
+| Action | Default | Linux behavior | UI equivalent |
 |---|---|---|---|
-| `start` | `Ctrl+Alt+S` | Start authorized observation | **Start observation** button |
-| `stop` | `Ctrl+Alt+X` | Stop capture and inference | **Stop** button |
-| `pause_resume` | `Ctrl+Alt+P` | Pause/resume the live session | **Pause** button in the answer panel |
-| `toggle_overlay` | `Ctrl+Alt+O` | Toggle the panel (Linux: show only) | **Show answer panel** button |
-| `show_overlay` | `Ctrl+Alt+Shift+O` | Show the answer panel | **Show answer panel** button |
-| `hide_overlay` | `Ctrl+Alt+H` | Hide the app from the screen | **Close panel** button in the answer panel |
-| `copy_answer` | `Ctrl+Alt+C` | Copy the current answer | **Copy answer** button |
-| `compact_toggle` | `Ctrl+Alt+M` | Toggle the compact panel layout | **Compact** toggle |
-| `toggle_stealth` | `Ctrl+Alt+K` | Toggle capture-exclusion hints | **Stealth overlay** checkbox |
-| `open_settings` | `Ctrl+Alt+Comma` | Open provider settings | **Settings** button |
-| `refresh_question` | `Ctrl+Alt+R` | Best-effort status check (see below) | — |
-| `quit` | `Ctrl+Alt+Q` | Quit SocketStream | window close |
+| `start` | `Ctrl+Alt+S` | Start authorized screen observation | **Start observation** |
+| `stop` | `Ctrl+Alt+X` | Stop capture and inference | **Stop** |
+| `pause_resume` | `Ctrl+Alt+P` | Pause/resume a live session | **Pause / Resume** |
+| `toggle_overlay` | `Ctrl+Alt+O` | Show the panel (legacy show-only behavior) | **Open answer panel** |
+| `show_overlay` | `Ctrl+Alt+Shift+O` | Show the answer panel | **Open answer panel** |
+| `hide_overlay` | `Ctrl+Alt+H` | Remind the user to close the panel explicitly | **Close panel** icon performs the close |
+| `copy_answer` | `Ctrl+Alt+C` | Copy the displayed answer, including Markdown | **Copy answer** icon |
+| `compact_toggle` | `Ctrl+Alt+M` | Toggle the compact reading layout | **Compact layout** icon |
+| `toggle_stealth` | `Ctrl+Alt+K` | Toggle keep-above/taskbar window hints; capture rules are separate | **Capture sources → Stealth overlay** |
+| `open_settings` | `Ctrl+Alt+Comma` | Open Appearance | **Appearance** / panel settings icon |
+| `refresh_question` | `Ctrl+Alt+R` | Report the current session; does not force capture | **Tools & diagnostics → Session status** |
+| `quit` | `Ctrl+Alt+Q` | Stop owned processes and exit | **Quit SocketStream** in the sidebar |
+| `listen_audio` | `Ctrl+Alt+A` | Open source/authorization selection for English Moonshine | **Listen to audio** |
+| `pin_question` | `Ctrl+Alt+B` | Pin/unpin the displayed question and answer | **Pin question** |
+| `previous_question` | `Ctrl+Alt+Left` | Pin the preceding retained pair | Select an earlier history row |
+| `next_question` | `Ctrl+Alt+Right` | Pin the next retained pair | Select a later history row |
+| `follow_latest` | `Ctrl+Alt+L` | Unpin and follow the newest question | **Follow latest** / **N new · Latest** |
 
-`hide_overlay` is the explicit hide action on platforms that support it.
-`show_overlay` restores the panel.
+The five Q&A actions at the bottom of the table are Linux-only. On macOS,
+`open_settings` keeps its provider-settings behavior. On Linux, configure a
+provider through **Session → AI provider → Configure**.
 
-In the Linux GTK shell, **Minimize app** is available beside the main controls
-and **Minimize** is available on the answer panel. It minimizes the main window
-without hiding the panel or stopping capture/inference. For the Linux GTK panel,
-visibility is click-to-close: focus changes and screen-share detection never hide
-it. Only clicking **Close panel** or the panel's window-close control hides it.
-Overlay shortcuts never close it (`toggle_overlay` shows it; `hide_overlay`
-reminds you to use the Close control). A screen capture may include the panel.
+### Visibility and session lifetime
 
-`refresh_question` is honest about what it can do: the observation process
-decides when a new question is read, so the shortcut only reports the current
-state. It never forces a capture.
+- **Minimize app** minimizes the workspace while the panel and session continue.
+- Closing the main workspace keeps the session in the background.
+- **Close panel** hides the panel without stopping inference. **Open answer panel**
+  restores it. Focus changes and detected screen sharing never hide it.
+- Linux overlay shortcuts retain show-only/reminder behavior; they do not close
+  the panel. On other platforms, `hide_overlay` can be an explicit hide action.
+- **Quit SocketStream** stops owned processes and exits.
+- `refresh_question` reports state; the observation process decides when to read
+  the next question on its configured interval.
 
-## Rebinding
+Capture behavior is documented separately in
+[GNOME-CAPTURE-EXCLUSION.md](GNOME-CAPTURE-EXCLUSION.md).
 
-The accelerator for every action lives in the JSON config file. Path
-resolution, in order:
+## Editing shortcuts
+
+Open **Shortcuts** in the Linux workspace. Type an accelerator or click its pencil
+icon to record keys; Escape cancels recording. **Save shortcuts** checks duplicate
+bindings, writes the full set and applies it immediately. **Reset to defaults**
+changes the form; Save applies that reset. The enable switch also takes effect on
+Save. Editing a shortcut field or recording keys suppresses action dispatch,
+including Quit.
+
+The shared JSON config path is resolved in this order:
 
 1. `$SOCKET_STREAM_CONFIG`
 2. `$XDG_CONFIG_HOME/socket_stream/config.json`
-3. `~/.config/socket_stream/config.json`
-4. `~/.socket_stream.json`
-
-Write a fresh file with the defaults, then edit it:
+3. `$HOME/.config/socket_stream/config.json`
+4. `./.socket_stream.json` when `HOME` is unavailable
 
 ```sh
-socket_stream hotkeys init           # refuses to overwrite an existing file
-socket_stream hotkeys init --force   # overwrite it
-socket_stream hotkeys list           # show the resolved bindings and platform
-socket_stream hotkeys print          # print a registration snippet for your desktop
+socket_stream hotkeys init           # create defaults; refuse an existing file
+socket_stream hotkeys init --force   # reset shortcuts; preserve other settings
+socket_stream hotkeys list           # resolved bindings and platform notes
+socket_stream hotkeys print          # user-managed desktop registration example
 ```
 
 ```json
@@ -64,8 +75,8 @@ socket_stream hotkeys print          # print a registration snippet for your des
   "shortcuts": {
     "enabled": true,
     "bindings": {
-      "start": "ctrl+alt+s",
-      "hide_overlay": "ctrl+alt+h"
+      "start": "ctrl+shift+1",
+      "pin_question": "ctrl+alt+b"
     }
   }
 }
@@ -73,66 +84,81 @@ socket_stream hotkeys print          # print a registration snippet for your des
 
 Rules:
 
-- Only the actions listed above are valid. An unknown action is an error.
-- An accelerator is `modifier+...+key`. Modifiers are `ctrl`/`control`,
-  `alt`/`opt`/`option`, `shift` and `meta`/`cmd`/`super`/`win`. Exactly one key
-  is required.
-- Keys: letters, digits, `f1`–`f24`, `space`, `comma`, `period`, `slash`,
-  `semicolon`, `apostrophe`, `minus`, `equals`, `tab`, `enter`, `escape`,
-  `backspace`.
-- Duplicate accelerators are rejected, and an invalid entry is reported rather
-  than silently ignored. `socket_stream hotkeys list` shows the resolved table;
-  the desktop shells fall back to the defaults if the file cannot be parsed so
-  the app always starts usable.
-- `shortcuts.enabled = false` turns the accelerators off without deleting the
-  bindings. The buttons and menus still work.
+- Only the listed actions are valid. Missing actions load their defaults.
+- An accelerator is `modifier+...+key`, with exactly one key. Modifiers are
+  `ctrl`/`control`, `alt`/`opt`/`option`, `shift`, and `meta`/`cmd`/`super`/`win`.
+- Linux/Rust keys: letters, digits, `f1`–`f24`, `left`, `right`, `up`, `down`,
+  `space`, `comma`, `period`, `slash`, `semicolon`, `apostrophe`, `minus`, `equals`,
+  `tab`, `enter`, `escape`, `backspace`. Arrow bindings are unsupported on Swift.
+- On Linux, portable Meta/Cmd/Super/Win means the physical **Super** key.
+- Duplicates and invalid entries are rejected. The CLI reports malformed config;
+  desktop shortcut loading falls back to defaults so the app remains usable.
+- `shortcuts.enabled = false` disables accelerators, leaving buttons available.
 
-## Platform notes
+### Shared persistence and appearance
+
+The **Appearance** page previews changes immediately; **Save appearance** keeps
+them for the next launch:
+
+```json
+{
+  "desktop": {
+    "appearance": {"opacity": 0.9, "font_size": 16, "reduced_motion": false}
+  }
+}
+```
+
+Opacity accepts `0.55–1.0`, text size accepts integers `13–22`, and reduced motion
+is a boolean. Missing fields use defaults. Invalid appearance data is reported in
+the workspace, which starts with defaults. Provider credentials stay in their
+separate provider-settings file.
+
+Python saves and Rust shortcut resets coordinate through `<config>.lock` with
+POSIX `flock`, reread the latest object and atomically replace it with a `0600`
+file. They preserve unrelated sections and unknown siblings inside `shortcuts`.
+Malformed/empty/non-object JSON and symlink/non-regular config or lock files are
+refused. Correct the reported JSON error before saving again.
+
+`save_config_file(bindings, enabled=True)` writes a **full shortcut snapshot**:
+omitted actions take their defaults and the binding map is replaced. GTK passes
+all seventeen entries and the enable toggle. Rust `Config::save()` writes all
+typed fields while retaining unknown fields recursively; its binding map is also
+a snapshot. `hotkeys init --force` only resets bindings and enables them.
+
+## Platform behavior
 
 ### Linux — X11
 
-In-app accelerators are installed with `Gtk.AccelGroup` on the main window and
-work while the SocketStream window is focused.
+`Gtk.AccelGroup` is attached to the **main/control window**. The non-activating
+answer panel does not register a separate accelerator group. Out-of-focus global
+shortcuts are not registered by SocketStream.
 
-Out-of-focus (global) shortcuts are **not** installed by the app. X11 has no
-standard global-hotkey API, so use your desktop's own tool. `socket_stream hotkeys
-print` emits an `sxhkdrc` block that forwards each key to the SocketStream window
-with `xdotool`:
+For user-managed registration, `hotkeys print` emits an `sxhkdrc` block:
 
-```
+```text
 ctrl + alt + s
-    xdotool search --name "SocketStream" windowactivate --sync key --clearmodifiers ctrl+alt+s
+    xdotool search --limit 1 --name '^SocketStream — [A-Za-z][A-Za-z]*$' windowactivate --sync key --clearmodifiers ctrl+alt+s
 ```
 
-Save it as `~/.config/sxhkd/sxhkdrc` and run `sxhkd`. `xbindkeys` works the same
-way. SocketStream installs nothing by itself.
+The anchored pattern selects one-word status titles (`Stopped`, `Active`,
+`Stopping`), excluding `SocketStream — Practice Answer`. Merge the block into
+your `sxhkdrc` if desired. This forwarding path depends on desktop grabs and XKB
+symbol synthesis; it is not an app-owned global binding. SocketStream installs
+nothing automatically.
 
 ### Linux — Wayland
 
-Wayland deliberately does not let a client grab global keys. Out-of-focus
-shortcuts need the compositor's own settings or the
-`org.freedesktop.portal.GlobalShortcuts` portal, when the desktop implements it.
-SocketStream does not open that portal on its own; the in-app accelerators work
-while the window is focused.
+Out-of-focus shortcuts need compositor settings or the
+`org.freedesktop.portal.GlobalShortcuts` portal. SocketStream does not register
+with that portal. In-app shortcuts operate with the control window focused;
+GNOME uses the app's XWayland window. Native Wayland compositor-specific global
+registration remains unimplemented.
 
 ### macOS
 
-The app registers an `NSMenu` **Shortcuts** menu with a key equivalent for every
-action, so each one works while SocketStream is focused and is also clickable
-without a keyboard. It also installs a single
-`NSEvent.addGlobalMonitorForEvents(matching: .keyDown)` monitor (registered once,
-guarded against duplicates) so the same keys work while another app is focused.
-
-macOS may require **Accessibility** permission for a global key monitor, and a
-global monitor can observe but not consume the event. SocketStream never bypasses
-that permission and never installs a login item or a background grab.
-
-## Honesty
-
-- SocketStream **never installs a global hotkey grab silently** and never bypasses
-  OS permission. Global shortcuts are best-effort and documented as such.
-- Every shortcut is also reachable from the UI without a keyboard (buttons or
-  menu items), and every shortcut is listed here.
-- The stealth overlay is best-effort: on Linux no public API guarantees
-  exclusion from a full-screen capture, and on macOS `NSWindow.sharingType` is
-  the documented mechanism but not a universal guarantee.
+Swift exposes the original twelve actions through an `NSMenu` **Shortcuts** menu
+and one `NSEvent.addGlobalMonitorForEvents(matching: .keyDown)` monitor. The five
+Q&A actions and arrow-key bindings are not implemented there. Accessibility
+permission may be needed for the global monitor, which observes rather than
+consumes events. Physical out-of-focus verification remains platform-specific;
+the Linux UI checks do not establish macOS behavior.

@@ -22,10 +22,20 @@ if str(_UI_DIR) not in sys.path:
     sys.path.insert(0, str(_UI_DIR))
 
 from shortcuts import (  # noqa: E402  (path set just above)
+    ACTION_LABELS,
+    DEFAULT_APPEARANCE,
+    Accelerator,
+    ShortcutError,
+    ShortcutMap,
     enabled_from_config_file,
     from_config_file,
-    platform_note,
+    load_appearance,
+    parse_bindings,
+    save_appearance as save_appearance_config,
+    save_config_file,
 )
+from answer_format import question_title  # noqa: E402
+from ui_theme import style  # noqa: E402
 from provider_settings import (  # noqa: E402  (path set just above)
     clear_provider_settings,
     load_provider_settings,
@@ -50,7 +60,9 @@ def observe_args(provider, interval=5):
 
 def floating_panel_size(compact):
     """Return normal window dimensions for visible full and compact layouts."""
-    return (360, 250) if compact else (520, 370)
+    from floating_overlay import COMPACT_PANEL_SIZE, PANEL_SIZE
+
+    return COMPACT_PANEL_SIZE if compact else PANEL_SIZE
 
 
 def minimize_app_window(window):
@@ -73,6 +85,10 @@ _GTK_KEY_NAMES = {
     "enter": "Return",
     "escape": "Escape",
     "backspace": "BackSpace",
+    "left": "Left",
+    "right": "Right",
+    "up": "Up",
+    "down": "Down",
 }
 
 
@@ -97,7 +113,9 @@ def gtk_modifier_mask(Gdk, accelerator):
     if accelerator.shift:
         mask |= types.SHIFT_MASK
     if accelerator.meta:
-        mask |= getattr(types, "META_MASK", 1 << 28)
+        # Our portable Meta/Cmd/Super spelling maps to the physical Super key
+        # on Linux. GDK's META_MASK is a different virtual modifier (often Alt).
+        mask |= getattr(types, "SUPER_MASK", 1 << 26)
     return mask
 
 
@@ -112,8 +130,10 @@ def terminate_tree(proc):
         return False
 
 
-def main():
+def create_window():
+    """Construct the real GTK controller without starting its main loop."""
     from live_state import LiveState
+    from workspace_ui import build_workspace
     from capture_rules import CaptureExclusion, CaptureRuleError
     from overlay_guard import (
         backend_is_x11, build_plan, capability_report, detect_session,
@@ -132,7 +152,7 @@ def main():
         import gi
         gi.require_version("Gdk", "3.0")
         gi.require_version("Gtk", "3.0")
-        from gi.repository import Gtk, Gdk, GLib
+        from gi.repository import Gtk, Gdk, GLib, Pango
     except (ImportError, ValueError) as exc:
         raise SystemExit(f"GTK3 unavailable: {exc}. Install python3-gi and gir1.2-gtk-3.0.")
 
@@ -147,8 +167,16 @@ def main():
     class SocketStream(Gtk.Window):
         def __init__(self):
             super().__init__(title="SocketStream — Stopped")
-            self.set_default_size(870, 630)
-            self.set_border_width(14)
+            self._exiting = False
+            self._process_generation = 0
+            self._events_closed = False
+            self._live_mode = False
+            self._pause_pending = False
+            self._accel_group = None
+            self._recording_action = ""
+            self._navigating = False
+            self._history_signature = None
+            self._force_stop_source = None
             self.proc = None
             self.local_ai = None
             self.stopping = False
@@ -161,12 +189,6 @@ def main():
             self.capture_rules = initial_capture_status
             self.capture_busy = False
             self.share_watcher = ScreenShareWatcher(interval=2.0)
-            self.floating = FloatingOverlay(
-                plan=plan, session=session, stealth=True,
-                on_stop=self.stop, on_pause=self.toggle_pause,
-                on_minimize=self.minimize_app,
-            )
-            self._install_pause_controls()
             self.env = {
                 name: os.environ.get(name, default)
                 for name, default in {
@@ -180,128 +202,32 @@ def main():
             # Saved provider settings (API base/model/key) restore into memory;
             # the file is written with user-only permissions (0600).
             self.env.update(load_provider_settings())
-
-            main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-            self.add(main_box)
-            hint = Gtk.Label(label="Authorized practice only. No screen or audio capture runs until you start it.")
-            hint.set_xalign(0)
-            main_box.pack_start(hint, False, False, 0)
-            self.status = Gtk.Label(label="Capture status: Stopped")
-            self.status.set_xalign(0)
-            main_box.pack_start(self.status, False, False, 0)
-            self.share_status = Gtk.Label(label="Screen share: checking...")
-            self.share_status.set_xalign(0)
-            main_box.pack_start(self.share_status, False, False, 0)
-
-            capture_row = Gtk.Box(spacing=8)
-            main_box.pack_start(capture_row, False, False, 0)
-            self.capture_label = Gtk.Label(label="Capture exclusion: checking...")
-            self.capture_label.set_xalign(0)
-            self.capture_label.set_line_wrap(True)
-            capture_row.pack_start(self.capture_label, True, True, 0)
-            self.capture_setup_button = self.add_button(
-                capture_row, "Set up exclusion", self.setup_capture_exclusion)
-            self.capture_remove_button = self.add_button(
-                capture_row, "Remove rule", self.remove_capture_exclusion)
-            self.add_button(capture_row, "Details", self.show_capture_details)
-            self.capture_restart = Gtk.Label(label="")
-            self.capture_restart.set_xalign(0)
-            self.capture_restart.set_line_wrap(True)
-            self.capture_restart.set_no_show_all(True)
-            self.capture_restart.set_visible(False)
-            main_box.pack_start(self.capture_restart, False, False, 0)
-
-            choices = Gtk.Box(spacing=8)
-            main_box.pack_start(choices, False, False, 0)
-            choices.pack_start(Gtk.Label(label="Provider:"), False, False, 0)
-            self.provider = Gtk.ComboBoxText()
-            for name in ("mock", "ollama", "codex", "openai-compatible"):
-                self.provider.append_text(name)
-            self.provider.set_active(1)
-            choices.pack_start(self.provider, False, False, 0)
-            choices.pack_start(Gtk.Label(label="Poll every (s):"), False, False, 0)
-            self.interval = Gtk.SpinButton.new_with_range(2, 3600, 1)
-            self.interval.set_value(5)
-            choices.pack_start(self.interval, False, False, 0)
-            self.force_ocr = Gtk.CheckButton(label="Enable local OCR fallback")
-            choices.pack_start(self.force_ocr, False, False, 0)
-            self.portal = Gtk.CheckButton(label="Use portal")
-            self.portal.set_tooltip_text("Use the user-approved ScreenCast chooser on Wayland")
-            choices.pack_start(self.portal, False, False, 0)
-            self.stealth = Gtk.CheckButton(label="Stealth overlay")
-            self.stealth.set_active(True)
-            self.stealth.set_tooltip_text(
-                "Best-effort window hints only. The answer panel stays visible during "
-                "focus changes and screen shares, and may appear in full-screen captures."
+            appearance_error = ""
+            try:
+                self.appearance = load_appearance()
+            except (ValueError, OSError) as exc:
+                self.appearance = dict(DEFAULT_APPEARANCE)
+                appearance_error = f"Appearance defaults loaded: {exc}"
+            self.floating = FloatingOverlay(
+                plan=plan, session=session, stealth=True, state=self.live_state,
+                on_stop=self.stop, on_pause=self.toggle_pause,
+                on_minimize=self.minimize_app, on_settings=self.open_appearance,
+                on_selection_changed=self.refresh_session, **self.appearance,
             )
-            self.stealth.connect("toggled", self.on_stealth_toggled)
-            choices.pack_start(self.stealth, False, False, 0)
-            settings_actions = Gtk.Box(spacing=8)
-            main_box.pack_start(settings_actions, False, False, 0)
-            self.add_button(settings_actions, "Settings", self.settings)
-            self.add_button(settings_actions, "Shortcuts", self.show_shortcuts)
-            self.add_button(settings_actions, "Codex sign-in", self.codex_login)
-            self.add_button(settings_actions, "Audio devices", self.audio_devices)
-            self.add_button(settings_actions, "Doctor", self.doctor)
-
-            controls = Gtk.Box(spacing=8)
-            main_box.pack_start(controls, False, False, 0)
-            self.add_button(controls, "Show answer panel", self.show_answer_panel)
-            self.add_button(controls, "Quit SocketStream", self.on_exit)
-            for name, handler in (
-                ("Start observation", self.start),
-                ("Listen to audio", self.listen_audio),
-                ("Stop", self.stop),
-                ("Minimize app", self.minimize_app),
-            ):
-                self.add_button(controls, name, handler)
-
-            advanced = Gtk.Expander(label="Advanced tools and diagnostics")
-            main_box.pack_start(advanced, True, True, 0)
-            advanced_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            advanced.add(advanced_body)
-            imports = Gtk.Box(spacing=8)
-            advanced_body.pack_start(imports, False, False, 0)
-            for name, handler in (
-                ("Analyze text", self.choose_file),
-                ("Analyze image", self.choose_image),
-                ("Analyze audio", self.analyze_audio),
-                ("Audio practice", self.audio_practice),
-                ("Replay demo", self.replay_demo),
-            ):
-                self.add_button(imports, name, handler)
-
-            model_buttons = Gtk.Box(spacing=8)
-            advanced_body.pack_start(model_buttons, False, False, 0)
-            self.add_button(model_buttons, "Start local AI", self.start_local_ai)
-            self.add_button(model_buttons, "Stop local AI", self.stop_local_ai)
-            note = Gtk.Label(label="ScreenCast permission is requested by your desktop. Stop ends the capture session.")
-            note.set_xalign(0)
-            model_buttons.pack_start(note, False, False, 0)
-
-            provider_checks = Gtk.Box(spacing=8)
-            advanced_body.pack_start(provider_checks, False, False, 0)
-            self.add_button(provider_checks, "List provider models", self.provider_models)
-            self.add_button(provider_checks, "Test AI response", self.provider_test)
-            self.add_button(provider_checks, "Codex status", self.codex_status)
-            self.add_button(provider_checks, "Codex sign-out", self.codex_logout)
-            provider_checks.pack_start(Gtk.Label(label="Model listing sends no captured content."), False, False, 0)
-
-            scroll = Gtk.ScrolledWindow()
-            scroll.set_hexpand(True)
-            scroll.set_vexpand(True)
-            advanced_body.pack_start(scroll, True, True, 0)
-            self.output = Gtk.TextView()
-            self.output.set_editable(False)
-            self.output.set_cursor_visible(False)
-            self.output.set_monospace(True)
-            self.output.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-            scroll.add(self.output)
-            self.write("SocketStream ready. Select a provider and test an imported file.\n")
+            build_workspace(self)
+            self._install_shortcuts()
+            self._fill_shortcut_form()
+            self.preview_appearance()
+            self.sync_provider_label()
+            self.refresh_session()
             self.report_capabilities()
             self.share_timeout = GLib.timeout_add_seconds(2, self.poll_share_state)
             self.poll_share_state()
-            self._install_shortcuts()
+            if appearance_error:
+                self.feedback(self.appearance_message, appearance_error, error=True)
+                self.write(appearance_error + "\n")
+            else:
+                self.footer_status.set_text("Ready · Choose a source to begin.")
             self.connect("delete-event", self.close_to_background)
             self.connect("destroy", self.on_exit)
 
@@ -311,39 +237,120 @@ def main():
             row.pack_start(button, False, False, 0)
             return button
 
-        def _install_pause_controls(self):
-            """Wire the Pause/Resume control to toggle_pause.
-
-            The overlay normally owns this button; when it exposes only a
-            controls container, add the button there so the behaviour is kept.
-            """
-            button = getattr(self.floating, "pause_button", None)
-            if button is None:
-                controls = getattr(self.floating, "controls", None)
-                if controls is None:
-                    return
-                button = Gtk.Button(label="Pause")
-                button.connect("clicked", self.toggle_pause)
-                controls.pack_start(button, False, False, 0)
-                try:
-                    self.floating.pause_button = button
-                except AttributeError:
-                    pass
-            button.set_sensitive(False)
-
         def _set_pause_controls(self, label=None, sensitive=None):
-            """Keep the overlay's Pause/Resume control in sync with live state."""
-            button = getattr(self.floating, "pause_button", None)
-            if button is None:
+            for button in (self.floating.pause_button, self.control_pause_button):
+                if label is not None:
+                    button.set_label(label)
+                if sensitive is not None:
+                    button.set_sensitive(sensitive)
+
+        # ---- workspace ---------------------------------------------------
+
+        def navigate(self, name):
+            if self._navigating or name not in self.nav_buttons:
                 return
-            if label is not None:
-                button.set_label(label)
-            if sensitive is not None:
-                button.set_sensitive(sensitive)
+            self._navigating = True
+            try:
+                if name != "shortcuts":
+                    self._cancel_shortcut_recording()
+                self.workspace_stack.set_visible_child_name(name)
+                for key, button in self.nav_buttons.items():
+                    button.set_active(key == name)
+            finally:
+                self._navigating = False
+
+        def open_appearance(self):
+            self.navigate("appearance")
+            self.restore_from_background()
+
+        @staticmethod
+        def feedback(label, text, error=False):
+            label.set_text(text)
+            context = label.get_style_context()
+            if error:
+                context.add_class("ss-error")
+            else:
+                context.remove_class("ss-error")
+
+        def sync_provider_label(self):
+            self.provider_hint.set_text(self.provider_display())
+
+        def select_question(self, request_id):
+            self.floating.pin_question(request_id)
+            self.show_answer_panel()
+
+        def refresh_session(self):
+            view = self.live_state.display_snapshot()
+            history = self.live_state.history()
+            self.question_count.set_text(f"{len(history)} question{'s' if len(history) != 1 else ''}")
+            self.current_question.set_text(
+                question_title(view["question_display"], view["answer"], limit=180)
+                or "Your recognized questions will appear here.")
+            self.workspace_pin_button.set_label("Unpin question" if view["pinned"] else "Pin current question")
+            self.workspace_pin_button.set_sensitive(bool(view["request_id"]))
+            self.workspace_latest_button.set_sensitive(view["pinned"])
+            self.workspace_latest_button.set_label(
+                f"Follow latest · {view['newer_count']} new" if view["newer_count"] else "Follow latest")
+            signature = (view["request_id"], view["pinned"], tuple(
+                (item["request_id"], item["question_display"], item["status"]) for item in history))
+            if signature != self._history_signature:
+                self._history_signature = signature
+                for row in self.session_questions.get_children():
+                    self.session_questions.remove(row)
+                    row.destroy()
+                for item in reversed(history):
+                    row = Gtk.ListBoxRow()
+                    row.request_id = item["request_id"]
+                    content = Gtk.Box(spacing=10)
+                    title = Gtk.Label(label=question_title(item["question_display"], limit=120))
+                    title.set_xalign(0)
+                    title.set_width_chars(1)
+                    title.set_ellipsize(Pango.EllipsizeMode.END)
+                    content.pack_start(title, True, True, 0)
+                    status = "Pinned" if view["pinned"] and row.request_id == view["request_id"] else {
+                        "thinking": "Answering", "ready": "Answered", "interrupted": "Partial",
+                        "paused": "Paused", "error": "Error"}.get(item["status"], "")
+                    content.pack_end(style(Gtk.Label(label=status), "ss-muted"), False, False, 0)
+                    row.add(content)
+                    self.session_questions.add(row)
+                    if row.request_id == view["request_id"]:
+                        self.session_questions.select_row(row)
+                self.session_questions.show_all()
+            self.set_status()
+
+        def appearance_values(self):
+            return dict(opacity=round(self.opacity_scale.get_value() / 100, 2),
+                        font_size=self.font_size.get_value_as_int(),
+                        reduced_motion=self.reduced_motion.get_active())
+
+        def preview_appearance(self, _widget=None):
+            values = self.appearance_values()
+            self.opacity_value.set_text(f"{round(values['opacity'] * 100)}%")
+            self.floating.set_appearance(**values)
+            settings = Gtk.Settings.get_default()
+            animate = not values["reduced_motion"] and settings.get_property("gtk-enable-animations")
+            self.workspace_stack.set_transition_duration(160 if animate else 0)
+            context = self.get_style_context()
+            if animate:
+                context.remove_class("ss-reduced-motion")
+            else:
+                context.add_class("ss-reduced-motion")
+            self.feedback(self.appearance_message,
+                          "Preview updated · Save to keep these settings." if values != self.appearance else "")
+
+        def save_appearance(self, _button=None):
+            values = self.appearance_values()
+            try:
+                save_appearance_config(values)
+            except (ValueError, OSError) as exc:
+                self.feedback(self.appearance_message, f"Could not save appearance: {exc}", error=True)
+                return
+            self.appearance = values
+            self.feedback(self.appearance_message, "Appearance saved.")
 
         # ---- keyboard shortcuts ------------------------------------------
 
-        def _install_shortcuts(self):
+        def _install_shortcuts(self, shortcut_map=None, enabled=None):
             """Build the shortcut map and register every action.
 
             In-app accelerators are installed on the main window with
@@ -351,8 +358,8 @@ def main():
             need the desktop's own hotkey tool (see docs/SHORTCUTS.md). The app
             never installs a grab silently and never bypasses OS permission.
             """
-            self.shortcuts = from_config_file()
-            self.shortcuts_enabled = enabled_from_config_file()
+            self.shortcuts = shortcut_map if shortcut_map is not None else from_config_file()
+            self.shortcuts_enabled = enabled if enabled is not None else enabled_from_config_file()
             handlers = {
                 "start": lambda: self.start(None),
                 "stop": lambda: self.stop(None),
@@ -365,16 +372,24 @@ def main():
                 "copy_answer": self.floating.copy_answer,
                 "compact_toggle": self._toggle_compact,
                 "toggle_stealth": self._toggle_stealth,
-                "open_settings": lambda: self.settings(None),
+                "open_settings": self.open_appearance,
                 "refresh_question": self._refresh_question,
                 "quit": lambda: self.on_exit(),
+                "listen_audio": lambda: self.listen_audio(None),
+                "pin_question": self.floating.toggle_pin,
+                "previous_question": lambda: self.floating.step_question(-1),
+                "next_question": lambda: self.floating.step_question(1),
+                "follow_latest": self.floating.follow_latest,
             }
             for action in self.shortcuts.actions():
                 self.shortcuts.register(action, handlers[action])
+            if self._accel_group is not None:
+                self.remove_accel_group(self._accel_group)
+                self._accel_group = None
             if not self.shortcuts_enabled:
-                self.write("Shortcuts are disabled in the config file (shortcuts.enabled = false).\n")
                 return
             group = Gtk.AccelGroup()
+            self._accel_group = group
             self.add_accel_group(group)
             for action in self.shortcuts.actions():
                 accelerator = self.shortcuts.accelerator_for(action)
@@ -390,11 +405,110 @@ def main():
 
         def _run_shortcut(self, action):
             """Dispatch an action from the AccelGroup; never raise into GTK."""
+            # GTK accelerators can run before an Entry's key-press handler.
+            # Recording Quit/Start/Stop must never invoke those actions.
+            if (self._exiting or self._recording_action
+                    or self.get_focus() in self.shortcut_entries.values()):
+                return False
             try:
                 self.shortcuts.dispatch(self.shortcuts.accelerator_for(action))
             except Exception as exc:  # noqa: BLE001 - a shortcut must not crash the UI
                 self.write(f"Shortcut '{action}' failed: {exc}\n")
             return True
+
+        def _fill_shortcut_form(self, shortcut_map=None, enabled=None):
+            self._cancel_shortcut_recording()
+            values = shortcut_map if shortcut_map is not None else self.shortcuts
+            for action, entry in self.shortcut_entries.items():
+                entry.set_text(values.accelerator_for(action).display())
+            self.shortcut_enabled.set_active(self.shortcuts_enabled if enabled is None else enabled)
+
+        def _cancel_shortcut_recording(self):
+            action = self._recording_action
+            if not action:
+                return
+            self._recording_action = ""
+            entry = self.shortcut_entries[action]
+            entry.set_text(self._recording_previous)
+            entry.get_style_context().remove_class("ss-recording")
+            self.feedback(self.shortcut_message, "Recording cancelled.")
+
+        def record_shortcut(self, action):
+            self._cancel_shortcut_recording()
+            entry = self.shortcut_entries[action]
+            self._recording_action = action
+            self._recording_previous = entry.get_text()
+            entry.set_text("")
+            entry.set_placeholder_text("Press a shortcut…")
+            style(entry, "ss-recording")
+            entry.grab_focus()
+            self.feedback(self.shortcut_message,
+                          f"Press the keys for {ACTION_LABELS[action]}. Escape cancels.")
+
+        def record_shortcut_key(self, entry, event, action):
+            if self._recording_action != action:
+                return False
+            types = Gdk.ModifierType
+            state = event.state
+            keyval = event.keyval
+            # Resolve the base key before Shift (e.g. Shift+1 rather than '!').
+            try:
+                keymap = Gdk.Keymap.get_for_display(self.get_display())
+                translated = keymap.translate_keyboard_state(
+                    event.hardware_keycode, state & ~(types.SHIFT_MASK | types.LOCK_MASK), event.group)
+                if translated[0]:
+                    keyval = translated[1]
+            except (AttributeError, TypeError):
+                pass
+            name = Gdk.keyval_name(Gdk.keyval_to_lower(keyval)) or ""
+            if name in ("Control_L", "Control_R", "Alt_L", "Alt_R", "Shift_L", "Shift_R",
+                        "Super_L", "Super_R", "Meta_L", "Meta_R", "ISO_Level3_Shift"):
+                return True
+            ctrl = bool(state & types.CONTROL_MASK)
+            alt = bool(state & types.MOD1_MASK)
+            shift = bool(state & types.SHIFT_MASK)
+            meta = bool(state & (types.META_MASK | types.SUPER_MASK))
+            if name == "Escape" and not (ctrl or alt or shift or meta):
+                self._cancel_shortcut_recording()
+                return True
+            key = next((key for key, gdk_name in _GTK_KEY_NAMES.items() if gdk_name == name), name.lower())
+            try:
+                accelerator = Accelerator.parse(Accelerator(ctrl, alt, shift, meta, key).display())
+            except ShortcutError:
+                self.feedback(self.shortcut_message,
+                              "Choose a letter, number, arrow, function key or supported punctuation.", error=True)
+                return True
+            self._recording_action = ""
+            entry.get_style_context().remove_class("ss-recording")
+            entry.set_placeholder_text("")
+            entry.set_text(accelerator.display())
+            try:
+                parse_bindings({key: field.get_text() for key, field in self.shortcut_entries.items()})
+            except ShortcutError as exc:
+                self.feedback(self.shortcut_message, str(exc), error=True)
+            else:
+                self.feedback(self.shortcut_message, "Shortcut recorded · Save to apply.")
+            return True
+
+        def save_shortcuts(self, _button=None):
+            if self._recording_action:
+                self.feedback(self.shortcut_message, "Finish recording or press Escape before saving.")
+                return
+            bindings = {action: entry.get_text() for action, entry in self.shortcut_entries.items()}
+            enabled = self.shortcut_enabled.get_active()
+            try:
+                shortcut_map = parse_bindings(bindings)
+                save_config_file(bindings, enabled=enabled)
+            except (ValueError, OSError) as exc:
+                self.feedback(self.shortcut_message, f"Could not save shortcuts: {exc}", error=True)
+                return
+            self._install_shortcuts(shortcut_map, enabled)
+            self._fill_shortcut_form()
+            self.feedback(self.shortcut_message, "Shortcuts saved and applied." if enabled else "Saved · Shortcuts disabled.")
+
+        def reset_shortcuts(self, _button=None):
+            self._fill_shortcut_form(ShortcutMap.defaults(), enabled=True)
+            self.feedback(self.shortcut_message, "Default bindings restored in this form · Save to apply.")
 
         def _hide_overlay(self):
             """Preserve click-to-close behavior when the legacy hide hotkey is used."""
@@ -429,44 +543,8 @@ def main():
             )
 
         def show_shortcuts(self, _button=None):
-            """List every action, its accelerator and the platform note."""
-            dialog = Gtk.Dialog(title="Keyboard shortcuts", transient_for=self, flags=0)
-            dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
-            area = dialog.get_content_area()
-            area.set_spacing(8)
-            area.set_border_width(12)
-            heading = Gtk.Label(
-                label="Every shortcut is also reachable from the buttons in the main window."
-            )
-            heading.set_xalign(0)
-            area.pack_start(heading, False, False, 0)
-            grid = Gtk.Grid(column_spacing=18, row_spacing=6)
-            for row, action in enumerate(self.shortcuts.actions()):
-                accelerator = self.shortcuts.accelerator_for(action)
-                grid.attach(Gtk.Label(label=action), 0, row, 1, 1)
-                value = Gtk.Label(label=accelerator.display() if accelerator else "unbound")
-                value.set_xalign(0)
-                grid.attach(value, 1, row, 1, 1)
-            area.pack_start(grid, False, False, 0)
-            if not self.shortcuts_enabled:
-                disabled = Gtk.Label(
-                    label="Shortcuts are disabled in the config file (shortcuts.enabled = false)."
-                )
-                disabled.set_xalign(0)
-                area.pack_start(disabled, False, False, 0)
-            for text in (
-                platform_note(),
-                "SocketStream never installs a global hotkey grab silently and never "
-                "bypasses OS permission.",
-            ):
-                label = Gtk.Label(label=text)
-                label.set_xalign(0)
-                label.set_line_wrap(True)
-                label.set_max_width_chars(64)
-                area.pack_start(label, False, False, 0)
-            dialog.show_all()
-            dialog.run()
-            dialog.destroy()
+            self.navigate("shortcuts")
+            self.restore_from_background()
 
         def on_stealth_toggled(self, button):
             self.floating.set_stealth(button.get_active())
@@ -613,6 +691,8 @@ def main():
 
             def finish(status, note, error):
                 self.capture_busy = False
+                if self._exiting:
+                    return False
                 if error is not None:
                     self.write(f"Capture exclusion was not {action}ed: {error}\n")
                     self.refresh_capture_status()
@@ -674,6 +754,7 @@ def main():
             if status.guidance:
                 lines.append(f"Guidance: {status.guidance}")
             self.write("\n".join(lines) + "\n")
+            self.navigate("tools")
 
         def poll_share_state(self):
             active = self.share_watcher.poll()
@@ -708,11 +789,38 @@ def main():
             return f"{selected} · {model}" if model else f"{selected} · model not configured"
 
         def set_status(self, detail=""):
-            state = capture_status(self.proc, self.stopping)
-            self.set_title(f"SocketStream — {state}")
-            self.status.set_text(f"Capture status: {state}" + (f" — {detail}" if detail else ""))
+            process_status = capture_status(self.proc, self.stopping)
+            view = self.live_state.display_snapshot()
+            active = self.proc is not None and self.proc.poll() is None
+            self.set_title(f"SocketStream — {process_status}")
+            label = process_status
+            if active and self._live_mode and not self.stopping:
+                label = {"observing": "Listening" if view["source"] in ("microphone", "playback") else "Reading screen",
+                         "thinking": "Answering", "paused": "Paused", "error": "Needs attention",
+                         "ready": "Listening" if view["source"] in ("microphone", "playback") else "Reading screen",
+                         "idle": "Starting", "stopped": "Stopped"}.get(view["session_status"], "Active")
+            self.status.set_text(label)
+            message = detail or view["live_error"]
+            if not message:
+                if active:
+                    message = ("Capture paused · Your answers stay available." if view["session_status"] == "paused"
+                               else "Question pinned · New questions are saved in this session." if view["pinned"]
+                               else "Answers appear in the floating panel." if self._live_mode else "Processing · See Tools & diagnostics.")
+                else:
+                    message = "Session ended · Your answers stay here until you start again." if self.live_state.history() else "Choose a source to begin. Nothing is being captured."
+            self.feedback(self.session_message, message, error=bool(view["live_error"]))
+            self.control_stop_button.set_sensitive(active and not self.stopping)
+            self.floating.stop_button.set_sensitive(active and not self.stopping)
+            for widget in (self.start_button, self.listen_button, self.provider):
+                widget.set_sensitive(self.proc is None)
+            self._set_pause_controls(
+                label="Resume" if view["session_status"] == "paused" else "Pause",
+                sensitive=active and self.pause_supported and not self._pause_pending
+                and not self.stopping and view["session_status"] != "stopped")
 
         def write(self, message):
+            if self._exiting:
+                return False
             buffer = self.output.get_buffer()
             buffer.insert(buffer.get_end_iter(), message)
             excess = buffer.get_char_count() - 90000
@@ -721,6 +829,8 @@ def main():
             mark = buffer.create_mark(None, buffer.get_end_iter(), False)
             self.output.scroll_to_mark(mark, 0, False, 0, 0)
             buffer.delete_mark(mark)
+            if message.strip():
+                self.footer_status.set_text(message.strip().splitlines()[-1][:240])
             return False
 
         def show_answer_panel(self, _button=None):
@@ -737,36 +847,18 @@ def main():
                 self.show_answer_panel()
 
         def apply_live_event(self, event):
-            previous = self.live_state.snapshot()
+            if self._events_closed or self._exiting:
+                return False
             if not self.live_state.apply(event):
                 return False
             if event.get("type") == "session_started":
-                self.pause_supported = True
+                self.pause_supported = self.proc is not None and self.proc.stdin is not None
             elif event.get("type") == "session_stopped":
                 self.pause_supported = False
-            state = self.live_state.snapshot()
-            if state["question"] != previous["question"] or state["transcript"] != previous["transcript"]:
-                shown = state.get("question_display") or state["question"]
-                if state["transcript"]:
-                    shown = "Heard: " + state["transcript"][-450:] + "\nAnswering: " + shown[:180]
-                self.floating.set_question(shown[:650] or "Waiting for a question...")
-            if event.get("type") == "answer_delta" and state["answer"].startswith(previous["answer"]):
-                # Append only the new text; avoid O(n²) full-buffer redraws.
-                addition = state["answer"][len(previous["answer"]):]
-                if addition:
-                    self.floating.append_answer(addition)
-            elif state["answer"] != previous["answer"]:
-                self.floating.set_answer(state["answer"])
-            label = state["status"].title()
-            self.floating.set_status(
-                "Error: " + state["error"] if state["error"]
-                else f"{label} · {state['source']} · {self.active_provider}"
-            )
-            self._set_pause_controls(
-                label="Resume" if state["status"] == "paused" else "Pause",
-                sensitive=self.pause_supported and state["status"] != "stopped",
-            )
-            self.status.set_text(f"Practice: {label}")
+            if event.get("type") in ("session_started", "session_paused", "session_resumed", "session_stopped", "error"):
+                self._pause_pending = False
+            self.floating.render_state(self.active_provider)
+            self.refresh_session()
             return False
 
         def run_cli(self, arguments):
@@ -781,13 +873,6 @@ def main():
             env["SOCKET_STREAM_GUI_PID"] = str(os.getpid())
             env["SOCKET_STREAM_HOME"] = str(ROOT)
             live_mode = arguments[0] in ("observe-live", "audio-live", "replay-events")
-            if live_mode:
-                self.live_state = LiveState()
-                if arguments[0] in ("observe-live", "audio-live"):
-                    self.active_provider = self.provider_display()
-                    self.floating.set_status(f"Checking provider · {self.active_provider}")
-            self.pause_supported = False
-            self._set_pause_controls(label="Pause", sensitive=False)
             try:
                 proc = subprocess.Popen(
                     [str(CLI), *arguments], cwd=str(ROOT), env=env,
@@ -803,8 +888,24 @@ def main():
                 self.set_status("Launch failed")
                 return False
             self.proc = proc
+            self._process_generation += 1
+            generation = self._process_generation
+            self._events_closed = False
+            self._live_mode = live_mode
+            self._pause_pending = False
             self.stopping = False
-            self.set_status("Authorized practice" if live_mode else "Processing")
+            self.pause_supported = False
+            if live_mode:
+                self.live_state = LiveState()
+                self.floating.bind_state(self.live_state)
+                self.active_provider = "Synthetic replay" if arguments[0] == "replay-events" else self.provider_display()
+                self.floating.render_state(self.active_provider)
+                self.floating.set_status("Starting replay" if arguments[0] == "replay-events" else "Checking provider")
+                self.refresh_session()
+                self.navigate("session")
+            else:
+                self.navigate("tools")
+            self.set_status("Checking provider…" if live_mode else "Processing · See Tools & diagnostics.")
 
             # Bound reader-to-main-loop ownership, not just the OS pipe. If
             # GTK stalls, stop draining and terminate this owned CLI session.
@@ -817,7 +918,9 @@ def main():
 
                 def consume():
                     try:
-                        action(*values)
+                        if (self.proc is proc and generation == self._process_generation
+                                and not self._exiting and not (live_mode and self._events_closed)):
+                            action(*values)
                     finally:
                         pending_ui.release()
                     return False
@@ -843,25 +946,43 @@ def main():
                     returncode = proc.wait()
                 except Exception as exc:
                     returncode = -1
-                    GLib.idle_add(self.write, f"Output reader error: {exc}\n")
+                    deliver(self.write, f"Output reader error: {exc}\n")
+                    terminate_tree(proc)
+                    try:
+                        proc.wait(timeout=4)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError):
+                            pass
+                        proc.wait()
+                finally:
+                    for stream in (proc.stdin, proc.stdout):
+                        if stream is not None:
+                            try:
+                                stream.close()
+                            except OSError:
+                                pass
 
                 def finished():
-                    if self.proc is proc:
-                        self.proc = None
-                        self.stopping = False
-                        self.set_status("Command finished")
-                        self.pause_supported = False
-                        if live_mode:
-                            state = self.live_state.snapshot()
-                            if state["status"] == "error":
-                                self.floating.set_status(
-                                    f"Error ({state['source']}): {state['error']}"
-                                )
-                            elif state["status"] == "idle":
-                                self.floating.set_status("Not started · check diagnostics")
-                            elif state["status"] != "stopped":
-                                self.floating.set_status("Stopped · capture and inference ended")
-                        self._set_pause_controls(sensitive=False)
+                    if self.proc is not proc or generation != self._process_generation:
+                        return False
+                    self._events_closed = True
+                    self.proc = None
+                    self.stopping = False
+                    self.pause_supported = False
+                    self._pause_pending = False
+                    if self._force_stop_source is not None:
+                        GLib.source_remove(self._force_stop_source)
+                        self._force_stop_source = None
+                    if live_mode:
+                        self.live_state.stop()
+                        if not self._exiting:
+                            self.floating.render_state(self.active_provider)
+                            self.refresh_session()
+                    if self._exiting:
+                        return False
+                    self.set_status()
                     self.write(f"\nCommand exited with status {returncode}.\n")
                     return False
 
@@ -872,13 +993,15 @@ def main():
 
         def toggle_pause(self, _button=None):
             proc = self.proc
-            if not self.pause_supported or proc is None or proc.poll() is not None or proc.stdin is None:
+            if (not self.pause_supported or self._pause_pending or self.stopping
+                    or proc is None or proc.poll() is not None or proc.stdin is None):
                 return
             status = self.live_state.snapshot()["status"]
             command = "resume" if status == "paused" else "pause"
             try:
                 proc.stdin.write(command + "\n")
                 proc.stdin.flush()
+                self._pause_pending = True
                 self._set_pause_controls(sensitive=False)
                 self.floating.set_status(
                     "Resume requested" if command == "resume" else "Pause requested"
@@ -891,12 +1014,16 @@ def main():
                 transient_for=self, flags=0,
                 message_type=Gtk.MessageType.QUESTION,
                 buttons=Gtk.ButtonsType.OK_CANCEL, text=title)
+            style(dialog, "ss-dialog")
             dialog.format_secondary_text(explanation)
             accepted = dialog.run() == Gtk.ResponseType.OK
             dialog.destroy()
             return accepted
 
         def start(self, _button):
+            if self.proc is not None:
+                self.write("Stop the active operation before starting screen reading.\n")
+                return
             if not self.confirmation("Start authorized screen reading?",
                     "The app reads foreground accessibility text and may ask for "
                     "screen selection through the OS ScreenCast portal for local OCR. "
@@ -918,28 +1045,38 @@ def main():
                 self.show_answer_panel()
 
         def stop(self, _button=None):
-            if self.proc is None or self.proc.poll() is not None:
+            # Stop closes the presentation gate before waiting for the child:
+            # queued session_started/tokens cannot reopen a stopped session.
+            self._events_closed = True
+            self._pause_pending = False
+            self.pause_supported = False
+            if self._live_mode:
+                self.live_state.stop()
+                self.floating.render_state(self.active_provider)
+                self.refresh_session()
+            if self.proc is None:
                 self.set_status("No active operation")
+                return
+            if self.stopping:
                 return
             self.stopping = True
             self._set_pause_controls(sensitive=False)
-            if self.live_state.snapshot()["status"] not in ("idle", "stopped"):
-                self.floating.set_status("Stopping · ending capture and inference")
             if terminate_tree(self.proc):
                 self.write("Stop requested; terminating authorized capture and subprocesses.\n")
-                self.set_status("Stopping")
                 proc = self.proc
 
                 def force_stop():
+                    self._force_stop_source = None
                     if proc.poll() is None:
                         try:
                             os.killpg(proc.pid, signal.SIGKILL)
                             self.write("Forced stuck operation to stop.\n")
-                        except ProcessLookupError:
+                        except (ProcessLookupError, PermissionError):
                             pass
                     return False
 
-                GLib.timeout_add_seconds(4, force_stop)
+                self._force_stop_source = GLib.timeout_add_seconds(4, force_stop)
+            self.set_status("Stopping capture and inference…")
 
         def file_dialog(self, title):
             chooser = Gtk.FileChooserDialog(
@@ -1012,6 +1149,7 @@ def main():
             dialog = Gtk.Dialog(
                 title="AI provider settings",
                 transient_for=self, flags=0)
+            style(dialog, "ss-dialog")
             dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                                Gtk.STOCK_APPLY, Gtk.ResponseType.OK)
             grid = Gtk.Grid(column_spacing=10, row_spacing=9)
@@ -1062,6 +1200,7 @@ def main():
                         self.write(f"Could not save provider settings: {exc}\n")
                 else:
                     self.write("Provider settings updated in memory only; key was not logged.\n")
+                self.sync_provider_label()
             dialog.destroy()
 
         def listen_audio(self, _button):
@@ -1070,6 +1209,7 @@ def main():
                 self.write("Stop the active operation before enabling audio listening.\n")
                 return
             dialog = Gtk.Dialog(title="Audio listening settings", transient_for=self, flags=0)
+            style(dialog, "ss-dialog")
             dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                                "Start listening", Gtk.ResponseType.OK)
             grid = Gtk.Grid(column_spacing=10, row_spacing=9)
@@ -1118,6 +1258,7 @@ def main():
                 self.write("Stop the current operation before starting audio practice.\n")
                 return
             dialog = Gtk.Dialog(title="Audio practice", transient_for=self, flags=0)
+            style(dialog, "ss-dialog")
             dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                                Gtk.STOCK_OK, Gtk.ResponseType.OK)
             area = dialog.get_content_area()
@@ -1198,44 +1339,82 @@ def main():
             return True
 
         def restore_from_background(self):
+            if self._exiting:
+                return False
             self.show_all()
+            self.deiconify()
             self.present()
             return False
 
         def on_exit(self, *_args):
+            if self._exiting:
+                return
+            self._exiting = True
             self.stop()
             self.stop_local_ai()
             if self.share_timeout is not None:
                 GLib.source_remove(self.share_timeout)
                 self.share_timeout = None
-            self.floating.destroy()
-            Gtk.main_quit()
+            self.hide()
+            self.floating.hide()
 
-    window = SocketStream()
+            def finish_exit():
+                # Keep the loop alive for Stop's escalation until the owned
+                # CLI has exited; closing the UI must not strand capture.
+                if self.proc is not None and self.proc.poll() is None:
+                    return True
+                self._process_generation += 1
+                self.floating.destroy()
+                self.destroy()
+                if Gtk.main_level():
+                    Gtk.main_quit()
+                return False
+
+            if self.proc is None or self.proc.poll() is not None:
+                finish_exit()
+            else:
+                GLib.timeout_add(100, finish_exit)
+
+    return SocketStream()
+
+
+def main():
+    window = create_window()
+    from gi.repository import Gtk, GLib
+
     signal.signal(signal.SIGUSR1, lambda *_: GLib.idle_add(window.restore_from_background))
     window.show_all()
     if os.environ.get("SOCKET_STREAM_PREVIEW_DEMO") == "1":
         def show_preview():
-            window.floating.set_stealth(False)
-            window.floating.window.set_keep_above(True)
-            window.floating.window.set_skip_taskbar_hint(True)
-            window.floating.window.set_skip_pager_hint(True)
-            window.floating.window.set_decorated(True)
-            window.floating.window.set_accept_focus(True)
-            window.floating.set_question("How would you improve Two Sum from O(n^2) to O(n)?")
-            window.floating.set_answer(
-                "Brute force: try all pairs, O(n^2) time, O(1) space.\n\n"
-                "Optimal: use a hash map of numbers already seen. For each "
-                "number, look up target minus number. O(n) average time "
-                "and O(n) space.\n\n"
-                "This is local sample content. Observation is not active."
+            window.active_provider = "Local preview · no capture"
+            samples = (
+                ("session_started", {}),
+                ("question_detected", {"request_id": "preview", "text": "How can you solve Two Sum in O(n) time?"}),
+                ("answer_delta", {"request_id": "preview", "text": (
+                    "Question: How can you solve Two Sum in O(n) time?\nAnswer: "
+                    "Use a **hash map** to remember the indices of numbers you've already seen.\n\n"
+                    "### Solution\n```python\ndef two_sum(nums, target):\n    seen = {}\n"
+                    "    for i, value in enumerate(nums):\n        complement = target - value\n"
+                    "        if complement in seen:\n            return [seen[complement], i]\n"
+                    "        seen[value] = i\n    return []\n```\n"
+                    "Look up the complement **before** inserting the current value, so an index is never reused.\n\n"
+                    "**Time:** O(n) average · **Space:** O(n)\n\n"
+                    "Works with duplicates, negative values, and a solution using the first element."
+                )}),
+                ("answer_completed", {"request_id": "preview"}),
+                ("session_stopped", {}),
             )
-            window.floating.set_status("Preview: answer panel, no capture active")
+            for sequence, (kind, fields) in enumerate(samples, 1):
+                window.apply_live_event(dict(schema=1, type=kind, session_id="preview", source="file",
+                                             sequence=sequence, **fields))
+            window.floating.pin_question()
+            window.floating.set_status("Preview · no capture")
             window.floating.show()
             try:
                 screen = window.floating.window.get_screen()
                 monitor = screen.get_monitor_geometry(screen.get_primary_monitor())
-                window.floating.window.move(monitor.x + max(0, monitor.width - 550), monitor.y + 35)
+                width, _height = floating_panel_size(False)
+                window.floating.window.move(monitor.x + max(0, monitor.width - width - 24), monitor.y + 60)
             except Exception:
                 pass
             return False

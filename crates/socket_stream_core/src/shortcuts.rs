@@ -12,7 +12,7 @@ use crate::config::ShortcutsConfig;
 
 /// Stable action names, in the order used by the docs, the config file, the
 /// CLI and the desktop shells.
-pub const ACTIONS: [&str; 12] = [
+pub const ACTIONS: [&str; 17] = [
     "start",
     "stop",
     "pause_resume",
@@ -25,12 +25,17 @@ pub const ACTIONS: [&str; 12] = [
     "open_settings",
     "refresh_question",
     "quit",
+    "listen_audio",
+    "pin_question",
+    "previous_question",
+    "next_question",
+    "follow_latest",
 ];
 
 /// Default accelerator for each action, in [`ACTIONS`] order.
 ///
 /// Also written to a fresh config file by `socket_stream hotkeys init`.
-pub const DEFAULT_BINDINGS: [(&str, &str); 12] = [
+pub const DEFAULT_BINDINGS: [(&str, &str); 17] = [
     ("start", "ctrl+alt+s"),
     ("stop", "ctrl+alt+x"),
     ("pause_resume", "ctrl+alt+p"),
@@ -43,6 +48,11 @@ pub const DEFAULT_BINDINGS: [(&str, &str); 12] = [
     ("open_settings", "ctrl+alt+comma"),
     ("refresh_question", "ctrl+alt+r"),
     ("quit", "ctrl+alt+q"),
+    ("listen_audio", "ctrl+alt+a"),
+    ("pin_question", "ctrl+alt+b"),
+    ("previous_question", "ctrl+alt+left"),
+    ("next_question", "ctrl+alt+right"),
+    ("follow_latest", "ctrl+alt+l"),
 ];
 
 /// Everything that can go wrong while parsing or validating shortcuts.
@@ -165,7 +175,8 @@ fn is_valid_key(key: &str) -> bool {
     }
     match key {
         "space" | "comma" | "period" | "slash" | "semicolon" | "apostrophe" | "minus"
-        | "equals" | "tab" | "enter" | "escape" | "backspace" => true,
+        | "equals" | "tab" | "enter" | "escape" | "backspace" | "left" | "right" | "up"
+        | "down" => true,
         _ => match key.strip_prefix('f') {
             Some(digits) if !digits.is_empty() => digits
                 .parse::<u32>()
@@ -196,6 +207,10 @@ fn has_key_shape(token: &str) -> bool {
             | "enter"
             | "escape"
             | "backspace"
+            | "left"
+            | "right"
+            | "up"
+            | "down"
     ) {
         return true;
     }
@@ -395,9 +410,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_have_twelve_bindings() {
+    fn defaults_have_seventeen_bindings() {
         let map = ShortcutMap::defaults();
-        assert_eq!(map.bindings.len(), 12);
+        assert_eq!(map.bindings.len(), 17);
         assert_eq!(map.bindings.len(), ACTIONS.len());
         map.validate().expect("defaults must validate");
         for action in ACTIONS {
@@ -457,6 +472,10 @@ mod tests {
             "enter",
             "escape",
             "backspace",
+            "left",
+            "right",
+            "up",
+            "down",
         ] {
             let accel = Accelerator::parse(&format!("ctrl+{key}"))
                 .unwrap_or_else(|e| panic!("{key} should parse: {e}"));
@@ -546,7 +565,7 @@ mod tests {
             .insert("quit".to_owned(), "meta+q".to_owned());
 
         let map = ShortcutMap::from_config(&config).expect("valid overrides");
-        assert_eq!(map.bindings.len(), 12);
+        assert_eq!(map.bindings.len(), 17);
         assert_eq!(
             map.accelerator_for("start").unwrap().display(),
             "Ctrl+Shift+1"

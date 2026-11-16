@@ -4,13 +4,23 @@ Latest endpoint update: base and full completion URLs, model discovery, confirme
 
 A permission-based, lightweight screen-text and audio assistant for **coding practice and authorized work**.
 
-**Status:** Rust CLI, native macOS GUI and real offline Ollama/Whisper tests pass. The installed macOS bundle was exercised end-to-end with real Accessibility/Screen Recording grants, a live answer panel, fullscreen/minimize persistence, panel controls and `screencapture` exclusion. Linux GTK and Wayland portal backends are implemented but require Linux desktop E2E validation. The Linux floating overlay uses best-effort capture-exclusion hints and stays visible across focus changes and screen shares; full-screen capture exclusion is not guaranteed. Structured accessibility-tree reading with a token budget, region OCR of image/graphic nodes, a JSON config file and twelve configurable global shortcuts are implemented; macOS trees are verified, Linux desktop trees are not. A native Codex/ChatGPT device-authorization flow is implemented; a real-account sign-in is still pending. No proctoring-evasion features.
+**Status:** Rust CLI, native macOS GUI and offline Ollama/Whisper tests pass. Linux
+GTK now has a light workspace, translucent reading panel, pinned Q&A history and
+seventeen editable **in-app** shortcuts. The native GTK layout and process flows
+are tested on Ubuntu GNOME/XWayland and Xvfb; see
+[the UI design and verification record](docs/READABLE-ANSWER-UI.md). The private
+GNOME capture runtime is active and the user confirmed working sharing exclusion;
+automated received-share-pixel verification remains incomplete
+([evidence](docs/GNOME-CAPTURE-EXCLUSION.md)). macOS retains its existing AppKit UI
+and twelve actions, with installed-bundle Accessibility, panel and `screencapture`
+checks. Linux accessibility-tree/portal E2E and native Codex real-account sign-in
+remain pending.
 
 ## Approach
 1. Read accessible text from the selected application via native OS accessibility APIs where authorized.
 2. If text is missing, capture the permitted screen/window and run **local OCR** (Apple Vision on Mac, Tesseract on Linux).
 3. Deduplicate unchanged questions before asking a text-only AI model.
-4. Optional voice transcription via a locally installed whisper.cpp CLI.
+4. Built-in English Moonshine streaming speech, with whisper.cpp available for offline recordings.
 5. User chooses: OpenAI-compatible cloud endpoint with their own API key, local Ollama, or official Codex CLI with their existing authorization.
 
 No vision LLM is required for the OCR path; it works by sending extracted text.
@@ -45,16 +55,20 @@ For a cloud OpenAI-compatible endpoint set `SOCKET_STREAM_BASE_URL`, `SOCKET_STR
 Contributions welcome. Actual lightweight native UI shells are AppKit and GTK3; the excluded Slint prototype is unused.
 
 ## What is not complete
-- Native shells exist but are not yet fully interactive-tested on real Linux/GUI sessions.
+- Linux GTK has synthetic native-UI and compositor-input checks; multi-hour use,
+  native Wayland layouts outside GNOME and real audio-device UX remain unverified.
 - Finite recordings and built-in Moonshine streaming speech are implemented; real audio-device permission tests, speaker diarization and OS accessibility events remain pending.
 - Linux XDG ScreenCast/PipeWire source is implemented; the real GNOME/KDE portal session needs Linux E2E testing.
 - Native Mac screenshot/Accessibility permissions need to be granted by the user; never bypass them.
 - OpenAI-compatible BYOK passed a local HTTP mock. Offline Ollama with `qwen2.5-coder:1.5b` passed a real Two Sum answer test. Real cloud provider credentials were not accessed.
 - Codex CLI authentication alone does not guarantee available plan credits.
 - Structured accessibility-tree rendering, region OCR of image/graphic nodes, the JSON config file and the global shortcut registry are implemented and unit tested. The macOS tree path has been exercised against real Terminal and Chrome windows from the installed bundle; the Linux desktop tree path has not.
-- In-app shortcuts work while the window is focused; out-of-focus global shortcuts require the desktop's own hotkey tool and are never installed silently.
+- Linux in-app shortcuts work while the control window is focused; out-of-focus
+  registration needs the desktop's own hotkey tool. See [shortcuts](docs/SHORTCUTS.md).
 - The native Codex/ChatGPT device flow uses official OpenAI endpoints and stores credentials `0600` in SocketStream's own config directory, but no real account has signed in yet and independent security review is outstanding.
-- The Linux floating overlay implements best-effort capture-exclusion hints (X11/Wayland) and remains visible during screen shares. Linux cannot guarantee exclusion from full-screen capture; the panel may be visible to participants. No OS permission prompt is bypassed.
+- Linux exclusion depends on the compositor. The private GNOME runtime has a
+  user-confirmed working share; generic X11/native Wayland hints alone do not
+  establish exclusion. See [capture evidence](docs/GNOME-CAPTURE-EXCLUSION.md).
 
 ## Measured limitations and observed behavior
 
@@ -70,6 +84,18 @@ bundles local English speech recognition and streams finalized speech to your
 selected AI provider. Microphone/system playback selection, rolling transcripts,
 Pause/Resume and Stop are integrated into the answer panel.
 See [build instructions and tested platform limits](docs/MOONSHINE.md).
+
+## Linux reading workspace
+
+The floating panel keeps a question paired with its answer while newer questions
+arrive. Pin a pair, browse the last 24 questions, or choose **Follow latest**.
+History stays in memory for the current session. Answers render headings,
+emphasis and code blocks; Copy preserves the underlying Markdown.
+
+**Appearance** controls background opacity (55–100%), answer size and reduced
+motion. **Shortcuts** supports editing, key recording and immediate application
+on Save. The light control window groups Session, Capture sources, Appearance,
+Shortcuts and Tools & diagnostics. See [screenshots and behavior](docs/READABLE-ANSWER-UI.md).
 
 ## Offline local inference and audio quickstart
 
