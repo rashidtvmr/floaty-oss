@@ -3,6 +3,7 @@
 This module does no capture or inference. JSONL replay tests use it without GTK.
 """
 import re
+import time
 
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -32,6 +33,7 @@ class LiveState:
             status="idle", session_id="", request_id="", question="",
             question_display="", answer="", source="", error="",
             api_request="", api_response="", transcript="", screen="",
+            stage="idle", error_kind="unknown", elapsed=0.0,
             token_usage="Cache usage not reported",
         )
         self._seq = -1
@@ -39,9 +41,16 @@ class LiveState:
         self._pinned_id = ""
         self._closed = False
         self._request_open = False
+        self._request_started = None
+        self._last_progress = None
+        self._api_status = None
 
     def snapshot(self):
         return self._view.copy()
+
+    def startup(self):
+        if self._view["status"] == "idle" and not self._closed:
+            self._view["stage"] = "starting"
 
     def history(self):
         return [item.copy() for item in self._history]
@@ -91,10 +100,61 @@ class LiveState:
         self._closed = True
         self._request_open = False
         self._view["status"] = "stopped"
+        self._view["stage"] = "stopped"
+        self._request_started = None
         self._remember("session_stopped")
         return True
 
-    def apply(self, event):
+    def tick(self, now):
+        """Update request-scoped elapsed time from a monotonic clock value."""
+        if self._request_started is None or self._view["status"] != "thinking":
+            return False
+        self._view["elapsed"] = max(0.0, float(now) - self._request_started)
+        return True
+
+    def progress_text(self):
+        stage = self._view["stage"]
+        label = {"idle": "Ready · select sources and Start", "starting": "Starting selected sources",
+                 "listening": "Listening · waiting for a question", "reading": "Reading screen",
+                 "sending": "Sending question to AI", "waiting": "Waiting for AI first token",
+                 "streaming": "Receiving AI answer", "complete": "Answer complete",
+                 "paused": "Paused · no capture", "stopped": "Stopped",
+                 "error": "Needs attention"}.get(stage, "Waiting for activity")
+        if self._view["status"] == "thinking":
+            label += f" · {self._view['elapsed']:.0f}s"
+        if self._api_status is not None:
+            label += f" · HTTP {self._api_status}"
+        return label
+
+    def diagnostic_text(self):
+        # Counts/stages only: do not expose raw prompts, screen text or keys.
+        return (self.progress_text() + "\nSource: " + (self._view["source"] or "not started")
+                + "\nError category: " + self._view["error_kind"]
+                + "\n" + (self._view["error"] or "No error reported. Silence is not proof of an API failure.")
+                + "\n" + self._view["token_usage"])
+
+    def _error_stage(self, event):
+        text = clean(event.get("message"), 500).lower()
+        code = self._api_status
+        reported = re.search(r"http\s+([1-5][0-9]{2})\b", text)
+        if code is None and reported:
+            code = self._api_status = int(reported.group(1))
+        if code in (401, 403):
+            category = "provider authentication/access"
+        elif code == 429:
+            category = "provider quota/rate limit"
+        elif code is not None and 500 <= code <= 599:
+            category = "provider unavailable"
+        elif "http " in text or event.get("source") == "provider":
+            category = "provider request"
+        elif any(word in text for word in ("permission", "accessibility", "capture", "device", "audio", "ocr")):
+            category = "capture/permission"
+        else:
+            category = "app or backend (cause not confirmed)"
+        self._view.update(stage="error", error_kind=category)
+        self._request_started = None
+
+    def apply(self, event, now=None):
         if self._closed:
             return False
         # A request ID is immutable for its entire session, including a pinned
@@ -103,7 +163,7 @@ class LiveState:
                 and any(item["request_id"] == event.get("request_id")
                         for item in self._history)):
             return False
-        changed = self._apply(event)
+        changed = self._apply(event, now)
         if changed:
             self._remember(event["type"])
         return changed
@@ -140,7 +200,8 @@ class LiveState:
                          if item["request_id"] not in (self._pinned_id, rid))
             del self._history[index]
 
-    def _apply(self, event):
+    def _apply(self, event, now=None):
+        now = time.monotonic() if now is None else now
         if not isinstance(event, dict) or event.get("schema") != 1 or event.get("type") not in _TYPES:
             return False
         sequence = event.get("sequence")
@@ -155,6 +216,8 @@ class LiveState:
                 return False
             self._seq = sequence
             self._request_open = False
+            self._request_started = None
+            self._api_status = None
             source = event.get("source")
             self._view.update(
                 status="observing", session_id=sid, request_id="",
@@ -162,6 +225,8 @@ class LiveState:
                 source=source if source in ("microphone", "playback") else "", error="",
                 api_request="", api_response="", transcript="", screen="",
                 token_usage="Cache usage not reported",
+                stage="listening" if source in ("microphone", "playback") else "reading",
+                error_kind="unknown", elapsed=0.0,
             )
             return True
         if kind == "error" and self._view["status"] == "idle":
@@ -172,6 +237,7 @@ class LiveState:
                 source=source if source in ("system", "provider", "accessibility", "ocr") else "system",
                 error=clean(event.get("message"), 500),
             )
+            self._error_stage(event)
             return True
         if sid != self._view["session_id"] or self._view["status"] in ("idle", "stopped"):
             return False
@@ -179,11 +245,15 @@ class LiveState:
         if kind == "session_stopped":
             self._request_open = False
             self._view["status"] = "stopped"
+            self._view["stage"] = "stopped"
+            self._request_started = None
             return True
         if kind == "session_paused":
             if self._view["status"] == "paused":
                 return False
             self._view["status"] = "paused"
+            self._view["stage"] = "paused"
+            self._request_started = None
             self._request_open = False
             return True
         if kind == "session_resumed":
@@ -191,6 +261,7 @@ class LiveState:
                 return False
             self._view["status"] = "observing"
             self._view["error"] = ""
+            self._view["stage"] = "listening" if self._view["source"] in ("microphone", "playback") else "reading"
             return True
         if self._view["status"] == "paused":
             return False
@@ -201,6 +272,7 @@ class LiveState:
             self._request_open = False
             self._view["status"] = "error"
             self._view["error"] = clean(event.get("message"), 500)
+            self._error_stage(event)
             return True
 
         if kind == "transcript_updated":
@@ -228,7 +300,11 @@ class LiveState:
                 answer="", source=source, error="",
                 api_request="", api_response="",
                 token_usage="Cache usage not reported",
+                stage="sending", error_kind="unknown", elapsed=0.0,
             )
+            self._request_started = now
+            self._last_progress = now
+            self._api_status = None
             self._request_open = True
             return True
         if rid != self._view["request_id"]:
@@ -240,7 +316,9 @@ class LiveState:
             return False
         if kind == "answer_started":
             if self._view["status"] == "thinking":
-                return False
+                changed = self._view["stage"] != "waiting"
+                self._view["stage"] = "waiting"
+                return changed
             self._view["status"] = "thinking"
             return True
         if kind == "answer_delta":
@@ -252,19 +330,27 @@ class LiveState:
                 return False
             self._view["answer"] += addition
             self._view["status"] = "thinking"
+            self._view["stage"] = "streaming"
+            self._last_progress = now
             return True
         if kind == "answer_completed":
             self._request_open = False
             self._view["status"] = "ready"
+            self._view["stage"] = "complete"
+            self._request_started = None
             return True
         if kind == "api_request":
             url = clean(event.get("url"), 500)
             model = clean(event.get("model"), 200)
             prompt = clean(event.get("prompt"), 4000)
             self._view["api_request"] = f"POST {url}\nmodel: {model}\n\n{prompt}"
+            if self._request_open and not self._view["answer"]:
+                self._view["stage"] = "waiting"
             return True
         if kind == "api_response":
             status = event.get("status")
+            if isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599:
+                self._api_status = status
             status = f"HTTP {status}" if isinstance(status, int) and not isinstance(status, bool) else "local"
             text = clean(event.get("text"), 4000)
             self._view["api_response"] = f"{status}\n\n{text}"

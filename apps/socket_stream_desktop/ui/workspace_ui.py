@@ -100,20 +100,25 @@ def build_workspace(app):
     app.add_button(provider_row, "Configure", app.settings)
     app.provider_hint = label("")
     provider_card.pack_start(app.provider_hint, False, False, 0)
-    sources = Gtk.Box(spacing=14, homogeneous=True)
-    session.pack_start(sources, False, False, 0)
-    screen = card(sources, "Read the screen")
-    screen.pack_start(label("Accessible text first.\nLocal OCR when you enable it."), False, False, 0)
-    app.start_button = buttons(screen, [("Start observation", app.start)])[0]
+    sources = card(session, "Choose what to start")
+    app.audio_check = Gtk.CheckButton(label="Listen to audio")
+    app.audio_check.set_tooltip_text("Use the selected microphone or system audio source.")
+    app.audio_check.get_accessible().set_name("Listen to audio")
+    app.audio_check.connect("toggled", app.update_start_button)
+    sources.pack_start(app.audio_check, False, False, 0)
+    app.screen_check = Gtk.CheckButton(label="Read the screen")
+    app.screen_check.set_tooltip_text(
+        "Prefer accessibility text; use local OCR only when enabled in Capture sources.")
+    app.screen_check.get_accessible().set_name("Read screen")
+    app.screen_check.connect("toggled", app.update_start_button)
+    sources.pack_start(app.screen_check, False, False, 0)
+    # Compatibility alias for existing integrations; this now selects screen capture.
+    app.read_screen_check = app.screen_check
+    source_options = Gtk.Box(spacing=8)
+    sources.pack_start(source_options, False, False, 0)
+    app.add_button(source_options, "Audio options", app.audio_options)
+    app.start_button = buttons(sources, [("Start", app.start)])[0]
     style(app.start_button, "ss-primary")
-    audio = card(sources, "Listen to audio")
-    audio.pack_start(label("Microphone or system audio.\nEnglish transcription on device."), False, False, 0)
-    app.read_screen_check = Gtk.CheckButton(label="Also read the screen in parallel")
-    app.read_screen_check.set_tooltip_text(
-        "While listening, keep the latest screen text as context for spoken and typed questions.")
-    app.read_screen_check.get_accessible().set_name("Parallel screen reading")
-    audio.pack_start(app.read_screen_check, False, False, 0)
-    app.listen_button = buttons(audio, [("Listen to audio", app.listen_audio)])[0]
     session_row = Gtk.Box(spacing=8)
     app.status = style(Gtk.Label(label="Stopped"), "ss-chip")
     session_row.pack_start(app.status, False, False, 0)
@@ -180,8 +185,8 @@ def build_workspace(app):
     app.share_status = label("Screen share: checking…")
     exclusion.pack_start(app.share_status, False, False, 0)
     speech = card(capture, "Audio transcription")
-    speech.pack_start(label("Bundled Moonshine · English · offline speech recognition. Choose microphone or system audio when you start listening."), False, False, 0)
-    buttons(speech, [("Audio devices", app.audio_devices), ("Listen to audio", app.listen_audio)])
+    speech.pack_start(label("Bundled Moonshine · English · offline speech recognition. Choose microphone or system audio in Audio options on the Session page."), False, False, 0)
+    buttons(speech, [("Audio devices", app.audio_devices)])
 
     appearance = page("appearance", "Make room for the answer", "Tune your floating panel. Changes preview immediately; Save keeps them for next time.")
     appearance_card = card(appearance, "Reading & transparency")

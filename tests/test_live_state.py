@@ -23,6 +23,23 @@ def ev(typ, seq, rid=None, sid="demo", **extra):
 
 
 class LiveStateTests(unittest.TestCase):
+    def test_real_progress_and_provider_error_category(self):
+        self.state.apply(ev("question_detected", 2, "q1", text="What is a closure?"), now=10)
+        self.state.apply(ev("api_request", 3, "q1", url="https://example.test/v1", model="test"), now=11)
+        self.assertTrue(self.state.tick(15))
+        self.assertIn("first token", self.state.progress_text())
+        self.assertIn("5s", self.state.progress_text())
+        self.state.apply(ev("answer_delta", 4, "q1", text="A closure"), now=16)
+        self.assertEqual(self.state.snapshot()["stage"], "streaming")
+        self.state.apply(ev("api_response", 5, "q1", status=503))
+        self.state.apply(ev("error", 6, "q1", source="provider", message="Provider rejected request"))
+        self.assertEqual(self.state.snapshot()["error_kind"], "provider unavailable")
+        self.assertIn("HTTP 503", self.state.diagnostic_text())
+        self.assertNotIn("What is a closure", self.state.diagnostic_text())
+        self.assertFalse(self.state.tick(100))
+        self.state.stop()
+        self.assertEqual(self.state.snapshot()["stage"], "stopped")
+
     def test_usage_is_request_scoped_preserved_in_history_and_not_a_guarantee(self):
         self.assertEqual(self.state.snapshot()["token_usage"], "Cache usage not reported")
         self.state.apply(ev("question_detected", 2, "q1", text="Type vs interface?"))
@@ -107,7 +124,7 @@ class LiveStateTests(unittest.TestCase):
         self.assertEqual(set(snapshot), {
             "status", "session_id", "request_id", "question", "question_display",
             "answer", "source", "error", "transcript", "api_request", "api_response", "token_usage",
-            "screen",
+            "screen", "stage", "error_kind", "elapsed",
         })
         # Without a display field the panel falls back to the raw question.
         self.assertEqual(snapshot["question_display"], snapshot["question"])

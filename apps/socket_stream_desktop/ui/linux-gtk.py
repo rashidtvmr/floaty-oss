@@ -59,6 +59,43 @@ def observe_args(provider, interval=5):
             "--max-captures", "1000", "--provider", provider]
 
 
+def live_start_args(audio, screen, provider, interval=5, force_ocr=False,
+                    portal=False, audio_source="microphone", audio_device="default",
+                    speaker_role="interviewee"):
+    """Build exactly one live pipeline for the selected sources."""
+    if not audio and not screen:
+        raise ValueError("Select audio and/or screen before starting.")
+    if audio:
+        if audio_source not in ("microphone", "system"):
+            raise ValueError("Audio source must be microphone or system.")
+        if speaker_role not in ("practice", "interviewer", "interviewee", "unknown"):
+            raise ValueError("Invalid speaker role.")
+        args = ["audio-live", "--authorized", "--source", audio_source,
+                "--stt", "moonshine", "--speaker-role", speaker_role,
+                "--provider", provider]
+        if audio_device:
+            args.extend(["--device", audio_device])
+        if screen:
+            args.extend(["--read-screen", "--read-interval", str(interval)])
+            if force_ocr:
+                args.append("--allow-ocr")
+        return args
+    args = observe_args(provider, interval)
+    args[0] = "observe-live"
+    if force_ocr:
+        args.append("--allow-ocr")
+    if portal:
+        args.append("--portal")
+    return args
+
+
+def start_if_consented(audio, screen, accepted, args, launch):
+    """Start one selected-source pipeline only after explicit consent."""
+    if not (audio or screen) or not accepted:
+        return False
+    return bool(launch(args))
+
+
 def floating_panel_size(compact):
     """Return normal window dimensions for visible full and compact layouts."""
     from floating_overlay import COMPACT_PANEL_SIZE, PANEL_SIZE
@@ -196,6 +233,10 @@ def create_window():
             self.stopping = False
             self.pause_supported = False
             self.active_provider = "not selected"
+            self.audio_source = "microphone"
+            self.audio_device = "default"
+            self.speaker_role = "interviewee"
+            self._starting = False
             self.live_state = LiveState()
             self.share_timeout = None
             self.share_polls = 0
@@ -211,6 +252,7 @@ def create_window():
                     "SOCKET_STREAM_API_KEY": "",
                     "SOCKET_STREAM_OLLAMA_URL": "http://127.0.0.1:11434/v1",
                     "SOCKET_STREAM_OLLAMA_MODEL": "qwen2.5-coder:1.5b",
+                    "SOCKET_STREAM_CODEX_MODEL": "",
                 }.items()
             }
             # Saved provider settings (API base/model/key) restore into memory;
@@ -846,8 +888,19 @@ def create_window():
             elif selected == "openai-compatible":
                 model = self.env.get("SOCKET_STREAM_MODEL", "")
             else:
-                return "Codex CLI"
+                return "Codex CLI · " + (self.env.get("SOCKET_STREAM_CODEX_MODEL") or "CLI default")
             return f"{selected} · {model}" if model else f"{selected} · model not configured"
+
+        def update_start_button(self, *_args):
+            """Keep the single Start path disabled until a source is selected."""
+            audio = self.audio_check.get_active()
+            screen = self.screen_check.get_active()
+            available = audio or screen
+            self.start_button.set_sensitive(available and self.proc is None and not self._starting)
+            if not available and self.proc is None:
+                self.feedback(self.session_message, "Select audio and/or screen before starting.")
+            elif self.proc is None:
+                self.feedback(self.session_message, "Selected sources start only after confirmation.")
 
         def set_status(self, detail=""):
             process_status = capture_status(self.proc, self.stopping)
@@ -872,8 +925,10 @@ def create_window():
             self.feedback(self.session_message, message, error=bool(view["live_error"]))
             self.control_stop_button.set_sensitive(active and not self.stopping)
             self.floating.stop_button.set_sensitive(active and not self.stopping)
-            for widget in (self.start_button, self.listen_button, self.provider):
-                widget.set_sensitive(self.proc is None)
+            self.provider.set_sensitive(self.proc is None)
+            self.audio_check.set_sensitive(self.proc is None)
+            self.screen_check.set_sensitive(self.proc is None)
+            self.update_start_button()
             self._set_pause_controls(
                 label="Resume" if view["session_status"] == "paused" else "Pause",
                 sensitive=active and self.pause_supported and not self._pause_pending
@@ -1141,31 +1196,80 @@ def create_window():
             dialog.destroy()
             return accepted
 
-        def start(self, _button):
-            if self.proc is not None:
-                self.write("Stop the active operation before starting screen reading.\n")
+        def start(self, _button=None):
+            if self.proc is not None or self._starting:
+                self.write("An operation is already running; select Stop first.\n")
                 return
-            if not self.confirmation("Start authorized screen reading?",
-                    "The app reads foreground accessibility text and may ask for "
-                    "screen selection through the OS ScreenCast portal for local OCR. "
-                    "Only capture applications where assistance is permitted."):
-                self.set_status("Permission declined")
-                return
+            audio = self.audio_check.get_active()
+            screen = self.screen_check.get_active()
             try:
-                args = observe_args(self.selected_provider(), self.interval.get_value_as_int())
+                args = live_start_args(
+                    audio, screen, self.selected_provider(), self.interval.get_value_as_int(),
+                    self.force_ocr.get_active(), self.portal.get_active(),
+                    self.audio_source, self.audio_device, self.speaker_role)
             except ValueError as exc:
-                self.write(f"{exc}\n")
+                self.feedback(self.session_message, str(exc), error=True)
                 return
-            if self.force_ocr.get_active():
-                args.append("--allow-ocr")
-            if self.portal.get_active():
-                args.append("--portal")
-            args[0] = "observe-live"
-            self.write("Switch to a permitted question window. Stop ends observation.\n")
-            if self.run_cli(args):
-                self.show_answer_panel()
+            sources = []
+            if audio:
+                sources.append(f"{self.audio_source} audio")
+            if screen:
+                sources.append("foreground screen reading")
+            explanation = ("Start " + " and ".join(sources) + "? Audio uses local Moonshine; "
+                           "finalized speech is sent to your selected provider. Screen reads "
+                           "foreground accessibility text and may use local OCR when enabled. "
+                           "Only selected sources are used, after confirmation. Only capture "
+                           "applications where assistance is permitted.")
+            accepted = self.confirmation("Start selected sources?", explanation)
+            if not accepted:
+                self.feedback(self.session_message, "Start cancelled. No sources were captured.")
+                return
+            self._starting = True
+            generation = self._process_generation
+            self._live_mode = True
+            self._events_closed = False
+            self.live_state = LiveState()
+            self.live_state.startup()
+            self.floating.bind_state(self.live_state)
+            self.update_start_button()
+            self.show_answer_panel()
+            self.floating.set_status("Checking selected sources")
+            self.control_stop_button.set_sensitive(True)
+            self.floating.stop_button.set_sensitive(True)
+            source, device = self.audio_source, self.audio_device
+
+            def check():
+                from source_preflight import check_sources
+                errors, notes = check_sources(audio, screen, source, device, ROOT)
+
+                def ready():
+                    if self._exiting or not self._starting or generation != self._process_generation:
+                        return False
+                    self._starting = False
+                    self.update_start_button()
+                    if errors:
+                        message = "\n".join(errors)
+                        self.apply_live_event(dict(schema=1, type="error", source="system",
+                                                   session_id=f"preflight-{generation}", sequence=1,
+                                                   message=message))
+                        self.feedback(self.session_message, message, error=True)
+                        self.floating.set_status("Source access needs attention")
+                        self.floating.notice.set_text(message)
+                        self.floating.notice.set_visible(True)
+                    else:
+                        self.write("Readiness checks passed. " + " ".join(notes) + "\n")
+                        if start_if_consented(audio, screen, accepted, args, self.run_cli):
+                            self.show_answer_panel()
+                    return False
+
+                GLib.idle_add(ready)
+
+            threading.Thread(target=check, daemon=True).start()
 
         def stop(self, _button=None):
+            if self._starting:
+                self._starting = False
+                self._process_generation += 1
             # Stop closes the presentation gate before waiting for the child:
             # queued session_started/tokens cannot reopen a stopped session.
             self._events_closed = True
@@ -1309,9 +1413,60 @@ def create_window():
                     "Saved provider settings removed.\n" if clear_provider_settings()
                     else "No saved provider settings found.\n"))
             grid.attach(clear_button, 0, len(form) + 2, 2, 1)
+            codex_combo = Gtk.ComboBoxText.new_with_entry()
+            codex_entry = codex_combo.get_child()
+            codex_entry.set_text(self.env.get("SOCKET_STREAM_CODEX_MODEL", ""))
+            codex_entry.set_placeholder_text("Blank uses Codex default; or type a model ID")
+            grid.attach(Gtk.Label(label="Codex model (this session)"), 0, len(form) + 3, 1, 1)
+            grid.attach(codex_combo, 1, len(form) + 3, 1, 1)
+            fetch_button = Gtk.Button(label="Fetch Codex models")
+            model_note = Gtk.Label(label="Uses the official Codex login; no API key or inference request.")
+            model_note.set_line_wrap(True)
+            model_note.set_max_width_chars(60)
+            grid.attach(fetch_button, 0, len(form) + 4, 1, 1)
+            grid.attach(model_note, 1, len(form) + 4, 1, 1)
+            alive = [True]
+
+            def fetch_models(_button):
+                fetch_button.set_sensitive(False)
+                model_note.set_text("Fetching models through the official Codex App Server…")
+
+                def work():
+                    from codex_models import CodexModelsError, fetch_codex_models
+                    try:
+                        models, failure = fetch_codex_models(), None
+                    except CodexModelsError as exc:
+                        models, failure = [], str(exc)
+
+                    def deliver():
+                        if not alive[0] or self._exiting:
+                            return False
+                        fetch_button.set_sensitive(True)
+                        if failure:
+                            model_note.set_text(failure + " Sign in/check Codex version, or enter a model ID manually.")
+                        else:
+                            current = codex_entry.get_text()
+                            codex_combo.remove_all()
+                            for model in models:
+                                codex_combo.append_text(model["id"])
+                            codex_entry.set_text(current)
+                            model_note.set_text(f"Fetched {len(models)} models. Select one or enter an ID; availability does not prove remaining quota.")
+                        return False
+
+                    GLib.idle_add(deliver)
+
+                threading.Thread(target=work, daemon=True).start()
+
+            fetch_button.connect("clicked", fetch_models)
             dialog.get_content_area().add(grid)
             dialog.show_all()
             if dialog.run() == Gtk.ResponseType.OK:
+                from codex_models import validated_model
+                codex_model = codex_entry.get_text().strip()
+                try:
+                    self.env["SOCKET_STREAM_CODEX_MODEL"] = validated_model(codex_model) if codex_model else ""
+                except ValueError:
+                    self.write("Invalid Codex model ID; previous selection retained.\n")
                 for key, control in entries.items():
                     self.env[key] = control.get_text().strip()
                 if persist.get_active():
@@ -1323,25 +1478,23 @@ def create_window():
                 else:
                     self.write("Provider settings updated in memory only; key was not logged.\n")
                 self.sync_provider_label()
+            alive[0] = False
             dialog.destroy()
 
-        def listen_audio(self, _button):
-            """Built-in Moonshine streaming speech in the normal answer panel."""
-            if self.proc is not None:
-                self.write("Stop the active operation before enabling audio listening.\n")
-                return
+        def audio_options(self, _button=None):
+            """Choose the audio input and explicit speaker role for the single Start path."""
             dialog = Gtk.Dialog(title="Audio listening settings", transient_for=self, flags=0)
             style(dialog, "ss-dialog")
             dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                               "Start listening", Gtk.ResponseType.OK)
+                               Gtk.STOCK_APPLY, Gtk.ResponseType.OK)
             grid = Gtk.Grid(column_spacing=10, row_spacing=9)
             grid.set_border_width(12)
             source = Gtk.ComboBoxText()
             source.append_text("microphone")
             source.append_text("system")
-            source.set_active(0)
+            source.set_active(0 if self.audio_source == "microphone" else 1)
             device = Gtk.Entry()
-            device.set_text("default")
+            device.set_text(self.audio_device)
             speaker_role = Gtk.ComboBoxText()
             for role_id, role_label in (
                     ("interviewee", "My answers · suppress automatic answers"),
@@ -1349,67 +1502,27 @@ def create_window():
                     ("unknown", "Mixed/unknown speakers · manual Send only"),
                     ("practice", "Solo practice · answer all finalized speech")):
                 speaker_role.append(role_id, role_label)
-            speaker_role.set_active_id("interviewee")
+            speaker_role.set_active_id(self.speaker_role)
             source.connect("changed", lambda widget: speaker_role.set_active_id(
                 "interviewer" if widget.get_active_text() == "system" else "interviewee"))
             for row, (label, widget) in enumerate((
-                ("Audio source", source),
-                ("Linux input/monitor device", device),
-                ("Speech engine", Gtk.Label(label="Built-in Moonshine · English · offline")),
-            )):
+                    ("Audio source", source), ("Linux input/monitor device", device),
+                    ("Speaker/source role", speaker_role))):
                 grid.attach(Gtk.Label(label=label), 0, row, 1, 1)
                 grid.attach(widget, 1, row, 1, 1)
-            hint = Gtk.Label(
-                label="microphone captures your voice; system captures audio the "
-                "machine plays (YouTube, videos, calls)."
-            )
-            hint.set_line_wrap(True)
-            hint.set_xalign(0)
-            grid.attach(hint, 0, 3, 2, 1)
-            # Parallel screen reading: while listening, a reader keeps the
-            # latest screen text (accessibility first, OCR fallback) so spoken
-            # and typed questions carry on-screen context.
-            read_screen = Gtk.CheckButton(label="Read the screen in parallel (context for answers)")
-            read_screen.set_active(bool(getattr(self, "read_screen_check", None)
-                                        and self.read_screen_check.get_active()))
-            read_screen.get_accessible().set_name("Parallel screen reading")
-            grid.attach(read_screen, 0, 4, 2, 1)
-            grid.attach(Gtk.Label(label="Speaker/source role"), 0, 5, 1, 1)
-            grid.attach(speaker_role, 1, 5, 1, 1)
-            role_note = Gtk.Label(label=(
-                "Roles are assigned by you, not voice recognition. Use system audio for "
-                "the other person; a mixed recording cannot identify speakers. Your answers "
-                "do not trigger replies. Use Send for a clarification or to rephrase a question."))
-            role_note.set_line_wrap(True)
-            role_note.set_max_width_chars(65)
-            grid.attach(role_note, 0, 6, 2, 1)
             dialog.get_content_area().add(grid)
             dialog.show_all()
-            confirmed = dialog.run() == Gtk.ResponseType.OK
-            selection = (source.get_active_text(), device.get_text().strip(),
-                         read_screen.get_active(), speaker_role.get_active_id())
+            accepted = dialog.run() == Gtk.ResponseType.OK
+            selection = (source.get_active_text(), device.get_text().strip(), speaker_role.get_active_id())
             dialog.destroy()
-            if not confirmed:
-                return
-            audio_source, device_name, parallel_screen, role = selection
-            explanation = ("Stream the selected source through local Moonshine speech recognition. "
-                           "Finalized speech is sent to your selected AI provider for answers. "
-                           "Pause/Stop end capture immediately. No recording is saved.")
-            if parallel_screen:
-                explanation += (" With parallel screen reading, the app also reads foreground "
-                                "accessibility text (local OCR fallback) as answer context; "
-                                "screenshots are only sent to vision-capable providers you configure.")
-            if not self.confirmation("Authorize audio practice listening?", explanation):
-                return
-            args = ["audio-live", "--authorized", "--source", audio_source,
-                    "--stt", "moonshine", "--speaker-role", role,
-                    "--provider", self.selected_provider()]
-            if device_name:
-                args.extend(["--device", device_name])
-            if parallel_screen:
-                args.extend(["--read-screen", "--allow-ocr"])
-            if self.run_cli(args):
-                self.show_answer_panel()
+            if accepted:
+                self.audio_source, self.audio_device, self.speaker_role = selection
+
+        def listen_audio(self, _button):
+            """Legacy shortcut: select audio then use the unified Start action."""
+            self.audio_check.set_active(True)
+            self.navigate("session")
+            self.write("Audio selected. Press Start to review consent and begin.\n")
 
         def audio_practice(self, _button):
             if self.proc is not None:

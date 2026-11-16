@@ -21,6 +21,35 @@ GTK = load("gtk_shell", "apps/socket_stream_desktop/ui/linux-gtk.py")
 ATSPI = SimpleNamespace(StateType=SimpleNamespace(ACTIVE="ACTIVE", FOCUSED="FOCUSED", PROTECTED="PROTECTED"))
 
 
+class UnifiedStartTests(unittest.TestCase):
+    def test_source_routing_and_consent_use_one_pipeline(self):
+        build = GTK.live_start_args
+        with self.assertRaisesRegex(ValueError, "Select audio"):
+            build(False, False, "mock")
+        self.assertEqual(build(False, True, "mock")[:2], ["observe-live", "--authorized"])
+        audio = build(True, False, "codex", audio_source="system", speaker_role="interviewer")
+        self.assertEqual(audio[:7], ["audio-live", "--authorized", "--source", "system",
+                                     "--stt", "moonshine", "--speaker-role"])
+        self.assertIn("interviewer", audio)
+        combined = build(True, True, "mock")
+        self.assertEqual(combined[0], "audio-live")
+        self.assertIn("--read-screen", combined)
+        self.assertNotIn("observe-live", combined)
+        launches = []
+        self.assertFalse(GTK.start_if_consented(True, False, False, audio, launches.append))
+        self.assertEqual(launches, [])
+        self.assertTrue(GTK.start_if_consented(True, False, True, audio, lambda args: launches.append(args) or True))
+        self.assertEqual(launches, [audio])
+
+    def test_single_start_workspace_has_both_source_checkboxes_and_no_listen_button(self):
+        source = (ROOT / "apps/socket_stream_desktop/ui/workspace_ui.py").read_text()
+        self.assertIn('label="Listen to audio"', source)
+        self.assertIn('label="Read the screen"', source)
+        self.assertIn('("Start", app.start)', source)
+        self.assertNotIn('("Listen to audio", app.listen_audio)', source)
+        self.assertNotIn('("Start observation", app.start)', source)
+
+
 class LiveHandoffTests(unittest.TestCase):
     def setUp(self):
         tree = ast.parse((ROOT / "apps/socket_stream_desktop/ui/linux-gtk.py").read_text())

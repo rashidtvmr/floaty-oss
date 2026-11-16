@@ -1,5 +1,39 @@
 # Prompt caching, answer structure and speech turns
 
+## Unified Start and runtime diagnostics
+
+The Linux Session page has **Listen to audio** and **Read the screen** checkboxes
+above one **Start** button. No selection disables Start. Audio options configures
+the device/source and explicit speaker role without opening capture. Combined
+sources use a single `audio-live --read-screen` process. Start opens the panel;
+consent refusal opens no sensors, and Stop invalidates pending readiness callbacks.
+
+After confirmation, bounded readiness probes check only the selected sources:
+PulseAudio/PipeWire inputs, bundled speech worker, AT-SPI imports and accessibility
+bus connectivity. These do not record audio, read foreground text or grant OS
+permissions. A later OS ScreenCast chooser must still be approved; OS permission
+revocation and actual portal denial/cancellation remain runtime cases, not proven
+by a device list. Probes have capped output and timeouts. Independent read-only
+review confirmed the no-capture/consent boundaries and bounded probe cleanup;
+real chooser-denial acceptance remains incomplete.
+
+At the top of the answer, stage/elapsed status distinguishes reading/listening,
+dispatch/waiting for AI output, receiving tokens, completion, pause and stop.
+**Details** displays stage, source, reported HTTP status/error category and token
+counts, not raw prompts or credentials. HTTP 401/403, 429 and 5xx are classified
+separately when reported. Unknown causes stay unknown. A timer is cleaned up when
+the panel is destroyed. No automatic paid retries are introduced.
+
+**Configure → Codex model (this session)** offers a dropdown, manual model ID and
+**Fetch Codex models** using the official App Server initialize/model-list
+protocol, including bounded pagination. It never reads Codex's credential file or
+runs inference. This session's selection is passed through `SOCKET_STREAM_CODEX_MODEL`
+to the existing validated CLI `--model`; cloud and Ollama selections are separate.
+Unsupported/unauthenticated discovery reports a sanitized error and permits manual
+entry. The selection is intentionally not persisted by the existing settings
+writer. A real local Codex model-list probe succeeded with eight models; that
+establishes discovery, not model entitlement, quota or successful inference.
+
 ## Prompt design and evidence
 
 All HTTP chat requests (streaming, nonstreaming and screenshot-assisted), and the

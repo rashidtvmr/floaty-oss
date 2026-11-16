@@ -444,7 +444,7 @@ class WorkspaceChecks(unittest.TestCase):
         pump()
         self.assertIn("cached 1024", self.panel.token_usage_label.get_text())
 
-    def test_listening_dialog_source_roles_are_explicit_not_voice_identity(self):
+    def test_audio_options_source_roles_are_explicit_not_voice_identity(self):
         findings = []
 
         def inspect_dialog():
@@ -474,9 +474,68 @@ class WorkspaceChecks(unittest.TestCase):
             return False
 
         GLib.timeout_add(50, inspect_dialog)
-        self.app.listen_audio(None)
+        self.app.audio_options(None)
         self.assertEqual(findings, ["interviewee", "interviewer", "unknown"])
-        self.assertIsNone(self.app.proc, "cancelling must not open any audio source")
+        self.assertIsNone(self.app.proc, "changing audio options must not open any audio source")
+
+    def test_one_start_source_checkbox_and_empty_selection_gate(self):
+        self.app.audio_check.set_active(True)
+        self.assertTrue(self.app.start_button.get_sensitive())
+        self.app.audio_check.set_active(False)
+        self.app.screen_check.set_active(False)
+        self.assertFalse(self.app.start_button.get_sensitive())
+        self.app.screen_check.set_active(True)
+        self.assertTrue(self.app.start_button.get_sensitive())
+        self.app.screen_check.set_active(False)
+        self.app.audio_check.set_active(True)
+        self.assertTrue(self.app.start_button.get_sensitive())
+        self.assertEqual(len([b for b in (self.app.start_button,) if b.get_label() == "Start"]), 1)
+        self.assertFalse(hasattr(self.app, "listen_button"))
+
+    def test_start_consent_preflight_and_panel_visibility(self):
+        from unittest.mock import patch
+        import source_preflight
+        self.app.audio_check.set_active(True)
+        self.app.screen_check.set_active(False)
+        self.app.confirmation = lambda *_: False
+        with patch.object(source_preflight, "check_sources") as check:
+            self.app.start()
+            check.assert_not_called()
+            self.assertIsNone(self.app.proc)
+        self.app.confirmation = lambda *_: True
+        self.panel.hide()
+        with patch.object(source_preflight, "check_sources", return_value=([], ["fixture readiness only"])):
+            self.app.start()
+            self.assertTrue(self.panel.window.get_visible())
+            self.assertTrue(wait_for(lambda: self.app.proc is not None))
+            original = self.app.proc
+            self.app.start()
+            self.assertIs(self.app.proc, original)
+            self.app.stop()
+            self.assertTrue(wait_for(lambda: self.app.proc is None))
+
+    def test_progress_and_details_show_http_failure_without_prompt(self):
+        self.send("session_started")
+        self.send("question_detected", "one", text="private fixture question")
+        self.send("api_response", "one", status=503)
+        self.send("error", "one", message="AI request rejected (HTTP 503)")
+        self.assertIn("HTTP 503", self.panel.answer_label.get_tooltip_text())
+        seen = []
+
+        def close_details():
+            for window in Gtk.Window.list_toplevels():
+                if isinstance(window, Gtk.MessageDialog):
+                    text = window.get_property("secondary-text")
+                    seen.append(text)
+                    window.response(Gtk.ResponseType.CLOSE)
+                    return False
+            return True
+
+        GLib.timeout_add(50, close_details)
+        self.panel.activity_button.clicked()
+        self.assertEqual(len(seen), 1)
+        self.assertIn("provider unavailable", seen[0])
+        self.assertNotIn("private fixture question", seen[0])
 
     def test_cursor_blending_applied_xshape_region(self):
         """Read back ShapeInput (coverage is X11 region, not compositor clicks)."""

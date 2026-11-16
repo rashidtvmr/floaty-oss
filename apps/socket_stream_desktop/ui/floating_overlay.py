@@ -22,6 +22,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -521,6 +522,8 @@ class FloatingOverlay:
 
         answer_meta = Gtk.Box(spacing=8)
         self.answer_label = style(Gtk.Label(label="ANSWER"), "ss-eyebrow")
+        self.answer_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.answer_label.set_max_width_chars(28)
         answer_meta.pack_start(self.answer_label, False, False, 0)
         self.provider_label = style(Gtk.Label(), "ss-muted")
         self.provider_label.set_ellipsize(Pango.EllipsizeMode.END)
@@ -533,6 +536,10 @@ class FloatingOverlay:
         # Share the metadata row rather than stealing vertical reading space in
         # compact mode. The tooltip retains the full counts when ellipsized.
         answer_meta.pack_start(self.token_usage_label, True, True, 0)
+        self.activity_button = style(Gtk.Button(label="Details"), "ss-quiet")
+        self.activity_button.set_tooltip_text("Capture and AI request status (no prompt or credentials)")
+        self.activity_button.connect("clicked", self._show_activity)
+        answer_meta.pack_end(self.activity_button, False, False, 0)
         self.answer_stack = Gtk.Stack()
         self.answer_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.answer_stack.set_vexpand(True)
@@ -706,6 +713,28 @@ class FloatingOverlay:
 
         if self.stealth:
             self._apply_plan()
+
+        self._activity_timer = self._GLib.timeout_add_seconds(1, self._activity_tick)
+
+    def _activity_tick(self):
+        if getattr(self, "_destroyed", False):
+            return False
+        self._model.state.tick(time.monotonic())
+        self._show_progress()
+        return True
+
+    def _show_progress(self):
+        self.answer_label.set_text(self._model.state.progress_text())
+        self.answer_label.set_tooltip_text(self._model.state.diagnostic_text())
+
+    def _show_activity(self, *_args):
+        dialog = self._Gtk.MessageDialog(
+            transient_for=self.window, modal=True,
+            message_type=self._Gtk.MessageType.INFO,
+            buttons=self._Gtk.ButtonsType.CLOSE, text="Session activity")
+        dialog.format_secondary_text(self._model.state.diagnostic_text())
+        dialog.run()
+        dialog.destroy()
 
     def _icon_button(self, icon, title, callback):
         button = style(self._Gtk.Button(), "ss-quiet", "ss-icon")
@@ -955,6 +984,7 @@ class FloatingOverlay:
             getattr(self, "hide_button", None),
             getattr(self, "pin_button", None),
             getattr(self, "resize_handle", None),
+            getattr(self, "activity_button", None),
         ]
         revealer = getattr(self, "history_revealer", None)
         if revealer is not None and revealer.get_reveal_child():
@@ -1574,6 +1604,7 @@ class FloatingOverlay:
         else:
             self.spinner.stop()
         self.answer_label.set_text("PINNED ANSWER" if state["pinned"] else "ANSWER")
+        self._show_progress()
         self._syncing_pin = True
         self.pin_button.set_active(state["pinned"])
         self.pin_button.set_label("Pinned" if state["pinned"] else "Pin question")
@@ -1764,6 +1795,9 @@ class FloatingOverlay:
         if getattr(self, "_destroyed", False):
             return
         self._destroyed = True
+        if getattr(self, "_activity_timer", None) is not None:
+            self._GLib.source_remove(self._activity_timer)
+            self._activity_timer = None
         self._model.state.stop()
         self._terminate_child()
         self._on_drag_release(None, None)

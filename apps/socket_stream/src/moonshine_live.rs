@@ -373,6 +373,7 @@ struct AnswerView {
     text: String,
     done: bool,
     failed: bool,
+    error: Option<String>,
     usage: Option<TokenUsage>,
 }
 
@@ -428,6 +429,10 @@ fn start_answer(
         tx.send_modify(|view| {
             view.done = true;
             view.failed = result.is_err();
+            view.error = result
+                .as_ref()
+                .err()
+                .map(|error| error.to_string().chars().take(500).collect());
         });
     });
     (AnswerTask(task), rx)
@@ -877,7 +882,7 @@ async fn run_session(
                     if !view.failed {
                         turn_gate.completed(&view.text);
                     }
-                    if view.failed { emitter.send("error", "provider", Some(&answer_id), Some("AI provider failed; check endpoint, credentials and model."))?; }
+                    if view.failed { emitter.send("error", "provider", Some(&answer_id), Some(view.error.as_deref().unwrap_or("AI provider failed; check endpoint, credentials and model.")))?; }
                     else { emitter.send("answer_completed", label, Some(&answer_id), None)?; }
                     answer_task = None;
                     // Start a queued manual request once the current answer
