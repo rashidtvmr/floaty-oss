@@ -49,7 +49,7 @@ WINDOW_TITLE = "SocketStream — Practice Answer"
 ANSWER_LIMIT = 64_000
 DEFAULT_PANEL_OPACITY = 0.90
 PANEL_SIZE = (720, 620)
-COMPACT_PANEL_SIZE = (560, 420)
+COMPACT_PANEL_SIZE = (560, 456)
 
 
 def parse_opacity(value):

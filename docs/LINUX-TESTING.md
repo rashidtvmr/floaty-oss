@@ -451,6 +451,40 @@ SOCKET_STREAM_MODEL, and SOCKET_STREAM_API_KEY before running the app.
 Only send questions to services you are authorized to use. A Codex CLI provider
 is also available subject to a genuine logged-in session and remaining credits.
 
+## Compositor input freeze and recovery (test host)
+
+A long uinput/GTK probe session on the Ubuntu 26.04 GNOME test host once left the
+compositor's input pipeline wedged: fresh `/dev/uinput` devices registered with
+the kernel (`Handlers=... mouse2 event12 js0`) but mutter never moved the
+pointer, `xdotool getmouselocation` reported a constant position for both
+absolute and relative synthetic motion, and gnome-shell logged nothing for the
+new devices. gnome-shell itself stayed alive (sleeping, all threads present),
+real touchpad events still reached libinput, and earlier probe crashes
+(`python3 … segfault … in libX11.so`) plus `meta_window_stick: assertion
+'!window->override_redirect'` failures from override-redirect test windows
+preceded the wedge. Treat that combination as a wedged shell, not an
+application bug.
+
+Recovery that works, in order:
+
+1. `gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell
+   --method org.gnome.Shell.Eval 'global.context.unsafe_mode = true;
+   Meta.restart("Restarting…")'` — returns `(false, '')` on GNOME 41+ unless
+   unsafe mode was already enabled inside the shell; do not rely on it.
+2. `systemctl --user restart org.gnome.Shell@ubuntu.service` — refused
+   (`RefuseManualStop=yes`) and the unit has `Restart=no`, so killing the shell
+   process directly would leave the desktop headless. Avoid.
+3. **Enable GDM auto-login and reboot the host** — the deterministic path:
+   set `AutomaticLoginEnable=True` in `/etc/gdm3/custom.conf` (keep
+   `AutomaticLogin=rashid`), `systemctl reboot`, wait for the Nomad agent to
+   re-register, re-run the runner job, and re-disable auto-login during
+   cleanup. The SocketStream-patched mutter is the unit's default `ExecStart`
+   wrapper, so a reboot keeps the custom compositor in place.
+
+Note for probe design: a backgrounded `(sleep N; systemctl reboot)` inside a
+`nomad alloc exec` session does run after the exec command exits, but only
+just — schedule reboots as a foreground step or a systemd transient unit.
+
 ## Report failures
 
 Run:

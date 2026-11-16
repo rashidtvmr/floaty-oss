@@ -219,7 +219,7 @@ class WorkspaceChecks(unittest.TestCase):
             artifact(self.app, "workspace-" + page)
         self.panel.compact_button.set_active(True)
         pump(200)
-        self.assertEqual(tuple(self.panel.window.get_size()), (560, 420))
+        self.assertEqual(tuple(self.panel.window.get_size()), (560, 456))
         self.assertGreaterEqual(self.panel.answer_scroll.get_allocated_height(), 100)
         self.assertGreater(self.panel.answer_scroll.get_vadjustment().get_upper(),
                            self.panel.answer_scroll.get_vadjustment().get_page_size())
@@ -323,6 +323,28 @@ class WorkspaceChecks(unittest.TestCase):
                     return (x + hx + header.get_allocated_width() // 2,
                             y + hy + header.get_allocated_height() // 2)
 
+                # Confirm arrival with this window's own enter/motion events:
+                # their root coordinates are delivered by the compositor and
+                # stay truthful even where xdotool's XQueryPointer report
+                # freezes (observed on GNOME Wayland after another window's
+                # drag). An event on this window also proves the pointer is
+                # over it, so no separate window check is needed.
+                arrivals = []
+
+                def record_pointer(_widget, event):
+                    arrivals.append((int(event.x_root), int(event.y_root)))
+                    return False
+
+                self.app.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.POINTER_MOTION_MASK)
+                self.app.connect("enter-notify-event", record_pointer)
+                self.app.connect("motion-notify-event", record_pointer)
+
+                def pointer_arrived(target):
+                    if not arrivals:
+                        return False
+                    x, y = arrivals[-1]
+                    return abs(x - target[0]) <= 12 and abs(y - target[1]) <= 12
+
                 # The compositor only tracks pointer positions over X11
                 # surfaces, so confirm the move landed on this window before
                 # clicking: a click that lands on a Wayland-native surface
@@ -334,11 +356,10 @@ class WorkspaceChecks(unittest.TestCase):
                 while time.monotonic() < deadline:
                     target = titlebar_target()
                     if os.environ.get("SOCKET_STREAM_DEBUG"):
-                        print(f"[t] {stamp()} Focus attempt: target={target}; XID={xid}; last report={report}", flush=True)
+                        print(f"[t] {stamp()} Focus attempt: target={target}; XID={xid}; last event={arrivals[-1:]}", flush=True)
                     device.move(*target)
                     pump(70)
-                    report = pointer_report()
-                    if (report[0], report[1]) == target and report[2] == str(xid):
+                    if pointer_arrived(target):
                         break
                     # Nudge off-target so the next approach posts fresh
                     # motion; identical absolute coordinates can be deduped.
@@ -384,9 +405,9 @@ class WorkspaceChecks(unittest.TestCase):
                             device.move(*point)
                             pump(80)
                             print(f"[diag:sweep] {point} -> {pointer_report()}", flush=True)
-                    self.fail(f"pointer never reached the control window titlebar: {report}")
+                    self.fail(f"pointer never reached the control window titlebar: report={report} last_events={arrivals[-3:]}")
                 if os.environ.get("SOCKET_STREAM_DEBUG"):
-                    print(f"[t] {stamp()} Focus confirmed: target={target}; XID={xid}; pointer={report}", flush=True)
+                    print(f"[t] {stamp()} Focus confirmed: target={target}; XID={xid}; pointer={report} event={arrivals[-1:]}", flush=True)
                 device.button(True)
                 pump(60)
                 device.button(False)

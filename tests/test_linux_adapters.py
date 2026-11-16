@@ -157,7 +157,7 @@ class LinuxAdapterTests(unittest.TestCase):
 
     def test_floating_panel_compact_mode_keeps_normal_visible_window_sizes(self):
         self.assertEqual(GTK.floating_panel_size(False), (720, 620))
-        self.assertEqual(GTK.floating_panel_size(True), (560, 420))
+        self.assertEqual(GTK.floating_panel_size(True), (560, 456))
 
     def test_minimize_iconifies_main_window_without_touching_panel(self):
         class Window:
