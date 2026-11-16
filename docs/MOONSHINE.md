@@ -5,6 +5,13 @@ bundled English speech engine after you choose microphone or system playback.
 Recognized text appears in the floating panel. Finalized phrases are debounced
 for 900 ms and sent to the selected AI provider; its answer streams into the panel.
 
+Linux now offers an explicit **Speaker/source role** in the listening dialog.
+Microphone defaults to **My answers** (automatic replies suppressed); playback
+defaults to **Other person's questions**. Choose **Solo practice** for the old
+answer-every-phrase behavior, or **Mixed/unknown** for manual Send only. These are
+source assignments, not automatic speaker identification. Explicit clarifications
+can refine an existing question; see [turn and cache details](AI-PROMPT-CACHING-AND-TURNS.md).
+
 Speech recognition runs locally with **Moonshine Voice 0.1.6, English
 TINY_STREAMING**. Release bundles include Python, native inference libraries,
 and the model. There is no runtime model download or separate Whisper setup.

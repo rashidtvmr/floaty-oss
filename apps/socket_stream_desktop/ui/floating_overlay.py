@@ -527,6 +527,12 @@ class FloatingOverlay:
         self.provider_label.set_max_width_chars(32)
         answer_meta.pack_end(self.provider_label, False, False, 0)
         body.pack_start(answer_meta, False, False, 0)
+        self.token_usage_label = style(Gtk.Label(label="Cache usage not reported"), "ss-muted")
+        self.token_usage_label.set_xalign(0)
+        self.token_usage_label.set_ellipsize(Pango.EllipsizeMode.END)
+        # Share the metadata row rather than stealing vertical reading space in
+        # compact mode. The tooltip retains the full counts when ellipsized.
+        answer_meta.pack_start(self.token_usage_label, True, True, 0)
         self.answer_stack = Gtk.Stack()
         self.answer_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.answer_stack.set_vexpand(True)
@@ -1062,10 +1068,15 @@ class FloatingOverlay:
                           paragraph_background="#171d25", left_margin=12, pixels_above_lines=8,
                           pixels_below_lines=8)
         buffer.create_tag("muted", foreground="#788798")
+        for name, weight in (("table_header", self._Pango.Weight.BOLD),
+                             ("table_row", self._Pango.Weight.NORMAL)):
+            buffer.create_tag(name, family="monospace", weight=weight,
+                              foreground="#dbe8fa", wrap_mode=self._Gtk.WrapMode.NONE,
+                              pixels_below_lines=0)
 
     def _update_code_size(self):
         table = self.answer.get_buffer().get_tag_table()
-        for name in ("code", "code_block", "code_language"):
+        for name in ("code", "code_block", "code_language", "table_header", "table_row"):
             table.lookup(name).set_property("scale", (self.font_size - 1) / self.font_size)
 
     def _on_resize_start(self, _widget, event):
@@ -1547,6 +1558,9 @@ class FloatingOverlay:
         self.source_label.set_text(sources.get(state["source"], "Ready"))
         self.provider_label.set_text(self._provider)
         self.provider_label.set_tooltip_text(self._provider)
+        usage = state.get("token_usage", "Cache usage not reported")
+        self.token_usage_label.set_text(usage)
+        self.token_usage_label.set_tooltip_text(usage)
         session_status = state["session_status"]
         is_audio = self._model.snapshot()["source"] in ("microphone", "playback")
         status = {"idle": "Ready", "observing": "Listening" if is_audio else "Reading screen",

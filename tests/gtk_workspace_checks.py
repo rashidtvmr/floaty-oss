@@ -424,6 +424,60 @@ class WorkspaceChecks(unittest.TestCase):
         self.assertEqual(saved["desktop"]["appearance"]["opacity"], 0.72)
         self.assertEqual(saved["desktop"]["appearance"]["font_size"], 20)
 
+    def test_comparison_table_and_provider_reported_usage(self):
+        self.seed()
+        self.panel.set_answer(
+            "Question: Type vs interface?\nAnswer: Both describe object shapes.\n\n"
+            "| Aspect | type | interface |\n| --- | --- | --- |\n"
+            "| Union | Supported | Not a union alias |\n")
+        pump(200)
+        buffer = self.panel.answer.get_buffer()
+        rendered = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        self.assertIn("│", rendered)
+        self.assertIn("Union", rendered)
+        self.assertNotIn("| --- |", rendered)
+        for name in ("table_header", "table_row"):
+            self.assertEqual(buffer.get_tag_table().lookup(name).get_property("wrap-mode"),
+                             Gtk.WrapMode.NONE)
+        self.assertEqual(self.panel.token_usage_label.get_text(), "Cache usage not reported")
+        self.send("token_usage", "one", text="Tokens · input 1500 · cached 1024 · output 80")
+        pump()
+        self.assertIn("cached 1024", self.panel.token_usage_label.get_text())
+
+    def test_listening_dialog_source_roles_are_explicit_not_voice_identity(self):
+        findings = []
+
+        def inspect_dialog():
+            dialogs = [window for window in Gtk.Window.list_toplevels()
+                       if window.get_title() == "Audio listening settings"]
+            if not dialogs:
+                return True
+            dialog = dialogs[0]
+
+            def widgets(widget):
+                yield widget
+                if isinstance(widget, Gtk.Container):
+                    for child in widget.get_children():
+                        yield from widgets(child)
+
+            try:
+                combos = [widget for widget in widgets(dialog) if isinstance(widget, Gtk.ComboBoxText)]
+                role = next(widget for widget in combos if widget.get_active_id() == "interviewee")
+                source = next(widget for widget in combos if widget.get_active_text() == "microphone")
+                findings.append(role.get_active_id())
+                source.set_active(1)
+                findings.append(role.get_active_id())
+                role.set_active_id("unknown")
+                findings.append(role.get_active_id())
+            finally:
+                dialog.response(Gtk.ResponseType.CANCEL)
+            return False
+
+        GLib.timeout_add(50, inspect_dialog)
+        self.app.listen_audio(None)
+        self.assertEqual(findings, ["interviewee", "interviewer", "unknown"])
+        self.assertIsNone(self.app.proc, "cancelling must not open any audio source")
+
     def test_cursor_blending_applied_xshape_region(self):
         """Read back ShapeInput (coverage is X11 region, not compositor clicks)."""
         if not self.panel.input_shape_supported:

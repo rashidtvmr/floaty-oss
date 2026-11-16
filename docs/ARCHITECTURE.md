@@ -70,6 +70,13 @@ The next changes need their own implementation and runtime evidence:
 - Finite user-approved macOS ScreenCaptureKit audio and Linux Pulse sink monitor recording are implemented. Local whisper.cpp synthetic speech transcription is verified. Continuous captions, voice activity detection and diarization remain pending.
 
 ## Providers
+- All HTTP chat paths and Codex stdin share a byte-stable, versioned system
+  prefix. Per-question material is appended afterwards. Native OpenAI gets a
+  stable cache-routing key; native OpenAI/DeepSeek streaming requests include
+  usage. Compatible gateways receive no unverified vendor fields. Actual reported
+  cached-input counts are shown in GTK; missing metrics remain unknown, not zero.
+  Provider cache hits and cost savings cannot be guaranteed by the client. See
+  [prompt/cache/turn scope](AI-PROMPT-CACHING-AND-TURNS.md).
 - Mock model always works offline for test-only echo; live local Ollama qwen2.5-coder:1.5b answered a sample algorithm question.
 - OpenAI-compatible chat completions use BYOK. Text is the default; authorized
   audio/manual-ask vision requests can attach the current screenshot as a data
@@ -104,6 +111,12 @@ The next changes need their own implementation and runtime evidence:
 - `answer_format.py` parses a small inert Markdown subset. Paragraphs wrap, fenced
   code preserves indentation and horizontal access, and streaming updates preserve
   a reader's scroll position. Copy returns the selected answer's raw Markdown.
+- Comparison pipe tables render with aligned monospace columns and a header;
+  provider-reported token/cache counts share the answer metadata row. The
+  listening dialog assigns a source role (not voice identity). The Moonshine
+  turn gate suppresses interviewee answers before model dispatch and retains
+  bounded question/answer context for explicit clarification. Mixed-source
+  diarization and simultaneous microphone/playback capture are not implemented.
 - `Gtk.AccelGroup` registers all seventeen actions on the control window only.
   The shortcut editor suppresses dispatch during recording/entry edits, validates
   duplicates and applies changes on Save. Appearance previews are immediate and

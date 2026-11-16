@@ -107,6 +107,9 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
         "whisper" => {}
         _ => return Err("--stt must be moonshine or whisper".into()),
     }
+    if option(args, "--speaker-role").is_some() {
+        return Err("--speaker-role requires the built-in Moonshine engine; legacy Whisper has no turn-role support".into());
+    }
     if !args.iter().any(|arg| arg == "--authorized") {
         return Err("explicit --authorized is required for audio listening".into());
     }

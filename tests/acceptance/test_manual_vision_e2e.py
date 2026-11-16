@@ -117,6 +117,8 @@ class RecordingProvider:
                     "id": "chatcmpl-mock",
                     "object": "chat.completion",
                     "model": "mock-model",
+                    "usage": {"prompt_tokens": 1500, "completion_tokens": 80,
+                              "prompt_tokens_details": {"cached_tokens": 1024}},
                     "choices": [{
                         "index": 0,
                         "message": {"role": "assistant", "content": ANSWER},
@@ -273,6 +275,10 @@ class ManualVisionEndToEnd(unittest.TestCase):
                       if part.get("type") == "text"]
         self.assertTrue(text_parts, user["content"])
         self.assertIn(OCR_QUESTION, text_parts[0]["text"])
+        usage = [json.loads(line) for line in result.stdout.splitlines()
+                 if line.startswith("{") and json.loads(line).get("type") == "token_usage"]
+        self.assertEqual(len(usage), 1)
+        self.assertIn("cached 1024", usage[0]["text"])
 
     def test_no_vision_sends_plain_text_without_an_image(self):
         result = self.run_cli(*self.ask_args("--no-vision"))

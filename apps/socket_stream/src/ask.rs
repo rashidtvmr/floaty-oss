@@ -210,6 +210,9 @@ async fn ask_body(
             }
             Some(event) = meta_rx.recv() => {
                 match event {
+                    ApiEvent::Usage(usage) => {
+                        emitter.send("token_usage", "provider", Some(request), Some(&usage.summary()))?;
+                    }
                     ApiEvent::Request { url, model, prompt } => {
                         emitter.send_api_request(request, &url, &model, &prompt)?;
                     }
@@ -226,8 +229,17 @@ async fn ask_body(
         sent += delta.chars().count();
     }
     while let Ok(event) = meta_rx.try_recv() {
-        if let ApiEvent::Response { status, body } = event {
-            emitter.send_api_response(request, status, &body)?;
+        match event {
+            ApiEvent::Response { status, body } => {
+                emitter.send_api_response(request, status, &body)?
+            }
+            ApiEvent::Usage(usage) => emitter.send(
+                "token_usage",
+                "provider",
+                Some(request),
+                Some(&usage.summary()),
+            )?,
+            ApiEvent::Request { .. } => {}
         }
     }
     match outcome {

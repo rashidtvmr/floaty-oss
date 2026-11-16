@@ -1342,6 +1342,16 @@ def create_window():
             source.set_active(0)
             device = Gtk.Entry()
             device.set_text("default")
+            speaker_role = Gtk.ComboBoxText()
+            for role_id, role_label in (
+                    ("interviewee", "My answers · suppress automatic answers"),
+                    ("interviewer", "Other person's questions · answer questions only"),
+                    ("unknown", "Mixed/unknown speakers · manual Send only"),
+                    ("practice", "Solo practice · answer all finalized speech")):
+                speaker_role.append(role_id, role_label)
+            speaker_role.set_active_id("interviewee")
+            source.connect("changed", lambda widget: speaker_role.set_active_id(
+                "interviewer" if widget.get_active_text() == "system" else "interviewee"))
             for row, (label, widget) in enumerate((
                 ("Audio source", source),
                 ("Linux input/monitor device", device),
@@ -1364,15 +1374,24 @@ def create_window():
                                         and self.read_screen_check.get_active()))
             read_screen.get_accessible().set_name("Parallel screen reading")
             grid.attach(read_screen, 0, 4, 2, 1)
+            grid.attach(Gtk.Label(label="Speaker/source role"), 0, 5, 1, 1)
+            grid.attach(speaker_role, 1, 5, 1, 1)
+            role_note = Gtk.Label(label=(
+                "Roles are assigned by you, not voice recognition. Use system audio for "
+                "the other person; a mixed recording cannot identify speakers. Your answers "
+                "do not trigger replies. Use Send for a clarification or to rephrase a question."))
+            role_note.set_line_wrap(True)
+            role_note.set_max_width_chars(65)
+            grid.attach(role_note, 0, 6, 2, 1)
             dialog.get_content_area().add(grid)
             dialog.show_all()
             confirmed = dialog.run() == Gtk.ResponseType.OK
             selection = (source.get_active_text(), device.get_text().strip(),
-                         read_screen.get_active())
+                         read_screen.get_active(), speaker_role.get_active_id())
             dialog.destroy()
             if not confirmed:
                 return
-            audio_source, device_name, parallel_screen = selection
+            audio_source, device_name, parallel_screen, role = selection
             explanation = ("Stream the selected source through local Moonshine speech recognition. "
                            "Finalized speech is sent to your selected AI provider for answers. "
                            "Pause/Stop end capture immediately. No recording is saved.")
@@ -1383,7 +1402,7 @@ def create_window():
             if not self.confirmation("Authorize audio practice listening?", explanation):
                 return
             args = ["audio-live", "--authorized", "--source", audio_source,
-                    "--stt", "moonshine",
+                    "--stt", "moonshine", "--speaker-role", role,
                     "--provider", self.selected_provider()]
             if device_name:
                 args.extend(["--device", device_name])

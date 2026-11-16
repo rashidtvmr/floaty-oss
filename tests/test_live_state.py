@@ -23,6 +23,20 @@ def ev(typ, seq, rid=None, sid="demo", **extra):
 
 
 class LiveStateTests(unittest.TestCase):
+    def test_usage_is_request_scoped_preserved_in_history_and_not_a_guarantee(self):
+        self.assertEqual(self.state.snapshot()["token_usage"], "Cache usage not reported")
+        self.state.apply(ev("question_detected", 2, "q1", text="Type vs interface?"))
+        self.state.apply(ev("token_usage", 3, "q1", text="Tokens · input 1500 · cached 1024 · output 80"))
+        self.assertIn("cached 1024", self.state.snapshot()["token_usage"])
+        self.state.apply(ev("answer_completed", 4, "q1"))
+        self.state.pin("q1")
+        self.state.apply(ev("question_detected", 5, "q2", text="What is a closure?"))
+        self.assertEqual(self.state.snapshot()["token_usage"], "Cache usage not reported")
+        self.assertIn("cached 1024", self.state.display_snapshot()["token_usage"])
+        self.assertFalse(self.state.apply(ev("token_usage", 6, "q1", text="stale")))
+        self.state.apply(ev("token_usage", 7, "q2", text="x" * 500))
+        self.assertEqual(len(self.state.snapshot()["token_usage"]), 200)
+
     def setUp(self):
         self.state = mod.LiveState()
         self.assertTrue(self.state.apply(ev("session_started", 1)))
@@ -92,7 +106,7 @@ class LiveStateTests(unittest.TestCase):
         self.assertNotIn("SENSITIVE AUDIO", json.dumps(snapshot))
         self.assertEqual(set(snapshot), {
             "status", "session_id", "request_id", "question", "question_display",
-            "answer", "source", "error", "transcript", "api_request", "api_response",
+            "answer", "source", "error", "transcript", "api_request", "api_response", "token_usage",
             "screen",
         })
         # Without a display field the panel falls back to the raw question.

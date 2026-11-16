@@ -6,7 +6,10 @@
 //! manually typed questions are answered with on-screen context.
 use crate::live_events::Emitter;
 use crate::live_observe::{ScreenReader, a11y_options, bound_context, compose_prompt};
-use socket_stream_core::ai::{MAX_IMAGE_BYTES, Provider, stream_answer_vision};
+use crate::turn_gate::{SpeechRole, TurnGate};
+use socket_stream_core::ai::{
+    ApiEvent, MAX_IMAGE_BYTES, Provider, TokenUsage, stream_answer_with_meta_vision,
+};
 use std::collections::VecDeque;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -87,6 +90,9 @@ fn control_line(line: &str) -> Option<Result<Control, String>> {
         "" => return None,
         _ => {}
     }
+    if let Some(role) = trimmed.strip_prefix("speaker ") {
+        return Some(SpeechRole::parse(role).map(Control::Speaker));
+    }
     trimmed.strip_prefix("question ").map(|rest| {
         let text = rest.trim();
         if text.is_empty() {
@@ -105,6 +111,7 @@ enum Control {
     Stop,
     ReadScreen,
     Question(String),
+    Speaker(SpeechRole),
 }
 
 #[derive(Debug, PartialEq)]
@@ -366,6 +373,7 @@ struct AnswerView {
     text: String,
     done: bool,
     failed: bool,
+    usage: Option<TokenUsage>,
 }
 
 struct AnswerTask(JoinHandle<()>);
@@ -383,7 +391,14 @@ fn start_answer(
     let (tx, rx) = watch::channel(AnswerView::default());
     let task = tokio::spawn(async move {
         let (deltas, mut incoming) = mpsc::channel::<String>(32);
-        let inference = stream_answer_vision(&provider, &prompt, image.as_deref(), &deltas);
+        let (meta, mut metadata) = mpsc::channel::<ApiEvent>(8);
+        let inference = stream_answer_with_meta_vision(
+            &provider,
+            &prompt,
+            image.as_deref(),
+            &deltas,
+            Some(&meta),
+        );
         tokio::pin!(inference);
         let append = |delta: String| {
             tx.send_modify(|view| {
@@ -394,11 +409,21 @@ fn start_answer(
         let result = loop {
             tokio::select! {
                 Some(delta) = incoming.recv() => append(delta),
+                Some(event) = metadata.recv() => {
+                    if let ApiEvent::Usage(usage) = event {
+                        tx.send_modify(|view| view.usage = Some(usage));
+                    }
+                }
                 result = &mut inference => break result,
             }
         };
         while let Ok(delta) = incoming.try_recv() {
             append(delta);
+        }
+        while let Ok(event) = metadata.try_recv() {
+            if let ApiEvent::Usage(usage) = event {
+                tx.send_modify(|view| view.usage = Some(usage));
+            }
         }
         tx.send_modify(|view| {
             view.done = true;
@@ -430,7 +455,8 @@ fn controls() -> mpsc::Receiver<String> {
             // lines; anything else is ignored so stray input cannot kill the
             // session.
             let recognized = matches!(line.as_str(), "pause" | "resume" | "stop" | "read-screen")
-                || line.starts_with("question ");
+                || line.starts_with("question ")
+                || line.starts_with("speaker ");
             if recognized && tx.blocking_send(line).is_err() {
                 break;
             }
@@ -619,6 +645,9 @@ async fn run_session(
         return Err("--source must be microphone or system.".into());
     }
     let device = option(args, "--device").unwrap_or_else(|| "default".into());
+    let role =
+        SpeechRole::parse(&option(args, "--speaker-role").unwrap_or_else(|| "practice".into()))?;
+    let mut turn_gate = TurnGate::new(role);
     if device.trim().is_empty() || device.len() > 1024 || device.contains('\0') {
         return Err("Invalid audio device.".into());
     }
@@ -677,10 +706,11 @@ async fn run_session(
             answer_id = format!("manual-{manual_number}");
             emitter.send("question_detected", $source, Some(&answer_id), Some(&$text))?;
             emitter.send("answer_started", $source, Some(&answer_id), None)?;
+            let question_prompt = turn_gate.manual(&$text);
             let prompt = if $with_context {
-                compose_prompt(&$text, Some(&screen_context))
+                compose_prompt(&question_prompt, Some(&screen_context))
             } else {
-                $text.clone()
+                question_prompt
             };
             let image = vision_frame(&provider, screen_frame.as_deref());
             let (task, rx) = start_answer(provider.clone(), prompt, image);
@@ -751,6 +781,18 @@ async fn run_session(
                         }
                         _ => {}
                     },
+                    Some(line) if line.starts_with("speaker ") => match control_line(line) {
+                        Some(Ok(Control::Speaker(role))) => {
+                            turn_gate.role = role;
+                            // Pending speech belongs to the previous role; never
+                            // reinterpret it as a new speaker after a switch.
+                            transcript.pending.clear();
+                            transcript.last_final = None;
+                            due = None;
+                        }
+                        Some(Err(message)) => emitter.send("error", "system", None, Some(&message))?,
+                        _ => {}
+                    },
                     None => break,
                     _ => {}
                 }
@@ -809,11 +851,12 @@ async fn run_session(
                 let prompt = std::mem::take(&mut transcript.pending);
                 due = None;
                 if prompt.chars().filter(|c| c.is_alphabetic()).count() < 3 { continue; }
+                let Some(permitted_prompt) = turn_gate.speech(&prompt) else { continue; };
                 request += 1;
                 answer_id = format!("spoken-{request}");
                 emitter.send("question_detected", label, Some(&answer_id), Some(&prompt))?;
                 emitter.send("answer_started", label, Some(&answer_id), None)?;
-                let context_prompt = compose_prompt(&prompt, Some(&screen_context));
+                let context_prompt = compose_prompt(&permitted_prompt, Some(&screen_context));
                 let image = vision_frame(&provider, screen_frame.as_deref());
                 let (task, rx) = start_answer(provider.clone(), context_prompt, image);
                 answer_task = Some(task);
@@ -828,6 +871,12 @@ async fn run_session(
                     answer_sent = view.text.len();
                 }
                 if view.done {
+                    if let Some(usage) = &view.usage {
+                        emitter.send("token_usage", "provider", Some(&answer_id), Some(&usage.summary()))?;
+                    }
+                    if !view.failed {
+                        turn_gate.completed(&view.text);
+                    }
                     if view.failed { emitter.send("error", "provider", Some(&answer_id), Some("AI provider failed; check endpoint, credentials and model."))?; }
                     else { emitter.send("answer_completed", label, Some(&answer_id), None)?; }
                     answer_task = None;

@@ -7,6 +7,7 @@ mod live_events;
 mod live_observe;
 mod moonshine_live;
 mod overlay;
+mod turn_gate;
 
 use socket_stream_core::a11y::A11yTree;
 use socket_stream_core::accessibility::{
@@ -33,6 +34,9 @@ fn usage() {
     );
     eprintln!("    Moonshine is built in; legacy Whisper requires --stt whisper --model MODEL.");
     eprintln!("    audio-live stdin controls: pause, resume, stop, read-screen, question TEXT");
+    eprintln!(
+        "    Moonshine: --speaker-role practice|interviewer|interviewee|unknown; stdin speaker ROLE"
+    );
     eprintln!(
         "    --read-screen reads the screen in parallel (accessibility first, OCR with --allow-ocr);"
     );

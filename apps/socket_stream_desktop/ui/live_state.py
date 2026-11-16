@@ -11,7 +11,7 @@ _TYPES = {
     "session_started", "question_detected", "answer_started", "answer_delta",
     "answer_completed", "api_request", "api_response", "transcript_updated",
     "session_paused", "session_resumed", "error", "session_stopped",
-    "screen_read",
+    "screen_read", "token_usage",
 }
 
 
@@ -32,6 +32,7 @@ class LiveState:
             status="idle", session_id="", request_id="", question="",
             question_display="", answer="", source="", error="",
             api_request="", api_response="", transcript="", screen="",
+            token_usage="Cache usage not reported",
         )
         self._seq = -1
         self._history = []
@@ -124,7 +125,7 @@ class LiveState:
             self._history.append(entry)
         previous_status = entry.get("status", "thinking")
         for name in ("session_id", "request_id", "question", "question_display",
-                     "answer", "source", "error"):
+                     "answer", "source", "error", "token_usage"):
             entry[name] = self._view[name]
         status = self._view["status"]
         if status == "stopped":
@@ -160,6 +161,7 @@ class LiveState:
                 question="", question_display="", answer="",
                 source=source if source in ("microphone", "playback") else "", error="",
                 api_request="", api_response="", transcript="", screen="",
+                token_usage="Cache usage not reported",
             )
             return True
         if kind == "error" and self._view["status"] == "idle":
@@ -225,11 +227,15 @@ class LiveState:
                 question_display=display or question,
                 answer="", source=source, error="",
                 api_request="", api_response="",
+                token_usage="Cache usage not reported",
             )
             self._request_open = True
             return True
         if rid != self._view["request_id"]:
             return False
+        if kind == "token_usage":
+            self._view["token_usage"] = clean(event.get("text"), 200)
+            return True
         if kind in ("answer_started", "answer_delta", "answer_completed") and not self._request_open:
             return False
         if kind == "answer_started":

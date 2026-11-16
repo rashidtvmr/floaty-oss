@@ -106,6 +106,10 @@ enum ControlCommand {
 }
 
 enum ModelMessage {
+    Usage {
+        request: String,
+        text: String,
+    },
     Delta {
         request: String,
         text: String,
@@ -139,6 +143,10 @@ fn preview(text: &str, limit: usize) -> String {
 /// Convert a provider exchange event into the message the UI loop forwards.
 fn api_message(request: &str, event: ApiEvent) -> ModelMessage {
     match event {
+        ApiEvent::Usage(usage) => ModelMessage::Usage {
+            request: request.to_owned(),
+            text: usage.summary(),
+        },
         ApiEvent::Request { url, model, prompt } => ModelMessage::ApiRequest {
             request: request.to_owned(),
             url,
@@ -877,6 +885,11 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
             }
             Some(message) = receiver.recv(), if !paused => {
                 match message {
+                    ModelMessage::Usage { request, text } => {
+                        if request == last_request {
+                            emit!("token_usage", "provider", Some(&request), Some(&text));
+                        }
+                    }
                     ModelMessage::Delta { request, text } => {
                         if request == last_request {
                             emit!("answer_delta", "system", Some(&request), Some(&text));
