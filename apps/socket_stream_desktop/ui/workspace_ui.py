@@ -209,6 +209,15 @@ def build_workspace(app):
 
     appearance = page("appearance", "Make room for the answer", "Tune your floating panel. Changes preview immediately; Save keeps them for next time.")
     appearance_card = card(appearance, "Reading & transparency")
+    theme_row = Gtk.Box(spacing=14)
+    theme_row.pack_start(label("App & settings theme"), True, True, 0)
+    app.theme_select = Gtk.ComboBoxText()
+    app.theme_select.get_accessible().set_name("App theme")
+    for key, title in (("light", "Light"), ("dark", "Dark"), ("system", "System preference")):
+        app.theme_select.append(key, title)
+    app.theme_select.set_active_id(app.appearance.get("theme", "light"))
+    theme_row.pack_end(app.theme_select, False, False, 0)
+    appearance_card.pack_start(theme_row, False, False, 0)
     font_row = Gtk.Box(spacing=14)
     font_row.pack_start(label("Answer text size", "ss-small"), True, True, 0)
     app.font_size = Gtk.SpinButton.new_with_range(13, 22, 1)
@@ -250,6 +259,7 @@ def build_workspace(app):
     app.font_size.connect("value-changed", app.preview_appearance)
     app.opacity_scale.connect("value-changed", app.preview_appearance)
     app.reduced_motion.connect("toggled", app.preview_appearance)
+    app.theme_select.connect("changed", app.preview_appearance)
     save_appearance, _ = buttons(appearance, [("Save appearance", app.save_appearance), ("Preview answer panel", app.show_answer_panel)])
     style(save_appearance, "ss-primary")
     app.appearance_message = label("")

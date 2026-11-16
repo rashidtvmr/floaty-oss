@@ -57,3 +57,23 @@ binary-search question and a completed mock answer without microphone/physical
 speakers/remote AI; default output was unchanged and fixtures removed. Hardware
 headphone/Bluetooth switching, arbitrary app routing, inaccessible application
 trees and native Wayland-only application behavior remain unverified.
+
+Panel-session/profile UX update (2026-11-16): Rust fmt/Clippy and 197 tests pass;
+Python passes 655 tests (6 skipped), and source acceptance passes 37 (7 skipped).
+Ubuntu GTK passes 35 checks (3 physical-input checks skipped), including restart
+from the answer panel after Stop, declined consent retaining history, per-profile
+model persistence, multiple saves without closing the manager, New clearing draft
+keys, rename retaining unsaved edits, validation failures preserving runtime/disk,
+late catalog rejection, both themes and compact answer reading space.
+An independent UI/capture review approved the explicit Use model gate: Start with
+an unapplied model neither saves settings nor reaches consent/preflight/capture.
+Independent storage/catalog review approved the credential-preserving mutations,
+empty-book handling, bounded model discovery and inventory-only audio listing;
+27 scoped synthetic tests passed without using user credentials or services.
+Actual saved compatible-provider discovery returned 69 model IDs without inference.
+The same saved compatible profile passed a fixed-prompt inference test in 3.9s,
+without fallback or screen/audio content. Real audio
+inventory exposed 5 playback monitors and 3 microphone inputs without recording.
+The official Codex default-model CLI independently retried transport and timed out;
+login/catalog success remains explicitly insufficient proof of inference access.
+See `PANEL-SESSION-PROFILES.md` for workflow and remaining hardware/platform limits.

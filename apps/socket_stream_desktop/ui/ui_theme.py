@@ -94,6 +94,49 @@ CSS = b"""
 """
 
 _providers = []
+_theme = "light"
+
+DARK_CSS = b"""
+menu, menu label, tooltip, tooltip label { background: #222833; color: #e7eaf0; }
+menuitem:hover { background: #39465a; }
+.ss-app, .ss-dialog { background: #171a21; color: #e7eaf0; }
+.ss-app headerbar, .ss-app .ss-nav { background: #1e232d; border-color: #343b49; }
+.ss-app .ss-card { background: #222833; border-color: #343b49; }
+.ss-app label, .ss-dialog label, .ss-app .ss-title, .ss-app .ss-section-title,
+.ss-app checkbutton, .ss-dialog checkbutton, .ss-app list, .ss-app list row { color: #e7eaf0; }
+.ss-app .ss-muted, .ss-dialog .ss-muted, .ss-app .ss-nav button label { color: #aab5c5; }
+.ss-app button, .ss-dialog button { background: #2c3441; border-color: #465164; color: #e7eaf0; }
+.ss-app button:hover, .ss-dialog button:hover { background: #39465a; }
+.ss-app button:disabled, .ss-dialog button:disabled { background: #232833; color: #8290a4; border-color: #343b49; }
+.ss-app entry, .ss-dialog entry, .ss-app spinbutton, .ss-dialog spinbutton,
+.ss-app combobox button, .ss-dialog combobox button { background: #151a22; color: #e7eaf0; border-color: #465164; }
+.ss-app .ss-banner, .ss-app .ss-nav button:checked { background: #243854; border-color: #3b5576; }
+.ss-app .ss-nav button:checked label, .ss-app .ss-chip { color: #a9cdff; }
+.ss-app .ss-error, .ss-dialog .ss-error, .ss-app button.ss-danger label { color: #ffacb3; }
+.ss-app button.ss-primary, .ss-dialog button.ss-primary { background: #376fc1; border-color: #6da1ee; }
+.ss-app checkbutton check, .ss-dialog checkbutton check { background: #151a22; border-color: #65738a; }
+.ss-app checkbutton check:checked, .ss-dialog checkbutton check:checked { background: #568fe6; color: #ffffff; }
+"""
+
+
+def resolved_theme(theme):
+    if theme != "system":
+        return theme
+    from gi.repository import Gtk
+    settings = Gtk.Settings.get_default()
+    dark = settings and (settings.get_property("gtk-application-prefer-dark-theme")
+                         or str(settings.get_property("gtk-theme-name") or "").lower().endswith("-dark"))
+    return "dark" if dark else "light"
+
+
+def set_theme(theme):
+    """Replace the shared stylesheet: existing and future dialogs update too."""
+    global _theme
+    if theme not in ("light", "dark", "system"):
+        raise ValueError("Invalid theme")
+    _theme = theme
+    for provider in _providers:
+        provider.load_from_data(CSS + (DARK_CSS if resolved_theme(theme) == "dark" else b""))
 
 
 def style(widget, *classes):
@@ -108,6 +151,6 @@ def install_theme(screen):
     if _providers:
         return
     provider = Gtk.CssProvider()
-    provider.load_from_data(CSS)
+    provider.load_from_data(CSS + (DARK_CSS if resolved_theme(_theme) == "dark" else b""))
     Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     _providers.append(provider)

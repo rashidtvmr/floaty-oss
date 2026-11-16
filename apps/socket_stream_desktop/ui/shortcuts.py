@@ -105,6 +105,7 @@ DEFAULT_APPEARANCE = {
     "font_size": 16,
     "reduced_motion": False,
     "cursor_blending": True,
+    "theme": "light",
 }
 
 _MODIFIER_ALIASES = {
@@ -641,7 +642,7 @@ def save_config_file(bindings, *, enabled=True, path=None):
 def _validate_appearance_values(values):
     if not isinstance(values, dict):
         raise ShortcutError("appearance values must be an object")
-    allowed = {"opacity", "font_size", "reduced_motion", "cursor_blending"}
+    allowed = {"opacity", "font_size", "reduced_motion", "cursor_blending", "theme"}
     unknown = set(values.keys()) - allowed
     if unknown:
         raise ShortcutError(f"unknown appearance keys: {', '.join(sorted(unknown))}")
@@ -673,6 +674,10 @@ def _validate_appearance_values(values):
         if not isinstance(cb, bool):
             raise ShortcutError("cursor_blending must be a boolean")
         validated["cursor_blending"] = cb
+    if "theme" in values:
+        if values["theme"] not in ("light", "dark", "system"):
+            raise ShortcutError("theme must be light, dark or system")
+        validated["theme"] = values["theme"]
     return validated
 
 

@@ -299,7 +299,9 @@ class FloatingOverlay:
                  on_copy=None, on_minimize=None, on_settings=None, state=None,
                  on_selection_changed=None, font_size=16, reduced_motion=False,
                  on_ask=None, on_capture=None, cursor_blending=True,
-                  on_cursor_blending=None, on_next_question=None):
+                   on_cursor_blending=None, on_next_question=None, theme="light",
+                  on_start=None, on_sources=None, on_profile=None, on_model=None,
+                  on_providers=None, on_window=None, on_models=None, on_audio=None):
         import gi
 
         gi.require_version("Gdk", "3.0")
@@ -335,6 +337,7 @@ class FloatingOverlay:
         self.opacity = parse_opacity(opacity)
         self.font_size = max(13, min(22, int(font_size)))
         self.reduced_motion = bool(reduced_motion)
+        self.theme = theme
         self._on_stop = on_stop
         self._on_pause = on_pause
         self._on_copy = on_copy
@@ -345,6 +348,7 @@ class FloatingOverlay:
         self._on_capture = on_capture
         self._on_cursor_blending = on_cursor_blending
         self._on_next_question = on_next_question
+        self._syncing_session = False
         self._frozen_display = None
         self._skip_request_id = ""
         # Cursor blending: on X11/XWayland the panel's background is removed
@@ -478,6 +482,64 @@ class FloatingOverlay:
         style(self.hide_button, "ss-close")
         self.hide_button.set_valign(Gtk.Align.CENTER)
         command_row.pack_start(self.hide_button, False, False, 0)
+
+        self.session_controls = style(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6), "ss-footer")
+        self.session_controls.set_no_show_all(on_start is None)
+        self.session_expander = Gtk.Expander(label="Session & provider")
+        self.session_expander.set_expanded(not self.compact)
+        self.session_expander.add(self.session_controls)
+        if on_start is not None:
+            layout.pack_start(self.session_expander, False, False, 0)
+        session_row = Gtk.Box(spacing=6)
+        self.session_controls.pack_start(session_row, False, False, 0)
+        self.start_button = style(Gtk.Button(label="Start fresh"), "ss-primary")
+        self.start_button.set_tooltip_text("Start a new session after confirmation. Previous session answers are cleared only when the new session starts.")
+        self.start_button.connect("clicked", lambda *_: on_start() if on_start else None)
+        session_row.pack_start(self.start_button, False, False, 0)
+        self.audio_toggle = Gtk.CheckButton(label="Playback")
+        self.screen_toggle = Gtk.CheckButton(label="Screen")
+        for widget in (self.audio_toggle, self.screen_toggle):
+            widget.connect("toggled", lambda *_: on_sources(self.audio_toggle.get_active(), self.screen_toggle.get_active())
+                           if on_sources and not self._syncing_session else None)
+            session_row.pack_start(widget, False, False, 0)
+        self.window_button = Gtk.Button(label="Window…")
+        self.window_button.connect("clicked", lambda *_: on_window() if on_window else None)
+        session_row.pack_end(self.window_button, False, False, 0)
+        self.audio_options_button = Gtk.Button(label="Audio…")
+        self.audio_options_button.connect("clicked", lambda *_: on_audio() if on_audio else None)
+        session_row.pack_end(self.audio_options_button, False, False, 0)
+        provider_row = Gtk.Box(spacing=6)
+        self.session_controls.pack_start(provider_row, False, False, 0)
+        self.profile_select = Gtk.ComboBoxText()
+        self.profile_select.get_accessible().set_name("Answer panel saved provider")
+        self.profile_select.set_tooltip_text("Choose a saved provider profile. Stop the current operation before changing providers or models.")
+        self.profile_select.set_hexpand(True)
+        for renderer in self.profile_select.get_cells():
+            renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+            renderer.set_property("max-width-chars", 22)
+        self.profile_select.connect("changed", lambda combo: on_profile(combo)
+                                    if on_profile and not self._syncing_session else None)
+        provider_row.pack_start(self.profile_select, True, True, 0)
+        self.model_combo = Gtk.ComboBoxText.new_with_entry()
+        self.model_entry = self.model_combo.get_child()
+        for renderer in self.model_combo.get_cells():
+            renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+            renderer.set_property("max-width-chars", 20)
+        self.model_entry.set_width_chars(12)
+        self.model_entry.set_placeholder_text("Model ID / default")
+        self.model_entry.get_accessible().set_name("Answer panel model")
+        self.model_combo.set_tooltip_text("Fetch models or enter an ID, then Use model to save it to this profile. Stop before changing models.")
+        self.model_entry.connect("button-press-event", lambda widget, event: self.permit_focus(event, widget))
+        self.model_entry.connect("activate", lambda entry: on_model(entry.get_text()) if on_model else None)
+        provider_row.pack_start(self.model_combo, True, True, 0)
+        self.models_button = self._icon_button("view-refresh-symbolic", "Fetch provider models", lambda *_: on_models() if on_models else None)
+        provider_row.pack_start(self.models_button, False, False, 0)
+        self.model_save_button = Gtk.Button(label="Use model")
+        self.model_save_button.connect("clicked", lambda *_: on_model(self.model_entry.get_text()) if on_model else None)
+        provider_row.pack_start(self.model_save_button, False, False, 0)
+        self.providers_button = Gtk.Button(label="Providers…")
+        self.providers_button.connect("clicked", lambda *_: on_providers() if on_providers else None)
+        provider_row.pack_end(self.providers_button, False, False, 0)
 
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4 if self.compact else 10)
         body.set_border_width(12 if self.compact else 18)
@@ -706,7 +768,7 @@ class FloatingOverlay:
         self._surface_css = Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_screen(self.window.get_screen(), self._surface_css,
                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
-        self.set_appearance(self.opacity, self.font_size, self.reduced_motion)
+        self.set_appearance(self.opacity, self.font_size, self.reduced_motion, theme=self.theme)
         self.render_state()
 
         self.window.connect("delete-event", self._on_delete)
@@ -1011,6 +1073,7 @@ class FloatingOverlay:
             # The answer is a reading surface, never a pass-through background.
             getattr(self, "answer_stack", None),
             getattr(self, "flow_label", None),
+            getattr(self, "session_expander", None),
         ]
         revealer = getattr(self, "history_revealer", None)
         if revealer is not None and revealer.get_reveal_child():
@@ -1083,17 +1146,48 @@ class FloatingOverlay:
         cr.restore()
         return False
 
-    def set_appearance(self, opacity, font_size=16, reduced_motion=False, cursor_blending=None):
+    def set_appearance(self, opacity, font_size=16, reduced_motion=False, cursor_blending=None, theme=None):
+        if theme is not None:
+            self.theme = theme
         self.opacity = parse_opacity(opacity)
         self.font_size = max(13, min(22, int(font_size)))
         self.reduced_motion = bool(reduced_motion)
         if cursor_blending is not None and bool(cursor_blending) != self.cursor_blending:
             self.set_cursor_blending(cursor_blending, notify=False)
         alpha = self.opacity if self._has_alpha else 1.0
+        from ui_theme import resolved_theme
+        light = resolved_theme(self.theme) == "light"
+        background = "248,250,253" if light else "23,23,28"
+        foreground = "#202735" if light else "#edf0f4"
+        muted = "#53647a" if light else "#abb9c9"
         self._surface_css.load_from_data((
-            f"#socket-stream-answer-panel .ss-panel, #socket-stream-answer-panel .ss-command-bar {{ background-color: rgba(23,23,28,{alpha}); }}\n"
+            f"#socket-stream-answer-panel .ss-panel, #socket-stream-answer-panel .ss-command-bar {{ background-color: rgba({background},{alpha}); }}\n"
             f"#socket-stream-answer-panel .ss-answer {{ font-size: {self.font_size}px; }}\n"
+            f"#socket-stream-answer-panel label, #socket-stream-answer-panel .ss-answer, #socket-stream-answer-panel .ss-answer text {{ color: {foreground}; }}\n"
+            f"#socket-stream-answer-panel .ss-muted, #socket-stream-answer-panel .ss-transcript text {{ color: {muted}; }}\n"
+            f"#socket-stream-answer-panel entry, #socket-stream-answer-panel combobox button {{ background: {'#ffffff' if light else '#202631'}; color: {foreground}; border: 1px solid {'#b7c3d3' if light else '#465164'}; }}\n"
+            + ("#socket-stream-answer-panel button { background: #e6edf7; color: #202735; border-color: #b7c3d3; }\n"
+               "#socket-stream-answer-panel button label { color: #202735; }\n"
+               "#socket-stream-answer-panel button.ss-question-bubble { background: #e2ecfc; }\n"
+               "#socket-stream-answer-panel button.ss-primary { background: #376fc1; }\n"
+               "#socket-stream-answer-panel button.ss-primary label { color: #ffffff; }\n" if light else "")
+            + f"#socket-stream-answer-panel button:disabled, #socket-stream-answer-panel button.ss-primary:disabled {{ background-image: none; background-color: {'#eef1f6' if light else '#20252c'}; border-color: {'#d5deea' if light else '#303740'}; }}\n"
+            + f"#socket-stream-answer-panel button:disabled label {{ color: {'#9aa6b8' if light else '#74808e'}; }}\n"
         ).encode())
+        tags = self.answer.get_buffer().get_tag_table()
+        for name, color in {"strong": foreground, "heading": "#245da4" if light else "#cbe3ff",
+                            "code": "#214e86" if light else "#d0e6ff",
+                            "code_block": "#20344e" if light else "#dbe8fa",
+                            "code_language": muted, "muted": muted,
+                            "table_header": foreground, "table_row": foreground}.items():
+            tag = tags.lookup(name)
+            if tag:
+                tag.set_property("foreground", color)
+        for name in ("code_block", "code_language", "table_header", "table_row"):
+            tag = tags.lookup(name)
+            if tag:
+                tag.set_property("paragraph-background", "#e5ecf5" if light else "#171d25")
+        tags.lookup("code").set_property("background", "#e0eafa" if light else "#263348")
         settings = self._Gtk.Settings.get_default()
         animations = settings is None or settings.get_property("gtk-enable-animations")
         duration = 160 if animations and not self.reduced_motion else 0
@@ -1811,6 +1905,7 @@ class FloatingOverlay:
         return True
 
     def _on_compact(self, button):
+        self.session_expander.set_expanded(not button.get_active())
         self.compact = button.get_active()
         self.body.set_spacing(4 if self.compact else 10)
         self.body.set_border_width(12 if self.compact else 18)

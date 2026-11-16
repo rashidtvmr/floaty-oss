@@ -9,9 +9,9 @@ import time
 from types import SimpleNamespace
 
 
-def _probe(args, *, timeout=3, **_kwargs):
+def _probe(args, *, timeout=3, env=None, **_kwargs):
     """Cap stdout while reading, not after an unbounded communicate()."""
-    child = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    child = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
     data = bytearray()
     deadline = time.monotonic() + timeout
     selector = selectors.DefaultSelector()

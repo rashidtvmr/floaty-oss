@@ -162,7 +162,7 @@ def _book(data):
     profiles = {name: item for name, item in profiles.items()
                 if isinstance(name, str) and isinstance(item, dict)
                 and item.get("provider") in _PROVIDERS and isinstance(item.get("settings"), dict)} if isinstance(profiles, dict) else {}
-    if not profiles and any(key in data for key in PROVIDER_SETTING_KEYS):
+    if "profiles" not in data and any(key in data for key in PROVIDER_SETTING_KEYS):
         selected = data.get("SOCKET_STREAM_PROVIDER")
         profiles = {"Default": {"provider": selected if selected in _PROVIDERS else "openai-compatible", "settings": _settings(data)}}
     active = data.get("active_profile", "")
@@ -208,6 +208,46 @@ def provider_settings_path() -> Path:
         os.path.expanduser("~"), ".config"
     )
     return Path(config_home) / "socket_stream" / "provider-settings.json"
+
+
+def delete_provider_profile(name):
+    """Delete only one explicitly named profile under the existing secure lock."""
+    def change(data):
+        book = _book(data)
+        if name not in book["profiles"]:
+            raise ValueError("Profile no longer exists")
+        del book["profiles"][name]
+        if book["active_profile"] == name:
+            book["active_profile"] = next(iter(book["profiles"]), "")
+        if book["fallback_profile"] in (name, book["active_profile"]):
+            book["fallback_profile"] = ""
+        for key in PROVIDER_SETTING_KEYS:
+            data.pop(key, None)
+        if book["active_profile"]:
+            active = book["profiles"][book["active_profile"]]
+            data.update(_settings(active["settings"]), SOCKET_STREAM_PROVIDER=active["provider"])
+        data.update(book, version=2)
+        return data
+    return _update(change)
+
+
+def rename_provider_profile(old_name, new_name):
+    if (not isinstance(new_name, str) or not new_name.strip() or len(new_name) > 64
+            or not new_name.isprintable()):
+        raise ValueError("Profile name must be 1–64 printable characters")
+    new_name = new_name.strip()
+
+    def change(data):
+        book = _book(data)
+        if old_name not in book["profiles"] or (new_name != old_name and new_name in book["profiles"]):
+            raise ValueError("Choose an existing profile and a unique new name")
+        book["profiles"][new_name] = book["profiles"].pop(old_name)
+        for key in ("active_profile", "fallback_profile"):
+            if book[key] == old_name:
+                book[key] = new_name
+        data.update(book, version=2)
+        return data
+    return _update(change)
 
 
 def load_provider_settings() -> dict:

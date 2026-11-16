@@ -91,6 +91,43 @@ class ProviderSettings(unittest.TestCase):
                 settings.save_provider_profile("Primary", "codex", {}, fallback)
             self.assertEqual(settings.provider_settings_path().read_bytes(), before)
 
+    def test_delete_one_preserves_others_and_clears_invalid_fallback(self):
+        settings.save_provider_profile("A", "codex", {"SOCKET_STREAM_CODEX_MODEL": "a"})
+        settings.save_provider_profile("B", "openai-compatible", {"SOCKET_STREAM_API_KEY": "fixture-b"}, "A")
+        settings.delete_provider_profile("B")
+        book = settings.load_provider_profiles()
+        self.assertEqual(list(book["profiles"]), ["A"])
+        self.assertEqual(book["active_profile"], "A")
+        self.assertEqual(book["fallback_profile"], "")
+        self.assertEqual(settings.load_provider_settings()["SOCKET_STREAM_CODEX_MODEL"], "a")
+        self.assertEqual(settings.load_provider_settings()["SOCKET_STREAM_API_KEY"], "")
+        settings.delete_provider_profile("A")
+        self.assertEqual(settings.load_provider_profiles()["profiles"], {})
+        self.assertEqual(settings.load_provider_settings(), {})
+
+    def test_rename_preserves_credentials_and_fallback_identity(self):
+        settings.save_provider_profile("Backup", "codex", {"SOCKET_STREAM_CODEX_MODEL": "backup-model"})
+        settings.save_provider_profile("Primary", "openai-compatible", {"SOCKET_STREAM_API_KEY": "fixture-p"}, "Backup")
+        settings.rename_provider_profile("Backup", "Renamed")
+        book = settings.load_provider_profiles()
+        self.assertEqual(book["fallback_profile"], "Renamed")
+        self.assertEqual(book["profiles"]["Renamed"]["settings"]["SOCKET_STREAM_CODEX_MODEL"], "backup-model")
+        settings.rename_provider_profile("Primary", "Cloud")
+        self.assertEqual(settings.load_provider_profiles()["active_profile"], "Cloud")
+        self.assertEqual(settings.load_provider_settings()["SOCKET_STREAM_API_KEY"], "fixture-p")
+        self.assertEqual(settings.provider_settings_path().stat().st_mode & 0o777, 0o600)
+
+    def test_profile_mutation_failures_preserve_file(self):
+        settings.save_provider_profile("A", "codex", {})
+        settings.save_provider_profile("B", "codex", {})
+        before = settings.provider_settings_path().read_bytes()
+        for action in (lambda: settings.rename_provider_profile("A", "B"),
+                       lambda: settings.rename_provider_profile("A", "\n"),
+                       lambda: settings.delete_provider_profile("absent")):
+            with self.assertRaises(ValueError):
+                action()
+            self.assertEqual(settings.provider_settings_path().read_bytes(), before)
+
     def test_symlinks_and_malformed_settings_are_preserved_not_overwritten(self):
         path = settings.provider_settings_path()
         path.parent.mkdir(parents=True)

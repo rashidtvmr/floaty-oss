@@ -377,7 +377,7 @@ class WorkspaceChecks(unittest.TestCase):
         self.app.save_appearance()
         saved = json.loads(config.read_text())["desktop"]["appearance"]
         self.assertEqual(saved, dict(opacity=0.72, font_size=20, reduced_motion=True,
-                                     cursor_blending=True))
+                                 cursor_blending=True, theme="light"))
         settings = Gtk.Settings.get_default()
         old = settings.get_property("gtk-enable-animations")
         try:
@@ -413,7 +413,7 @@ class WorkspaceChecks(unittest.TestCase):
         self.assertTrue(self.app.cursor_blending_check.get_active())
         saved = json.loads((self.path / "config.json").read_text())["desktop"]["appearance"]
         self.assertEqual(saved, dict(opacity=0.9, font_size=16,
-                                     reduced_motion=False, cursor_blending=True))
+                                 reduced_motion=False, cursor_blending=True, theme="light"))
         self.app.cursor_blending_check.set_active(False)
         pump()
         self.assertFalse(self.panel.cursor_blending)
@@ -548,6 +548,274 @@ class WorkspaceChecks(unittest.TestCase):
             self.assertIs(self.app.proc, original)
             self.app.stop()
             self.assertTrue(wait_for(lambda: self.app.proc is None))
+
+    def test_panel_restart_after_stop_preserves_history_on_cancel_and_resets_on_start(self):
+        from unittest.mock import patch
+        import source_preflight
+        self.seed()
+        self.app.stop()
+        history = self.app.live_state.history()
+        self.panel.audio_toggle.set_active(True)
+        self.panel.screen_toggle.set_active(False)
+        self.assertTrue(self.app.audio_check.get_active())
+        self.assertTrue(self.panel.start_button.get_sensitive())
+        self.app.confirmation = lambda *_: False
+        with patch.object(source_preflight, "check_sources") as check:
+            self.panel.start_button.clicked()
+            check.assert_not_called()
+        self.assertEqual(self.app.live_state.history(), history)
+        self.app.confirmation = lambda *_: True
+        with patch.object(source_preflight, "check_sources", return_value=([], ["fixture only"])):
+            self.panel.start_button.clicked()
+            self.assertTrue(wait_for(lambda: self.app.proc is not None))
+            self.assertFalse(self.panel.start_button.get_sensitive())
+            self.assertFalse(self.panel.profile_select.get_sensitive())
+            self.assertTrue(wait_for(lambda: "First synthetic answer" in self.panel.answer_text()))
+            self.assertNotIn("two_sum", self.panel.answer_text())
+            self.panel.stop_button.clicked()
+            self.assertTrue(wait_for(lambda: self.app.proc is None))
+        self.assertTrue(self.panel.start_button.get_sensitive())
+
+    def test_panel_saved_provider_selection_and_model_are_persisted(self):
+        controller.save_provider_profile("Cloud A", "openai-compatible", {"SOCKET_STREAM_MODEL": "model-a", "SOCKET_STREAM_API_KEY": "fixture-a"})
+        controller.save_provider_profile("Codex B", "codex", {"SOCKET_STREAM_CODEX_MODEL": "model-b"})
+        self.app.provider_book = controller.load_provider_profiles()
+        self.app.refresh_profile_choices()
+        self.panel.profile_select.set_active_id("Cloud A")
+        self.assertEqual(self.app.profile_select.get_active_id(), "Cloud A")
+        self.assertEqual(self.panel.model_entry.get_text(), "model-a")
+        self.panel.model_entry.set_text("model-a2")
+        self.panel.model_save_button.clicked()
+        self.assertEqual(controller.load_provider_settings()["SOCKET_STREAM_MODEL"], "model-a2")
+        self.panel.profile_select.set_active_id("Codex B")
+        self.assertEqual(self.app.env["SOCKET_STREAM_API_KEY"], "")
+        self.assertEqual(self.panel.model_entry.get_text(), "model-b")
+        self.assertEqual(controller.load_provider_profiles()["profiles"]["Cloud A"]["settings"]["SOCKET_STREAM_API_KEY"], "fixture-a")
+
+    def test_start_with_unsaved_model_never_persists_or_requests_capture(self):
+        from unittest.mock import patch
+        import source_preflight
+        controller.save_provider_profile("Cloud", "openai-compatible", {"SOCKET_STREAM_MODEL": "saved-model"})
+        self.app.provider_book = controller.load_provider_profiles()
+        self.app.refresh_profile_choices()
+        self.panel.profile_select.set_active_id("Cloud")
+        before = controller.load_provider_settings()
+        self.panel.audio_toggle.set_active(True)
+        self.panel.model_entry.set_text("draft-model")
+        confirmations = []
+        self.app.confirmation = lambda *_: confirmations.append(True) or False
+        with patch.object(source_preflight, "check_sources") as preflight:
+            self.panel.start_button.clicked()
+            preflight.assert_not_called()
+        self.assertEqual(confirmations, [])
+        self.assertEqual(controller.load_provider_settings(), before)
+        self.assertEqual(self.app.env["SOCKET_STREAM_MODEL"], "saved-model")
+        self.assertIn("Use model", self.panel.notice.get_text())
+        self.assertIsNone(self.app.proc)
+
+    def test_dark_light_themes_update_existing_settings_and_persist(self):
+        self.app.reduced_motion.set_active(True)
+        self.app.navigate("appearance")
+        pump(350)
+        for theme in ("dark", "light"):
+            self.app.theme_select.set_active_id(theme)
+            pump()
+            self.assertEqual(self.panel.theme, theme)
+            color = self.app.get_style_context().get_color(Gtk.StateFlags.NORMAL)
+            self.assertGreater(color.red, 0.7) if theme == "dark" else self.assertLess(color.red, 0.3)
+            artifact(self.app, "settings-" + theme)
+            artifact(self.panel.window, "answer-" + theme)
+        self.app.theme_select.set_active_id("dark")
+        self.assertTrue(self.app.save_appearance())
+        self.assertEqual(controller.load_appearance()["theme"], "dark")
+
+    def test_model_catalog_late_result_cannot_replace_another_profile(self):
+        from unittest.mock import patch
+        import provider_catalog
+        started, release = threading.Event(), threading.Event()
+        controller.save_provider_profile("Cloud", "openai-compatible", {"SOCKET_STREAM_MODEL": "cloud-model"})
+        controller.save_provider_profile("Codex", "codex", {"SOCKET_STREAM_CODEX_MODEL": "codex-model"})
+        self.app.provider_book = controller.load_provider_profiles()
+        self.app.refresh_profile_choices()
+        self.panel.profile_select.set_active_id("Cloud")
+
+        def fetch(*_args):
+            started.set()
+            release.wait(timeout=2)
+            return [{"id": "stale-cloud-model"}]
+
+        with patch.object(provider_catalog, "fetch_models", side_effect=fetch):
+            self.panel.models_button.clicked()
+            self.assertTrue(started.wait(timeout=1))
+            self.panel.profile_select.set_active_id("Codex")
+            release.set()
+            self.assertTrue(wait_for(lambda: not self.app._panel_catalog_busy))
+        self.assertEqual(self.panel.model_entry.get_text(), "codex-model")
+        self.assertNotIn("stale-cloud-model", [row[0] for row in self.panel.model_combo.get_model()])
+
+    def test_unsaved_provider_settings_cannot_overwrite_saved_profile_from_panel(self):
+        controller.save_provider_profile("Cloud", "openai-compatible", {"SOCKET_STREAM_MODEL": "saved-model"})
+        self.app.provider_book = controller.load_provider_profiles()
+        self.app.refresh_profile_choices()
+        self.panel.profile_select.set_active_id("Cloud")
+        before = controller.load_provider_settings()
+        self.app.env["SOCKET_STREAM_MODEL"] = "memory-only-model"
+        self.app.sync_provider_label()
+        self.assertEqual(self.panel.profile_select.get_active_id(), "")
+        self.assertFalse(self.app.panel_model("new-model"))
+        self.assertEqual(controller.load_provider_settings(), before)
+
+    def test_provider_validation_failure_keeps_dialog_open_and_runtime_unchanged(self):
+        controller.save_provider_profile("Cloud", "openai-compatible", {"SOCKET_STREAM_MODEL": "saved-model", "SOCKET_STREAM_BASE_URL": "http://127.0.0.1/v1"})
+        self.app.provider_book = controller.load_provider_profiles()
+        self.app.refresh_profile_choices()
+        self.panel.profile_select.set_active_id("Cloud")
+        before, saved, steps = dict(self.app.env), controller.load_provider_settings(), []
+
+        def edit():
+            dialogs = [d for d in Gtk.Window.list_toplevels() if d.get_title() == "AI provider settings"]
+            if not dialogs:
+                return True
+            dialog = dialogs[0]
+            entries, pending = {}, [dialog]
+            while pending:
+                widget = pending.pop()
+                if isinstance(widget, Gtk.Entry):
+                    entries[widget.get_accessible().get_name()] = widget
+                if isinstance(widget, Gtk.Container):
+                    pending.extend(widget.get_children())
+            if not steps:
+                entries["Cloud model name"].set_text("invalid-model-" + "x" * 140)
+                dialog.response(Gtk.ResponseType.OK)
+                steps.append("invalid")
+                return True
+            self.assertEqual(self.app.env, before)
+            self.assertEqual(controller.load_provider_settings(), saved)
+            dialog.response(Gtk.ResponseType.CANCEL)
+            steps.append("cancelled")
+            return False
+
+        GLib.timeout_add(60, edit)
+        self.app.settings(None)
+        self.assertEqual(steps, ["invalid", "cancelled"])
+        self.assertEqual(self.app.env, before)
+
+    def test_profile_rename_preserves_unsaved_form_edits_without_switching_primary(self):
+        controller.save_provider_profile("A", "openai-compatible", {"SOCKET_STREAM_MODEL": "model-a", "SOCKET_STREAM_API_KEY": "fixture-a"})
+        controller.save_provider_profile("B", "codex", {"SOCKET_STREAM_CODEX_MODEL": "model-b"})
+        self.app.provider_book = controller.load_provider_profiles()
+        self.app.refresh_profile_choices()
+        self.panel.profile_select.set_active_id("B")
+        runtime = dict(self.app.env)
+        renamed = []
+
+        def edit():
+            dialogs = [d for d in Gtk.Window.list_toplevels() if d.get_title() == "AI provider settings"]
+            if not dialogs:
+                return True
+            dialog = dialogs[0]
+            controls, pending = {}, [dialog]
+            while pending:
+                widget = pending.pop()
+                if isinstance(widget, (Gtk.Entry, Gtk.ComboBoxText, Gtk.Button)):
+                    controls[widget.get_accessible().get_name()] = widget
+                if isinstance(widget, Gtk.Container):
+                    pending.extend(widget.get_children())
+            controls["Saved provider profiles"].set_active_id("A")
+            controls["Profile name"].set_text("Renamed A")
+            controls["API key"].set_text("unsaved-draft")
+            controls["Rename"].clicked()
+            self.assertEqual(controls["API key"].get_text(), "unsaved-draft")
+            self.assertEqual(controls["Saved provider profiles"].get_active_id(), "Renamed A")
+            renamed.append(True)
+            dialog.response(Gtk.ResponseType.CANCEL)
+            return False
+
+        GLib.timeout_add(70, edit)
+        self.app.settings(None)
+        book = controller.load_provider_profiles()
+        self.assertEqual(renamed, [True])
+        self.assertEqual(book["active_profile"], "B")
+        self.assertEqual(book["profiles"]["Renamed A"]["settings"]["SOCKET_STREAM_API_KEY"], "fixture-a")
+        self.assertEqual(self.app.env, runtime)
+
+    def test_use_and_test_commits_valid_profile_before_requesting_inference_consent(self):
+        tested = []
+        self.app.provider_test = lambda *_: tested.append(self.app.selected_provider())
+
+        def edit():
+            dialogs = [d for d in Gtk.Window.list_toplevels() if d.get_title() == "AI provider settings"]
+            if not dialogs:
+                return True
+            dialog = dialogs[0]
+            controls, pending = {}, [dialog]
+            while pending:
+                widget = pending.pop()
+                if isinstance(widget, (Gtk.Entry, Gtk.ComboBoxText)):
+                    controls[widget.get_accessible().get_name()] = widget
+                if isinstance(widget, Gtk.Container):
+                    pending.extend(widget.get_children())
+            controls["Profile name"].set_text("Test Codex")
+            controls["Profile provider"].set_active(2)
+            controls["Codex preferred model"].set_text("")
+            dialog.response(1)
+            return False
+
+        GLib.timeout_add(60, edit)
+        self.app.settings(None)
+        self.assertEqual(tested, ["codex"])
+        self.assertEqual(controller.load_provider_profiles()["active_profile"], "Test Codex")
+        self.assertIsNone(self.app.proc, "test hook must not capture or invoke a real provider")
+
+    def test_provider_manager_saves_multiple_profiles_without_closing_and_new_draft_has_no_key(self):
+        self.app.reduced_motion.set_active(True)
+        self.app.theme_select.set_active_id("dark")
+        def widgets(dialog):
+            result, pending = {}, [dialog]
+            while pending:
+                widget = pending.pop()
+                name = widget.get_accessible().get_name()
+                if name not in result or not isinstance(widget, Gtk.Label):
+                    result[name] = widget
+                if isinstance(widget, Gtk.Container):
+                    pending.extend(widget.get_children())
+            return result
+
+        steps = []
+        def edit():
+            dialogs = [d for d in Gtk.Window.list_toplevels() if d.get_title() == "AI provider settings"]
+            if not dialogs:
+                return True
+            dialog = dialogs[0]
+            controls = widgets(dialog)
+            if not steps:
+                artifact(dialog, "providers-dark")
+                controls["Profile name"].set_text("Cloud One")
+                controls["Profile provider"].set_active(3)
+                controls["API base or full chat-completions URL"].set_text("http://127.0.0.1:9000/v1")
+                controls["Cloud model name"].set_text("fixture-model")
+                controls["API key"].set_text("fixture-secret")
+                dialog.response(Gtk.ResponseType.APPLY)
+                steps.append("first")
+            else:
+                controls["New profile"].clicked()
+                self.assertEqual(controls["API key"].get_text(), "")
+                controls["Profile name"].set_text("Codex Two")
+                controls["Profile provider"].set_active(2)
+                controls["Codex preferred model"].set_text("")
+                dialog.response(Gtk.ResponseType.OK)
+                steps.append("second")
+                return False
+            return True
+
+        GLib.timeout_add(70, edit)
+        self.app.settings(None)
+        book = controller.load_provider_profiles()
+        self.assertEqual(steps, ["first", "second"])
+        self.assertEqual(set(book["profiles"]), {"Cloud One", "Codex Two"})
+        self.assertEqual(book["profiles"]["Cloud One"]["settings"]["SOCKET_STREAM_API_KEY"], "fixture-secret")
+        self.assertEqual(book["profiles"]["Codex Two"]["settings"]["SOCKET_STREAM_API_KEY"], "")
+        self.assertIsNone(self.app.proc)
 
     def test_progress_and_details_show_http_failure_without_prompt(self):
         self.send("session_started")

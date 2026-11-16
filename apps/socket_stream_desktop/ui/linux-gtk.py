@@ -38,7 +38,10 @@ from shortcuts import (  # noqa: E402  (path set just above)
 from answer_format import question_title  # noqa: E402
 from ui_theme import style  # noqa: E402
 from provider_settings import (  # noqa: E402  (path set just above)
+    PROVIDER_SETTING_KEYS,
     clear_provider_settings,
+    delete_provider_profile,
+    rename_provider_profile,
     load_provider_settings,
     load_provider_profiles,
     save_provider_profile,
@@ -275,12 +278,23 @@ def create_window():
                 on_selection_changed=self.refresh_session,
                 on_ask=self.send_manual_question, on_capture=self.manual_capture,
                 on_cursor_blending=self.on_panel_cursor_blending,
+                on_start=self.start_from_panel, on_sources=self.panel_sources,
+                on_profile=self.select_provider_profile, on_model=self.panel_model,
+                on_providers=lambda: self.settings(None), on_window=self.choose_question_window,
+                on_models=self.panel_fetch_models, on_audio=self.audio_options,
                 **self.appearance,
             )
             build_workspace(self)
             self._install_shortcuts()
             self._fill_shortcut_form()
             self.preview_appearance()
+            self._theme_settings = Gtk.Settings.get_default()
+            self._theme_signals = []
+            if self._theme_settings is not None:
+                for property_name in ("gtk-theme-name", "gtk-application-prefer-dark-theme"):
+                    self._theme_signals.append(self._theme_settings.connect(
+                        "notify::" + property_name,
+                        lambda *_: self.preview_appearance() if not self._exiting and self.theme_select.get_active_id() == "system" else None))
             self.sync_provider_label()
             self.refresh_session()
             self.report_capabilities()
@@ -337,23 +351,153 @@ def create_window():
 
         def sync_provider_label(self):
             self.provider_hint.set_text(self.provider_display())
+            self.refresh_profile_choices()
+            self.sync_panel_session()
+
+        def profile_matches_current(self):
+            item = self.provider_book["profiles"].get(self.provider_book["active_profile"])
+            return bool(item and item["provider"] == self.selected_provider() and all(
+                self.env.get(key, "") == item["settings"].get(key, "")
+                for key in PROVIDER_SETTING_KEYS if key != "SOCKET_STREAM_PROVIDER"))
+
+        def model_setting_key(self):
+            return {"codex": "SOCKET_STREAM_CODEX_MODEL", "ollama": "SOCKET_STREAM_OLLAMA_MODEL",
+                    "openai-compatible": "SOCKET_STREAM_MODEL"}.get(self.selected_provider())
+
+        def panel_sources(self, audio, screen):
+            if self.proc is not None or self._starting:
+                return
+            self.audio_check.set_active(audio)
+            self.screen_check.set_active(screen)
+
+        def panel_feedback(self, message, error=False):
+            self.feedback(self.session_message, message, error)
+            self.floating.notice.set_text(message)
+            self.floating.notice.set_visible(True)
+            self.floating.set_status(message)
+
+        def panel_model(self, value):
+            if self.proc is not None or self._starting:
+                self.panel_feedback("Stop before changing provider or model.", True)
+                return False
+            from codex_models import validated_model
+            key = self.model_setting_key()
+            if key is None:
+                return True
+            try:
+                value = validated_model(value) if value.strip() else ""
+                name = self.provider_book["active_profile"]
+                item = self.provider_book["profiles"].get(name)
+                if not self.profile_matches_current():
+                    raise ValueError("Save a named provider in Providers before saving its model.")
+                draft = dict(self.env, **{key: value})
+                save_provider_profile(name, item["provider"], draft, self.fallback_profile)
+            except (ValueError, OSError):
+                self.panel_feedback("Could not save model. Use a valid model ID and a saved provider profile in Providers.", True)
+                return False
+            self.env = draft
+            self.provider_book = load_provider_profiles()
+            self.sync_provider_label()
+            self.panel_feedback("Preferred model saved. Start fresh or send a new question to use it.")
+            return True
+
+        def start_from_panel(self):
+            key = self.model_setting_key()
+            if key and self.floating.model_entry.get_text().strip() != self.env.get(key, ""):
+                self.panel_feedback("Model has unsaved changes. Choose Use model to save it, or restore the previous model before Start fresh.", True)
+                return
+            self.start()
+
+        def panel_fetch_models(self):
+            if self.proc is not None or self._starting or getattr(self, "_panel_catalog_busy", False):
+                return
+            from provider_catalog import fetch_models
+            from codex_models import CodexModelsError
+            self._panel_catalog_busy = True
+            self.floating.models_button.set_sensitive(False)
+            name, provider, settings = self.provider_book["active_profile"], self.selected_provider(), dict(self.env)
+            self.panel_feedback("Fetching provider models; no inference is requested.")
+
+            def work():
+                try:
+                    models, failure = fetch_models(provider, CLI, settings), ""
+                except (CodexModelsError, ValueError):
+                    models, failure = [], "Could not fetch models. Check provider settings, or enter a model ID manually."
+
+                def deliver():
+                    self._panel_catalog_busy = False
+                    if self._exiting:
+                        return False
+                    self.sync_panel_session()
+                    if (self.proc is not None or self._starting or name != self.provider_book["active_profile"]
+                            or provider != self.selected_provider() or settings != self.env):
+                        return False
+                    if failure:
+                        self.panel_feedback(failure, True)
+                    else:
+                        current = self.floating.model_entry.get_text()
+                        self.floating.model_combo.remove_all()
+                        for model in models:
+                            self.floating.model_combo.append_text(model["id"])
+                        self.floating.model_entry.set_text(current)
+                        self.panel_feedback(f"Found {len(models)} models. Choose one and Use model. Listing is not an inference test.")
+                    return False
+
+                GLib.idle_add(deliver)
+
+            threading.Thread(target=work, daemon=True).start()
+
+        def sync_panel_session(self):
+            if not hasattr(self, "audio_check"):
+                return
+            panel = self.floating
+            editable = self.proc is None and not self._starting
+            panel._syncing_session = True
+            try:
+                panel.audio_toggle.set_active(self.audio_check.get_active())
+                panel.audio_toggle.set_label("Playback" if self.audio_source == "system" else "Microphone")
+                panel.screen_toggle.set_active(self.screen_check.get_active())
+                key = self.model_setting_key()
+                value = self.env.get(key, "") if key else ""
+                if getattr(panel, "_model_binding", None) != (self.provider_book["active_profile"], key, value):
+                    panel.model_combo.remove_all()
+                    if value:
+                        panel.model_combo.append_text(value)
+                    panel.model_entry.set_text(value)
+                    panel._model_binding = (self.provider_book["active_profile"], key, value)
+                panel.model_combo.set_sensitive(editable and key is not None)
+                panel.model_save_button.set_sensitive(editable and key is not None)
+                panel.models_button.set_sensitive(editable and key is not None and not getattr(self, "_panel_catalog_busy", False))
+                for widget in (panel.profile_select, panel.providers_button, panel.audio_toggle,
+                               panel.screen_toggle, panel.window_button, panel.audio_options_button):
+                    widget.set_sensitive(editable)
+                panel.start_button.set_sensitive(editable and (self.audio_check.get_active() or self.screen_check.get_active()))
+                panel.start_button.set_label("Starting…" if self._starting else "Start fresh")
+            finally:
+                panel._syncing_session = False
 
         def refresh_profile_choices(self):
             if not hasattr(self, "profile_select"):
                 return
             self._syncing_profiles = True
-            self.profile_select.remove_all()
-            for name in self.provider_book["profiles"]:
-                self.profile_select.append(name, name)
-            self.profile_select.set_active_id(self.provider_book["active_profile"])
+            self.floating._syncing_session = True
+            for combo in (self.profile_select, self.floating.profile_select):
+                combo.remove_all()
+                matches = self.profile_matches_current()
+                if not matches:
+                    combo.append("", "Unsaved settings · Providers… to save")
+                for name, item in self.provider_book["profiles"].items():
+                    combo.append(name, name + " · " + item["provider"])
+                combo.set_active_id(self.provider_book["active_profile"] if matches else "")
+            self.floating._syncing_session = False
             self._syncing_profiles = False
 
         def select_provider_profile(self, combo):
             name = combo.get_active_id()
-            if self._syncing_profiles or self.proc is not None or name not in self.provider_book["profiles"]:
+            if self._syncing_profiles or self.proc is not None or self._starting or name not in self.provider_book["profiles"]:
                 return
             item = self.provider_book["profiles"][name]
-            self.env.update(item["settings"])
+            self.env.update({key: item["settings"].get(key, "") for key in PROVIDER_SETTING_KEYS})
             self.env["SOCKET_STREAM_PROVIDER"] = item["provider"]
             self.provider.set_active(("mock", "ollama", "codex", "openai-compatible").index(item["provider"]))
             if self.fallback_profile == name:
@@ -364,6 +508,7 @@ def create_window():
             except (OSError, ValueError):
                 self.feedback(self.session_message, "Profile selected for this run, but saving the selection failed.", error=True)
             self.sync_provider_label()
+            self.refresh_profile_choices()
 
         def select_question(self, request_id):
             self.floating.pin_question(request_id)
@@ -410,8 +555,9 @@ def create_window():
 
         def appearance_values(self):
             values = dict(opacity=round(self.opacity_scale.get_value() / 100, 2),
-                          font_size=self.font_size.get_value_as_int(),
-                          reduced_motion=self.reduced_motion.get_active())
+                           font_size=self.font_size.get_value_as_int(),
+                           reduced_motion=self.reduced_motion.get_active(),
+                           theme=self.theme_select.get_active_id() or "light")
             if getattr(self.floating, "input_shape_supported", False):
                 values["cursor_blending"] = self.cursor_blending_check.get_active()
             else:
@@ -424,6 +570,8 @@ def create_window():
             values = self.appearance_values()
             self.opacity_value.set_text(f"{round(values['opacity'] * 100)}%")
             self.floating.set_appearance(**values)
+            from ui_theme import set_theme
+            set_theme(values["theme"])
             settings = Gtk.Settings.get_default()
             animate = not values["reduced_motion"] and settings.get_property("gtk-enable-animations")
             self.workspace_stack.set_transition_duration(160 if animate else 0)
@@ -955,6 +1103,11 @@ def create_window():
             screen = self.screen_check.get_active()
             available = audio or screen
             self.start_button.set_sensitive(available and self.proc is None and not self._starting)
+            editable = self.proc is None and not self._starting
+            for widget in (self.provider, self.profile_select, self.use_codex_button,
+                           self.audio_check, self.screen_check):
+                widget.set_sensitive(editable)
+            self.sync_panel_session()
             if not available and self.proc is None:
                 self.feedback(self.session_message, "Select audio and/or screen before starting.")
             elif self.proc is None:
@@ -1174,6 +1327,11 @@ def create_window():
                         return False
                     self.set_status()
                     self.write(f"\nCommand exited with status {returncode}.\n")
+                    if arguments[0] == "provider-test":
+                        message = ("Mock test complete; no AI inference was requested." if self.selected_provider() == "mock"
+                                   else "AI inference test succeeded. No screen or audio was sent.") if returncode == 0 else (
+                                       "AI inference test failed or was stopped. Check Tools & diagnostics for the sanitized error; login/model listing alone does not prove inference access.")
+                        self.panel_feedback(message, error=returncode != 0)
                     return False
 
                 GLib.idle_add(finished)
@@ -1309,7 +1467,7 @@ def create_window():
             if screen:
                 sources.append(f"selected window: {self.question_window_title} (accessibility only, no screenshots)"
                                if self.question_window_target is not None else "foreground screen reading")
-            explanation = ("Start " + " and ".join(sources) + "? Audio uses local Moonshine; "
+            explanation = ("Start " + " and ".join(sources) + "? Answer provider: " + self.provider_display() + ". Audio uses local Moonshine; "
                             "finalized speech is sent to your selected provider. Screen reads "
                              + ("only the selected window's accessibility text, even when unfocused; no screenshots or OCR. "
                                 if self.question_window_target is not None else
@@ -1503,7 +1661,9 @@ def create_window():
                     "This sends one fixed test prompt and may consume your configured provider's quota. "
                     "It does not capture or send screen/audio content."):
                 return
-            self.run_cli(["provider-test", "--provider", self.selected_provider(), "--confirm-inference"])
+            if self.run_cli(["provider-test", "--provider", self.selected_provider(), "--confirm-inference"]):
+                self.show_answer_panel()
+                self.panel_feedback("Testing provider inference with a fixed prompt. No screen/audio is sent. Stop cancels the test.")
 
         def codex_login(self, _button=None):
             if self.proc is not None:
@@ -1523,15 +1683,22 @@ def create_window():
                 self.run_cli(["codex-logout", "--confirm"])
 
         def settings(self, _button):
+            if self.proc is not None or self._starting:
+                self.panel_feedback("Stop the active operation before editing provider profiles.", True)
+                return
             dialog = Gtk.Dialog(
                 title="AI provider settings",
                 transient_for=self, flags=0)
             style(dialog, "ss-dialog")
+            dialog.set_modal(True)
             dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                               Gtk.STOCK_APPLY, Gtk.ResponseType.OK)
+                               "Save profile", Gtk.ResponseType.APPLY,
+                               "Use & test", 1,
+                               "Save & use profile", Gtk.ResponseType.OK)
             profile_header = Gtk.Grid(column_spacing=10, row_spacing=8)
             profile_header.set_border_width(12)
             saved_profiles = Gtk.ComboBoxText()
+            saved_profiles.get_accessible().set_name("Saved provider profiles")
             for name in self.provider_book["profiles"]:
                 saved_profiles.append(name, name)
             saved_profiles.set_active_id(self.provider_book["active_profile"])
@@ -1550,6 +1717,20 @@ def create_window():
                 profile_header.attach(widget, 1, row, 1, 1)
             settings_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             settings_body.pack_start(profile_header, False, False, 0)
+            profile_actions = Gtk.Box(spacing=8)
+            profile_actions.set_border_width(12)
+            settings_body.pack_start(profile_actions, False, False, 0)
+            new_button = self.add_button(profile_actions, "New profile", lambda *_: new_profile())
+            duplicate_button = self.add_button(profile_actions, "Duplicate", lambda *_: new_profile(duplicate=True))
+            rename_button = self.add_button(profile_actions, "Rename", lambda *_: rename_profile())
+            delete_button = self.add_button(profile_actions, "Delete selected", lambda *_: delete_profile())
+            for button in (duplicate_button, rename_button, delete_button):
+                button.set_sensitive(bool(saved_profiles.get_active_id()))
+            new_button.set_tooltip_text("Create a separate provider profile; existing credentials remain unchanged.")
+            profile_message = Gtk.Label(label="Choose a saved profile to edit, or New profile to add another provider. Names are unique; each profile has its own credentials and model.")
+            profile_message.set_line_wrap(True)
+            profile_message.set_max_width_chars(70)
+            settings_body.pack_start(profile_message, False, False, 8)
             grid = Gtk.Grid(column_spacing=10, row_spacing=9)
             grid.set_border_width(12)
             form = (
@@ -1560,15 +1741,23 @@ def create_window():
                 ("Ollama local model", "SOCKET_STREAM_OLLAMA_MODEL"),
             )
             entries = {}
+            form_rows = {}
+            model_combos = {}
             for row, (label, key) in enumerate(form):
-                control = Gtk.Entry()
+                combo = Gtk.ComboBoxText.new_with_entry() if key.endswith("_MODEL") else None
+                control = combo.get_child() if combo else Gtk.Entry()
                 control.set_text(self.env.get(key, ""))
                 control.set_width_chars(48)
                 if key == "SOCKET_STREAM_API_KEY":
                     control.set_visibility(False)
                 entries[key] = control
-                grid.attach(Gtk.Label(label=label), 0, row, 1, 1)
-                grid.attach(control, 1, row, 1, 1)
+                control.get_accessible().set_name(label)
+                title = Gtk.Label(label=label)
+                grid.attach(title, 0, row, 1, 1)
+                grid.attach(combo or control, 1, row, 1, 1)
+                form_rows[key] = (title, combo or control)
+                if combo:
+                    model_combos[key] = combo
             persist = Gtk.CheckButton(
                 label="Save this named profile, credentials and preferred models for future runs")
             persist.set_active(True)
@@ -1588,13 +1777,20 @@ def create_window():
                     cleared = clear_provider_settings()
                     self.provider_book = load_provider_profiles()
                     self.fallback_profile = ""
+                    self.env.update({key: "" for key in PROVIDER_SETTING_KEYS})
+                    self.provider.set_active(0)
                     self.refresh_profile_choices()
+                    refresh_saved()
+                    new_profile()
+                    self.sync_provider_label()
                     self.write("Saved provider profiles removed.\n" if cleared else "No saved profiles found.\n")
                 except (OSError, ValueError):
                     self.write("Could not clear saved profiles safely; close other settings writers and check file permissions.\n")
 
             clear_button.connect("clicked", clear_profiles)
-            grid.attach(clear_button, 0, len(form) + 2, 2, 1)
+            advanced_profiles = Gtk.Expander(label="Remove all saved profiles…")
+            advanced_profiles.add(clear_button)
+            grid.attach(advanced_profiles, 0, len(form) + 2, 2, 1)
             codex_combo = Gtk.ComboBoxText.new_with_entry()
             codex_entry = codex_combo.get_child()
             codex_entry.get_accessible().set_name("Codex preferred model")
@@ -1608,6 +1804,8 @@ def create_window():
             model_note.set_max_width_chars(60)
             grid.attach(fetch_button, 0, len(form) + 4, 1, 1)
             grid.attach(model_note, 1, len(form) + 4, 1, 1)
+            codex_label = grid.get_child_at(0, len(form) + 3)
+            model_combos["SOCKET_STREAM_CODEX_MODEL"] = codex_combo
             fallback_enabled = Gtk.CheckButton(label="On failure, allow another saved profile to receive this question/text (may incur charges)")
             fallback_enabled.get_accessible().set_name("Enable fallback profile")
             fallback_enabled.get_child().set_line_wrap(True)
@@ -1625,7 +1823,10 @@ def create_window():
             grid.attach(fallback_combo, 1, len(form) + 6, 1, 1)
 
             def load_profile(combo):
+                fetch_generation[0] += 1
                 item = self.provider_book["profiles"].get(combo.get_active_id())
+                for button in (duplicate_button, rename_button, delete_button):
+                    button.set_sensitive(item is not None)
                 if item is None:
                     return
                 profile_name.set_text(combo.get_active_id())
@@ -1633,34 +1834,130 @@ def create_window():
                 for key, entry in entries.items():
                     entry.set_text(str(item["settings"].get(key, "")))
                 codex_entry.set_text(str(item["settings"].get("SOCKET_STREAM_CODEX_MODEL", "")))
+                provider_fields()
 
             saved_profiles.connect("changed", load_profile)
             profile_header.set_sensitive(self.proc is None and not self._starting)
             alive = [True]
+            fetch_generation = [0]
+
+            def refresh_saved():
+                saved_profiles.remove_all()
+                fallback_combo.remove_all()
+                for name in self.provider_book["profiles"]:
+                    saved_profiles.append(name, name)
+                    fallback_combo.append(name, name)
+                saved_profiles.set_active_id(self.provider_book["active_profile"])
+                fallback_combo.set_active_id(self.fallback_profile)
+
+            def new_profile(duplicate=False):
+                saved_profiles.set_active(-1)
+                profile_name.set_text((profile_name.get_text() + " copy") if duplicate else "")
+                if not duplicate:
+                    for key, entry in entries.items():
+                        entry.set_text({"SOCKET_STREAM_BASE_URL": "https://api.openai.com/v1",
+                                        "SOCKET_STREAM_OLLAMA_URL": "http://127.0.0.1:11434/v1"}.get(key, ""))
+                    codex_entry.set_text("")
+                fallback_enabled.set_active(False)
+                profile_name.grab_focus()
+                profile_message.set_text("New unsaved profile. Give it a unique name, choose a provider and model, then Save & use profile.")
+
+            def rename_profile():
+                old, new = saved_profiles.get_active_id(), profile_name.get_text().strip()
+                draft_entries = {key: entry.get_text() for key, entry in entries.items()}
+                draft_codex, draft_provider = codex_entry.get_text(), profile_provider.get_active()
+                try:
+                    rename_provider_profile(old, new)
+                    self.provider_book = load_provider_profiles()
+                    self.fallback_profile = self.provider_book["fallback_profile"]
+                    self.refresh_profile_choices()
+                    refresh_saved()
+                    saved_profiles.set_active_id(new)
+                    for key, value in draft_entries.items():
+                        entries[key].set_text(value)
+                    codex_entry.set_text(draft_codex)
+                    profile_provider.set_active(draft_provider)
+                    self.sync_panel_session()
+                    profile_message.set_text("Profile renamed. Credentials and model are unchanged; other edits still need Save.")
+                except (ValueError, OSError):
+                    profile_message.set_text("Enter a unique name, then Rename. Existing profiles were not changed.")
+
+            def delete_profile():
+                name = saved_profiles.get_active_id()
+                if not name or not self.confirmation("Delete selected provider profile?",
+                        "Only this saved profile is removed. Other profiles and official Codex login are unchanged."):
+                    return
+                try:
+                    delete_provider_profile(name)
+                    self.provider_book = load_provider_profiles()
+                    self.env.update({key: "" for key in PROVIDER_SETTING_KEYS})
+                    self.env.update(load_provider_settings())
+                    self.fallback_profile = self.provider_book["fallback_profile"]
+                    active = self.provider_book["profiles"].get(self.provider_book["active_profile"])
+                    if active:
+                        self.provider.set_active(("mock", "ollama", "codex", "openai-compatible").index(active["provider"]))
+                    else:
+                        self.provider.set_active(0)
+                    self.refresh_profile_choices()
+                    refresh_saved()
+                    if not active:
+                        new_profile()
+                    self.sync_provider_label()
+                    profile_message.set_text("Selected profile deleted. Other profiles are unchanged.")
+                except (OSError, ValueError):
+                    profile_message.set_text("Could not delete the profile safely. Existing profiles were preserved.")
+
+            def provider_fields(*_args):
+                fetch_generation[0] += 1
+                chosen = profile_provider.get_active_text()
+                keys = {"openai-compatible": {"SOCKET_STREAM_BASE_URL", "SOCKET_STREAM_MODEL", "SOCKET_STREAM_API_KEY"},
+                        "ollama": {"SOCKET_STREAM_OLLAMA_URL", "SOCKET_STREAM_OLLAMA_MODEL"}}.get(chosen, set())
+                for key, widgets in form_rows.items():
+                    for widget in widgets:
+                        widget.set_visible(key in keys)
+                        widget.set_no_show_all(key not in keys)
+                for widget in (codex_combo, codex_label):
+                    widget.set_visible(chosen == "codex")
+                    widget.set_no_show_all(chosen != "codex")
+                fetch_button.set_sensitive(chosen != "mock")
+                fetch_button.set_label("Fetch Codex models" if chosen == "codex" else "Fetch models")
+                model_note.set_text("Codex uses official ChatGPT login; no API key is needed here. Blank model uses the Codex default. Listing models does not prove inference access."
+                                    if chosen == "codex" else "Choose a model from Fetch models, or type its ID. Listing does not prove inference access or quota.")
+
+            profile_provider.connect("changed", provider_fields)
 
             def fetch_models(_button):
+                from provider_catalog import fetch_models as catalog
+                chosen = profile_provider.get_active_text()
+                generation = fetch_generation[0]
+                draft = {key: entry.get_text().strip() for key, entry in entries.items()}
                 fetch_button.set_sensitive(False)
-                model_note.set_text("Fetching models through the official Codex App Server…")
+                model_note.set_text("Fetching models… No inference is requested.")
 
                 def work():
-                    from codex_models import CodexModelsError, fetch_codex_models
+                    from codex_models import CodexModelsError
                     try:
-                        models, failure = fetch_codex_models(), None
+                        models, failure = catalog(chosen, CLI, draft), None
                     except CodexModelsError as exc:
                         models, failure = [], str(exc)
 
                     def deliver():
-                        if not alive[0] or self._exiting:
+                        if not alive[0] or self._exiting or generation != fetch_generation[0]:
                             return False
                         fetch_button.set_sensitive(True)
+                        if draft != {key: entry.get_text().strip() for key, entry in entries.items()}:
+                            model_note.set_text("Settings changed while fetching. Fetch again for the current endpoint and credentials.")
+                            return False
                         if failure:
                             model_note.set_text(failure + " Sign in/check Codex version, or enter a model ID manually.")
                         else:
-                            current = codex_entry.get_text()
-                            codex_combo.remove_all()
+                            key = {"codex": "SOCKET_STREAM_CODEX_MODEL", "ollama": "SOCKET_STREAM_OLLAMA_MODEL", "openai-compatible": "SOCKET_STREAM_MODEL"}[chosen]
+                            combo = model_combos[key]
+                            current = combo.get_child().get_text()
+                            combo.remove_all()
                             for model in models:
-                                codex_combo.append_text(model["id"])
-                            codex_entry.set_text(current)
+                                combo.append_text(model["id"])
+                            combo.get_child().set_text(current)
                             model_note.set_text(f"Fetched {len(models)} models. Select one or enter an ID; listing does not prove model access or quota. Apply, then Test AI response.")
                         return False
 
@@ -1674,45 +1971,71 @@ def create_window():
             settings_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
             settings_scroll.add(settings_body)
             settings_scroll.set_min_content_height(420)
-            dialog.get_content_area().add(settings_scroll)
+            dialog.get_content_area().pack_start(settings_scroll, True, True, 0)
             dialog.set_default_size(800, 640)
             dialog.show_all()
-            if dialog.run() == Gtk.ResponseType.OK:
+            provider_fields()
+            test_requested = False
+            while True:
+                response = dialog.run()
+                if response not in (Gtk.ResponseType.OK, Gtk.ResponseType.APPLY, 1):
+                    break
                 from codex_models import validated_model
                 codex_model = codex_entry.get_text().strip()
                 try:
-                    self.env["SOCKET_STREAM_CODEX_MODEL"] = validated_model(codex_model) if codex_model else ""
-                except ValueError:
-                    self.write("Invalid Codex model ID; previous selection retained.\n")
-                chosen_provider = profile_provider.get_active_text() or self.selected_provider()
-                if self.proc is None and not self._starting:
-                    self.provider.set_active(("mock", "ollama", "codex", "openai-compatible").index(chosen_provider))
-                self.env["SOCKET_STREAM_PROVIDER"] = chosen_provider
-                for key, control in entries.items():
-                    self.env[key] = control.get_text().strip()
-                requested_fallback = (fallback_combo.get_active_id() or "") if fallback_enabled.get_active() else ""
-                self.fallback_profile = (requested_fallback if requested_fallback in self.provider_book["profiles"]
-                                         and requested_fallback != profile_name.get_text().strip() else "")
-                if persist.get_active():
-                    try:
-                        fallback = (fallback_combo.get_active_id() or "") if fallback_enabled.get_active() else ""
-                        if fallback_enabled.get_active() and not fallback:
-                            raise ValueError("Select a saved fallback profile, or disable fallback")
-                        path = save_provider_profile(profile_name.get_text(), chosen_provider, self.env, fallback)
+                    chosen_provider = profile_provider.get_active_text() or self.selected_provider()
+                    draft = {key: control.get_text().strip() for key, control in entries.items()}
+                    draft["SOCKET_STREAM_CODEX_MODEL"] = validated_model(codex_model) if codex_model else ""
+                    draft["SOCKET_STREAM_PROVIDER"] = chosen_provider
+                    relevant = {"openai-compatible": {"SOCKET_STREAM_BASE_URL", "SOCKET_STREAM_MODEL", "SOCKET_STREAM_API_KEY"},
+                                "ollama": {"SOCKET_STREAM_OLLAMA_URL", "SOCKET_STREAM_OLLAMA_MODEL"},
+                                "codex": {"SOCKET_STREAM_CODEX_MODEL"}}.get(chosen_provider, set())
+                    draft = {key: (value if key in relevant or key == "SOCKET_STREAM_PROVIDER" else "")
+                             for key, value in draft.items()}
+                    for key in ("SOCKET_STREAM_MODEL", "SOCKET_STREAM_OLLAMA_MODEL"):
+                        if draft.get(key):
+                            draft[key] = validated_model(draft[key])
+                    name = profile_name.get_text().strip()
+                    fallback = (fallback_combo.get_active_id() or "") if fallback_enabled.get_active() else ""
+                    if fallback_enabled.get_active() and (not fallback or fallback == name):
+                        raise ValueError("Choose a different saved fallback profile, or disable fallback.")
+                    if chosen_provider == "openai-compatible" and (not draft.get("SOCKET_STREAM_BASE_URL") or not draft.get("SOCKET_STREAM_MODEL")):
+                        raise ValueError("Enter an API endpoint and model ID.")
+                    if chosen_provider == "ollama" and (not draft.get("SOCKET_STREAM_OLLAMA_URL") or not draft.get("SOCKET_STREAM_OLLAMA_MODEL")):
+                        raise ValueError("Enter an Ollama endpoint and model ID.")
+                    if persist.get_active():
+                        if name in self.provider_book["profiles"] and name != saved_profiles.get_active_id():
+                            if not self.confirmation("Replace existing provider profile?", "A saved profile already uses that name. Replace its credentials and model?"):
+                                continue
+                        save_provider_profile(name, chosen_provider, draft, fallback)
                         self.provider_book = load_provider_profiles()
-                        self.fallback_profile = self.provider_book["fallback_profile"]
                         self.refresh_profile_choices()
-                        self.write(f"Named provider profile and model selections saved to {path} (0600).\n")
-                    except (OSError, ValueError):
-                        self.write("Could not save profile. Check the name, select a different saved fallback, and check file access. Existing saved settings were preserved.\n")
-                else:
-                    self.write("Provider settings updated in memory only; key was not logged.\n")
+                except ValueError as exc:
+                    self.feedback(profile_message, str(exc), error=True)
+                    continue
+                except OSError:
+                    self.feedback(profile_message, "Could not save safely. Check file permissions; existing settings are preserved.", error=True)
+                    continue
+                self.env.update({key: draft.get(key, "") for key in PROVIDER_SETTING_KEYS})
+                self.fallback_profile = fallback
+                self.provider.set_active(("mock", "ollama", "codex", "openai-compatible").index(chosen_provider))
                 self.sync_provider_label()
+                self.panel_feedback("Provider profile ready. Test AI response verifies inference; model listing alone does not.")
+                if response in (Gtk.ResponseType.OK, 1):
+                    test_requested = response == 1
+                    break
+                refresh_saved()
+                self.feedback(profile_message, "Profile saved. Add another with New profile, or select a saved profile to edit.")
             alive[0] = False
             dialog.destroy()
+            if test_requested:
+                self.provider_test(None)
 
         def audio_options(self, _button=None):
             """Choose the audio input and explicit speaker role for the single Start path."""
+            if self.proc is not None or self._starting:
+                self.panel_feedback("Stop before changing the audio source or output monitor.", True)
+                return
             dialog = Gtk.Dialog(title="Audio listening settings", transient_for=self, flags=0)
             style(dialog, "ss-dialog")
             dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -1723,8 +2046,11 @@ def create_window():
             source.append("microphone", "Microphone · your voice")
             source.append("system", "Internal playback · speakers / headphones")
             source.set_active(0 if self.audio_source == "microphone" else 1)
-            device = Gtk.Entry()
+            device_combo = Gtk.ComboBoxText.new_with_entry()
+            device = device_combo.get_child()
             device.set_text(self.audio_device)
+            device.get_accessible().set_name("Audio input or playback monitor")
+            device.set_width_chars(28)
             speaker_role = Gtk.ComboBoxText()
             for role_id, role_label in (
                     ("interviewee", "My answers · suppress automatic answers"),
@@ -1736,7 +2062,7 @@ def create_window():
             source.connect("changed", lambda widget: speaker_role.set_active_id(
                 "interviewer" if widget.get_active_id() == "system" else "practice"))
             for row, (label, widget) in enumerate((
-                    ("Audio source", source), ("Linux input/monitor device", device),
+                    ("Audio source", source), ("Linux input/monitor device", device_combo),
                     ("Speaker/source role", speaker_role))):
                 grid.attach(Gtk.Label(label=label), 0, row, 1, 1)
                 grid.attach(widget, 1, row, 1, 1)
@@ -1744,14 +2070,66 @@ def create_window():
             guidance.set_line_wrap(True)
             guidance.set_max_width_chars(65)
             grid.attach(guidance, 0, 3, 2, 1)
+            refresh = Gtk.Button(label="Refresh audio devices")
+            inventory_note = Gtk.Label(label="Choose the output used by your call/video; default follows the output selected when Start is pressed.")
+            inventory_note.set_line_wrap(True)
+            inventory_note.set_max_width_chars(55)
+            grid.attach(refresh, 0, 4, 1, 1)
+            grid.attach(inventory_note, 1, 4, 1, 1)
+            alive = [True]
+            inventory_generation = [0]
+
+            def refresh_devices(*_args):
+                from audio_devices import list_audio_devices
+                generation = inventory_generation[0] = inventory_generation[0] + 1
+                selected_source = source.get_active_id()
+                refresh.set_sensitive(False)
+
+                def work():
+                    try:
+                        choices = list_audio_devices(selected_source)
+                    except (ValueError, OSError, subprocess.TimeoutExpired):
+                        choices = None
+
+                    def deliver():
+                        if not alive[0] or self._exiting or generation != inventory_generation[0]:
+                            return False
+                        refresh.set_sensitive(True)
+                        if choices is None:
+                            inventory_note.set_text("Could not list devices. Check the audio service, or type a Pulse/PipeWire source name.")
+                        else:
+                            current = device_combo.get_active_id() or device.get_text()
+                            device_combo.remove_all()
+                            for item in choices:
+                                device_combo.append(item["id"], item["label"])
+                            if current in {item["id"] for item in choices}:
+                                device_combo.set_active_id(current)
+                            else:
+                                device.set_text(current)
+                            inventory_note.set_text("Devices listed without recording. Choose the playback monitor for your speakers/headphones. Stop/Start after switching outputs.")
+                        return False
+
+                    GLib.idle_add(deliver)
+
+                threading.Thread(target=work, daemon=True).start()
+
+            def source_changed(*_args):
+                device_combo.set_active(-1)
+                device.set_text("default")
+                refresh_devices()
+
+            source.connect("changed", source_changed)
+            refresh.connect("clicked", refresh_devices)
             dialog.get_content_area().add(grid)
             dialog.show_all()
             accepted = dialog.run() == Gtk.ResponseType.OK
-            selection = (source.get_active_id(), device.get_text().strip(), speaker_role.get_active_id())
+            selection = (source.get_active_id(), device_combo.get_active_id() or device.get_text().strip() or "default", speaker_role.get_active_id())
+            alive[0] = False
             dialog.destroy()
             if accepted:
                 self.audio_source, self.audio_device, self.speaker_role = selection
                 self.audio_source_hint.set_text("Internal playback · speakers / headphones" if self.audio_source == "system" else "Microphone · your voice")
+                self.sync_panel_session()
                 self.feedback(self.session_message, "Audio source updated. Stop and Start to apply to a running session.")
 
         def listen_audio(self, _button):
@@ -1857,6 +2235,9 @@ def create_window():
             if self._exiting:
                 return
             self._exiting = True
+            for handler in getattr(self, "_theme_signals", []):
+                self._theme_settings.disconnect(handler)
+            self._theme_signals = []
             self.stop()
             self.stop_local_ai()
             if self.share_timeout is not None:
