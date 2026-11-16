@@ -103,6 +103,9 @@ class LiveHandoffTests(unittest.TestCase):
         self.assertTrue(all(self.slots.acquire(blocking=False) for _ in range(32)))
 
 
+import os
+
+
 class Node:
     def __init__(self, role="application", text=None, states=(), kids=(), name="", pid=None):
         self.role, self.text, self.states, self.kids = role, text, set(states), list(kids)
@@ -196,6 +199,43 @@ class LinuxAdapterTests(unittest.TestCase):
         app = Node(name="python3", kids=[Node("frame", name="SocketStream — Practice Answer", states=["ACTIVE"])])
         with self.assertRaises(ACCESS.OwnWindowError):
             ACCESS.select_foreground(Node(kids=[app]), ATSPI)
+
+    def test_non_active_focus_does_not_override_ambiguous_active_windows(self):
+        stale = [Node(kids=[Node("frame", states=["ACTIVE"], kids=[Node("text", "background")])]) for _ in range(2)]
+        focused = Node("window", kids=[Node("text", "actual question", states=["FOCUSED"])])
+        desktop = Node(kids=[*stale, Node(kids=[focused])])
+        with self.assertRaisesRegex(RuntimeError, "Multiple accessible windows"):
+            ACCESS.select_foreground(desktop, ATSPI)
+
+    def test_explicit_window_is_scoped_and_never_retargeted(self):
+        chosen = Node("frame", kids=[Node("text", "chosen question")])
+        chosen.app, chosen.path = SimpleNamespace(bus_name=":1.99"), "/window/1"
+        other = Node("frame", states=["ACTIVE"], kids=[Node("text", "private background")])
+        desktop = Node(kids=[Node(kids=[chosen, other])])
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"SOCKET_STREAM_ATSPI_TARGET": ACCESS.window_identity(chosen)}):
+            self.assertEqual(ACCESS.extract(desktop, ATSPI), "chosen question")
+            desktop.kids[0].kids.remove(chosen)
+            with self.assertRaisesRegex(RuntimeError, "Selected question window is unavailable"):
+                ACCESS.extract(desktop, ATSPI)
+        with patch.dict(os.environ, {"SOCKET_STREAM_ATSPI_TARGET": "malformed"}):
+            with self.assertRaisesRegex(RuntimeError, "Selected question window is unavailable"):
+                ACCESS.extract(desktop, ATSPI)
+        own = Node("frame", name="SocketStream — Practice Answer")
+        own.app, own.path = SimpleNamespace(bus_name=":1.97"), "/window/3"
+        with patch.dict(os.environ, {"SOCKET_STREAM_ATSPI_TARGET": ACCESS.window_identity(own)}):
+            with self.assertRaises(ACCESS.OwnWindowError):
+                ACCESS.extract(Node(kids=[Node(kids=[own])]), ATSPI)
+
+    def test_window_inventory_does_not_read_descendant_text(self):
+        frame = Node("frame", name="Practice fixture")
+        frame.app, frame.path = SimpleNamespace(bus_name=":1.98"), "/window/2"
+        frame.get_text_iface = lambda: self.fail("inventory read text")
+        frame.get_child_count = lambda: self.fail("inventory traversed descendants")
+        self.assertEqual(ACCESS.list_windows(Node(kids=[Node(kids=[frame])]), ATSPI),
+                         [{"id": ACCESS.window_identity(frame), "title": "Practice fixture", "application": ""}])
+        self.assertEqual(ACCESS.list_windows(Node(kids=[Node(name="gnome-shell", kids=[frame])]), ATSPI), [])
+        self.assertEqual(ACCESS.list_windows(Node(kids=[Node(name="mutter-x11-frames", kids=[frame])]), ATSPI), [])
 
     def test_active_application_fallback_reads_only_its_focused_frame(self):
         background = Node("frame", kids=[Node("text", "background private text")])
@@ -313,6 +353,7 @@ class ManualQuestionDispatch(unittest.TestCase):
         sent, launched, shown, messages, confirmed = [], [], [], [], []
         fake = SimpleNamespace(
             proc=proc, _stdin_live=stdin_live,
+            question_window_target=None, question_window_title="",
             write=lambda text: messages.append(text),
             run_cli=lambda args: (launched.append(args) or True),
             selected_provider=lambda: "mock",
@@ -386,6 +427,16 @@ class ManualQuestionDispatch(unittest.TestCase):
         self._method("manual_capture")(fake)
         self.assertEqual(seen.launched, [])
         self.assertIn("status:Permission declined", seen.messages)
+
+    def test_selected_window_capture_consent_and_no_pixel_arguments(self):
+        fake, seen = self.controller()
+        fake.question_window_target = '[":1.99","/window/1"]'
+        fake.question_window_title = "Practice fixture"
+        self._method("manual_capture")(fake)
+        self.assertIn("Practice fixture", seen.confirmed[0][1])
+        self.assertIn("no screenshots", seen.confirmed[0][1])
+        self.assertNotIn("--allow-ocr", seen.launched[0])
+        self.assertIn("--no-vision", seen.launched[0])
 
 
 if __name__ == "__main__":

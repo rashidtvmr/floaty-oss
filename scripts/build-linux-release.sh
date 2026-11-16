@@ -57,7 +57,7 @@ cp "$ROOT/tests/fixtures/live_practice/events.jsonl" "$PKG/tests/fixtures/live_p
 cp "$ROOT/tests/fixtures/mock_provider/events.jsonl" "$PKG/tests/fixtures/mock_provider/events.jsonl"
 cp "$ROOT/tests/fixtures/mock_provider/questions.txt" "$PKG/tests/fixtures/mock_provider/questions.txt"
 cp "$ROOT/tests/test_shortcuts.py" "$PKG/tests/test_shortcuts.py"
-for gtk_check in gtk_workspace_checks.py gtk_input.py run_gtk_input_checks.py; do
+for gtk_check in gtk_workspace_checks.py gtk_input.py run_gtk_input_checks.py linux_explicit_window_checks.py; do
     cp "$ROOT/tests/$gtk_check" "$PKG/tests/$gtk_check"
 done
 for optional in test_a11y_helpers.py test_mock_provider.py test_soak_replay.py; do

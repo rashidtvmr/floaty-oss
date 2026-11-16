@@ -51,7 +51,7 @@ while True:
             capture.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(60)\n")
             capture.chmod(0o700)
 
-    def launch(self, role, read_screen=False, provider="mock", extra_env=None, screen_only=False):
+    def launch(self, role, read_screen=False, provider="mock", extra_env=None, screen_only=False, extra_args=()):
         env = dict(os.environ, SOCKET_STREAM_HOME=str(self.root),
                    SOCKET_STREAM_CONFIG=str(self.root / "missing-config.json"),
                     PATH=str(self.fake_bin) + os.pathsep + os.environ.get("PATH", ""))
@@ -62,6 +62,7 @@ while True:
             args = [str(self.binary), "observe-live", "--authorized", "--provider", provider, "--interval", "2"]
         if read_screen:
             args.extend(["--read-screen", "--read-interval", "2"])
+        args.extend(extra_args)
         self.proc = subprocess.Popen(
             args,
             env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -117,6 +118,31 @@ while True:
                 break
             self.assertIsNotNone(event)
             self.assertNotIn(event["type"], ("question_detected", "answer_started", "error"), event)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux AT-SPI fixed-window boundary")
+    def test_missing_selected_window_never_falls_back_to_pixels(self):
+        helper = self.root / "scripts/linux-accessibility.py"
+        helper.write_text("import sys\nprint('Selected question window is unavailable', file=sys.stderr)\nsys.exit(3)\n")
+        marker = self.root / "pixel-capture-invoked"
+        for tool in ("gdbus", "grim", "gnome-screenshot", "scrot", "tesseract"):
+            path = self.fake_bin / tool
+            path.write_text(f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(1)\n")
+            path.chmod(0o700)
+        self.launch("practice", screen_only=True,
+                    extra_env={"SOCKET_STREAM_ATSPI_TARGET": '[":1.99","/window/1"]'},
+                    extra_args=("--force-ocr", "--portal", "--ocr-images"))
+        events = []
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            event = self.events.get(timeout=max(0.001, deadline - time.monotonic()))
+            self.assertIsNotNone(event, "CLI exited before reporting the unavailable target")
+            events.append(event)
+            self.assertNotIn(event["type"], ("question_detected", "answer_started"))
+            if event["type"] == "error":
+                break
+        self.assertEqual(events[-1]["type"], "error")
+        self.assertFalse(marker.exists(), "fixed-window consent must not invoke pixel tools")
+        self.assertTrue(any("Selected question window" in json.dumps(event) for event in events))
 
     def stop(self):
         self.command("stop")

@@ -114,7 +114,7 @@ def build_workspace(app):
     app.refresh_profile_choices()
     sources = card(session, "Choose what to start")
     app.audio_check = Gtk.CheckButton(label="Listen to audio")
-    app.audio_check.set_tooltip_text("Use the selected microphone or system audio source.")
+    app.audio_check.set_tooltip_text("Default: internal app playback, including speakers/headphones. Choose Microphone in Audio options for your own voice.")
     app.audio_check.get_accessible().set_name("Listen to audio")
     app.audio_check.connect("toggled", app.update_start_button)
     sources.pack_start(app.audio_check, False, False, 0)
@@ -129,6 +129,13 @@ def build_workspace(app):
     source_options = Gtk.Box(spacing=8)
     sources.pack_start(source_options, False, False, 0)
     app.add_button(source_options, "Audio options", app.audio_options)
+    app.question_window_target = None
+    app.question_window_title = ""
+    app.add_button(source_options, "Choose question window", app.choose_question_window)
+    app.question_window_hint = label("Screen target: automatic foreground (fails closed if ambiguous)")
+    sources.pack_start(app.question_window_hint, False, False, 0)
+    app.audio_source_hint = label("Internal playback · speakers / headphones")
+    sources.pack_start(app.audio_source_hint, False, False, 0)
     app.start_button = buttons(sources, [("Start", app.start)])[0]
     style(app.start_button, "ss-primary")
     session_row = Gtk.Box(spacing=8)

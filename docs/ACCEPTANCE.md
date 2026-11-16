@@ -42,3 +42,18 @@ fidelity checks; measured OCR scope is in `EXTRACTION-BENCHMARK.md`. The manual
 vision regression proves PNG attachment with synthetic capture and a local HTTP
 provider. These results do not establish hardware-audio latency, real Linux
 portal-to-model capture, native Wayland input shaping or long-session reliability.
+
+Fixed-window/playback update (2026-11-16): explicit AT-SPI unique-bus/object-path
+selection reads only a user-selected window, never silently retargets after close,
+and disables all pixel/region-OCR/portal/vision fallback. Existing stale-background
+focus protection is retained. Independent review approved the capture boundary.
+Ubuntu real-desktop GTK fixture -> AT-SPI question -> completed mock answer and
+closed-target refusal passed, including forced OCR/portal options. Ubuntu passed
+8 synthetic speech/screen acceptance checks and 25 GTK checks (3 physical-input
+checks skipped). Rust fmt/Clippy and 197 tests passed; Python passed 646 tests
+(6 skipped); macOS acceptance passed 37 (7 skipped). A private Pulse null-sink
+test with real FFmpeg/Moonshine produced 5 transcript updates, a playback-source
+binary-search question and a completed mock answer without microphone/physical
+speakers/remote AI; default output was unchanged and fixtures removed. Hardware
+headphone/Bluetooth switching, arbitrary app routing, inaccessible application
+trees and native Wayland-only application behavior remain unverified.

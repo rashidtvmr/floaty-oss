@@ -553,3 +553,28 @@ Run:
 
 Share the distribution/version, X11 or Wayland compositor, and error output.
 Never share your API keys, private recordings or confidential screen content.
+# Explicit question windows and internal playback
+
+If screen reading reports conflicting AT-SPI focus/active windows, **Stop**, click
+**Choose question window** in Session, select the application window, then **Start**
+and confirm. The chooser lists window titles/application labels only; it does not
+read question text. GNOME's decoration-only window mirrors are excluded.
+
+A fixed selection permits accessibility text from that window even when unfocused.
+It lasts until changed or the app closes, is not saved to disk, and never silently
+switches to another window if the selected object disappears. Reopened windows
+must be chosen again. Fixed-window mode disables screenshots, portal capture,
+whole-screen OCR, region OCR and model images—even if those options were enabled.
+Applications without an accessible text tree therefore cannot use this mode;
+automatic foreground mode retains the separately authorized OCR workflow.
+
+Audio defaults to **Internal playback · speakers / headphones**. This reads the
+output monitor directly, not microphone sound. Start after selecting the output
+device; Stop/Start after switching speakers/headphones or changing audio settings.
+Applications routed to a different output need that output's monitor selected in
+Audio options. Private Pulse-monitor transcription tests do not establish physical
+headset switching or Bluetooth routing on every device.
+
+Reproduce the synthetic real-desktop screen check (local mock AI only):
+`SOCKET_STREAM_HOME=/path/to/package python3 tests/linux_explicit_window_checks.py`.
+Run it in the logged-in desktop session with its display and D-Bus environment.

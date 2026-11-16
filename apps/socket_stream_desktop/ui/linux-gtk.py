@@ -61,8 +61,8 @@ def observe_args(provider, interval=5):
 
 
 def live_start_args(audio, screen, provider, interval=5, force_ocr=False,
-                    portal=False, audio_source="microphone", audio_device="default",
-                    speaker_role="interviewee"):
+                    portal=False, audio_source="system", audio_device="default",
+                    speaker_role="interviewer"):
     """Build exactly one live pipeline for the selected sources."""
     if not audio and not screen:
         raise ValueError("Select audio and/or screen before starting.")
@@ -234,9 +234,9 @@ def create_window():
             self.stopping = False
             self.pause_supported = False
             self.active_provider = "not selected"
-            self.audio_source = "microphone"
+            self.audio_source = "system"
             self.audio_device = "default"
-            self.speaker_role = "interviewee"
+            self.speaker_role = "interviewer"
             self._starting = False
             self.live_state = LiveState()
             self.share_timeout = None
@@ -1055,6 +1055,9 @@ def create_window():
                 env.pop("SOCKET_STREAM_FALLBACK_CONFIG", None)
             env["SOCKET_STREAM_GUI_PID"] = str(os.getpid())
             env["SOCKET_STREAM_HOME"] = str(ROOT)
+            env.pop("SOCKET_STREAM_ATSPI_TARGET", None)
+            if self.question_window_target is not None:
+                env["SOCKET_STREAM_ATSPI_TARGET"] = self.question_window_target
             live_mode = arguments[0] in ("observe-live", "audio-live", "replay-events", "ask")
             # One-shot ask feeds the same JSONL event stream into the panel but
             # accepts no stdin controls; only the long-running live commands do.
@@ -1257,14 +1260,21 @@ def create_window():
             if proc is not None:
                 self.write("Stop the active operation before running a standalone capture.\n")
                 return
-            if not self.confirmation("Read the screen once?",
+            explanation = (f"Read only the selected window: {self.question_window_title}? "
+                           "Accessibility text only; no screenshots or OCR. "
+                           if self.question_window_target is not None else
                     "The app reads foreground accessibility text and, when no text "
                     "is readable, takes a local screenshot for OCR and model vision. "
+                    )
+            if not self.confirmation("Read the screen once?", explanation +
                     "Only capture applications where assistance is permitted."):
                 self.set_status("Permission declined")
                 return
             args = ["ask", "--read-screen", "--authorized", "--allow-ocr",
                     "--provider", self.selected_provider()]
+            if self.question_window_target is not None:
+                args.remove("--allow-ocr")
+                args.append("--no-vision")
             if self.run_cli(args):
                 self.show_answer_panel()
 
@@ -1297,10 +1307,13 @@ def create_window():
             if audio:
                 sources.append(f"{self.audio_source} audio")
             if screen:
-                sources.append("foreground screen reading")
+                sources.append(f"selected window: {self.question_window_title} (accessibility only, no screenshots)"
+                               if self.question_window_target is not None else "foreground screen reading")
             explanation = ("Start " + " and ".join(sources) + "? Audio uses local Moonshine; "
-                           "finalized speech is sent to your selected provider. Screen reads "
-                            "foreground accessibility text and may use local OCR when enabled. "
+                            "finalized speech is sent to your selected provider. Screen reads "
+                             + ("only the selected window's accessibility text, even when unfocused; no screenshots or OCR. "
+                                if self.question_window_target is not None else
+                                "foreground accessibility text and may use local OCR when enabled. ") +
                             "New screen questions are sent to the selected AI provider automatically. "
                             + (f"On failure, saved fallback {self.fallback_profile} may also receive the question/text and incur charges. " if self.fallback_profile else "") +
                             "Only selected sources are used, after confirmation. Only capture "
@@ -1350,6 +1363,59 @@ def create_window():
                 GLib.idle_add(ready)
 
             threading.Thread(target=check, daemon=True).start()
+
+        def choose_question_window(self, _button=None):
+            if self.proc is not None or self._starting:
+                self.feedback(self.session_message, "Stop before changing the question window.", error=True)
+                return
+            self.feedback(self.session_message, "Listing accessible window titles only; no question text is read.")
+            generation = self._process_generation
+
+            def load():
+                try:
+                    env = os.environ.copy()
+                    env["SOCKET_STREAM_GUI_PID"] = str(os.getpid())
+                    result = subprocess.run(
+                        ["/usr/bin/python3", str(ROOT / "scripts/linux-accessibility.py"), "--mode", "windows"],
+                        env=env, capture_output=True, text=True, timeout=6)
+                    windows = json.loads(result.stdout) if result.returncode == 0 else None
+                except (OSError, ValueError, subprocess.TimeoutExpired):
+                    windows = None
+
+                def show():
+                    if self._exiting or self.proc is not None or self._starting or generation != self._process_generation:
+                        return False
+                    if windows is None:
+                        self.feedback(self.session_message, "Could not list accessible windows. Check Accessibility access and retry.", error=True)
+                        return False
+                    dialog = Gtk.Dialog(title="Choose question window", transient_for=self, flags=0)
+                    dialog.set_modal(True)
+                    dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Use selected window", Gtk.ResponseType.OK)
+                    explanation = Gtk.Label(label="Choose the window you permit SocketStream to read, even while it is unfocused.\nSelection lasts until changed or the app closes. If it disappears, reading stops.\nSelected-window mode uses accessibility text only—no OCR or screenshots.")
+                    explanation.set_line_wrap(True)
+                    dialog.get_content_area().pack_start(explanation, False, False, 10)
+                    choices = Gtk.ComboBoxText()
+                    choices.append("automatic", "Automatic foreground (no fixed window)")
+                    for index, window in enumerate(windows):
+                        label = (window.get("application", "") + " — " + window["title"]).lstrip(" —")
+                        choices.append(str(index), label)
+                    choices.set_active(0)
+                    dialog.get_content_area().pack_start(choices, False, False, 10)
+                    dialog.show_all()
+                    accepted = dialog.run() == Gtk.ResponseType.OK
+                    selected = choices.get_active_id()
+                    dialog.destroy()
+                    if accepted and self.proc is None and not self._starting and not self._exiting:
+                        window = None if selected == "automatic" else windows[int(selected)]
+                        self.question_window_target = window["id"] if window else None
+                        self.question_window_title = window["title"] if window else ""
+                        self.question_window_hint.set_text("Screen target: " + (self.question_window_title if window else "automatic foreground"))
+                        self.feedback(self.session_message, "Question window updated. Press Start to review consent; nothing is being captured.")
+                    return False
+
+                GLib.idle_add(show)
+
+            threading.Thread(target=load, daemon=True).start()
 
         def stop(self, _button=None):
             if self._starting:
@@ -1654,8 +1720,8 @@ def create_window():
             grid = Gtk.Grid(column_spacing=10, row_spacing=9)
             grid.set_border_width(12)
             source = Gtk.ComboBoxText()
-            source.append_text("microphone")
-            source.append_text("system")
+            source.append("microphone", "Microphone · your voice")
+            source.append("system", "Internal playback · speakers / headphones")
             source.set_active(0 if self.audio_source == "microphone" else 1)
             device = Gtk.Entry()
             device.set_text(self.audio_device)
@@ -1668,19 +1734,25 @@ def create_window():
                 speaker_role.append(role_id, role_label)
             speaker_role.set_active_id(self.speaker_role)
             source.connect("changed", lambda widget: speaker_role.set_active_id(
-                "interviewer" if widget.get_active_text() == "system" else "interviewee"))
+                "interviewer" if widget.get_active_id() == "system" else "practice"))
             for row, (label, widget) in enumerate((
                     ("Audio source", source), ("Linux input/monitor device", device),
                     ("Speaker/source role", speaker_role))):
                 grid.attach(Gtk.Label(label=label), 0, row, 1, 1)
                 grid.attach(widget, 1, row, 1, 1)
+            guidance = Gtk.Label(label="Internal playback captures app/call audio directly, including headphones—not sound through the microphone. After changing the output device or these settings, Stop and Start to apply.")
+            guidance.set_line_wrap(True)
+            guidance.set_max_width_chars(65)
+            grid.attach(guidance, 0, 3, 2, 1)
             dialog.get_content_area().add(grid)
             dialog.show_all()
             accepted = dialog.run() == Gtk.ResponseType.OK
-            selection = (source.get_active_text(), device.get_text().strip(), speaker_role.get_active_id())
+            selection = (source.get_active_id(), device.get_text().strip(), speaker_role.get_active_id())
             dialog.destroy()
             if accepted:
                 self.audio_source, self.audio_device, self.speaker_role = selection
+                self.audio_source_hint.set_text("Internal playback · speakers / headphones" if self.audio_source == "system" else "Microphone · your voice")
+                self.feedback(self.session_message, "Audio source updated. Stop and Start to apply to a running session.")
 
         def listen_audio(self, _button):
             """Legacy shortcut: select audio then use the unified Start action."""

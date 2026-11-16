@@ -462,10 +462,12 @@ class WorkspaceChecks(unittest.TestCase):
 
             try:
                 combos = [widget for widget in widgets(dialog) if isinstance(widget, Gtk.ComboBoxText)]
-                role = next(widget for widget in combos if widget.get_active_id() == "interviewee")
-                source = next(widget for widget in combos if widget.get_active_text() == "microphone")
+                role = next(widget for widget in combos if widget.get_active_id() == "interviewer")
+                source = next(widget for widget in combos if widget.get_active_id() == "system")
                 findings.append(role.get_active_id())
-                source.set_active(1)
+                source.set_active_id("microphone")
+                findings.append(role.get_active_id())
+                source.set_active_id("system")
                 findings.append(role.get_active_id())
                 role.set_active_id("unknown")
                 findings.append(role.get_active_id())
@@ -475,8 +477,41 @@ class WorkspaceChecks(unittest.TestCase):
 
         GLib.timeout_add(50, inspect_dialog)
         self.app.audio_options(None)
-        self.assertEqual(findings, ["interviewee", "interviewer", "unknown"])
+        self.assertEqual(findings, ["interviewer", "practice", "interviewer", "unknown"])
+        self.assertEqual(self.app.audio_source, "system")
         self.assertIsNone(self.app.proc, "changing audio options must not open any audio source")
+
+    def test_question_window_chooser_requires_explicit_choice_and_does_not_start(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        target = '[":1.99","/window/1"]'
+        completed = []
+
+        def choose():
+            dialogs = [window for window in Gtk.Window.list_toplevels()
+                       if window.get_title() == "Choose question window"]
+            if not dialogs:
+                return True
+            dialog = dialogs[0]
+            choices = next(widget for widget in dialog.get_content_area().get_children()
+                           if isinstance(widget, Gtk.ComboBoxText))
+            self.assertEqual(choices.get_active_id(), "automatic")
+            choices.set_active_id("0")
+            completed.append(True)
+            dialog.response(Gtk.ResponseType.OK)
+            return False
+
+        with patch.object(controller.subprocess, "run", return_value=SimpleNamespace(
+                returncode=0, stdout=json.dumps([{"id": target, "title": "Practice fixture"}]))):
+            GLib.timeout_add(50, choose)
+            self.app.choose_question_window()
+            pump(500)
+        self.assertEqual(completed, [True])
+        self.assertEqual(self.app.question_window_target, target)
+        self.assertIn("Practice fixture", self.app.question_window_hint.get_text())
+        self.assertIsNone(self.app.proc)
+        self.app.question_window_target = None
+        self.app.question_window_title = ""
 
     def test_one_start_source_checkbox_and_empty_selection_gate(self):
         self.app.audio_check.set_active(True)

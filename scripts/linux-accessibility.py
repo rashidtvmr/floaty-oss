@@ -191,9 +191,15 @@ def select_foreground(desktop, atspi):
     # AT-SPI commonly puts ACTIVE on the top-level frame, not its application.
     # Prefer that frame over stale FOCUSED widgets in background applications,
     # and read only that window, never all of an application's open windows.
-    active_frames = [(app, frame) for app in applications for frame in children(app)
-                     if safe_role(frame) in ("frame", "window", "dialog") and has_state(frame, "ACTIVE", atspi)]
-    if active_frames:
+    frames = [(app, frame) for app in applications for frame in children(app)
+              if safe_role(frame) in ("frame", "window", "dialog")]
+    target = os.environ.get("SOCKET_STREAM_ATSPI_TARGET")
+    active_frames = [(app, frame) for app, frame in frames if has_state(frame, "ACTIVE", atspi)]
+    if target is not None:
+        candidates = [(app, frame) for app, frame in frames if window_identity(frame) == target]
+        if len(candidates) != 1:
+            raise RuntimeError("Selected question window is unavailable. Stop and choose the window again; no other window was read.")
+    elif active_frames:
         with_focus = [(app, frame) for app, frame in active_frames if focused(frame)]
         candidates = with_focus or active_frames
     else:
@@ -217,7 +223,7 @@ def select_foreground(desktop, atspi):
     if not candidates:
         return None
     if len(candidates) != 1:
-        raise RuntimeError("Multiple accessible windows report focus/active state. Focus the intended question window and retry.")
+        raise RuntimeError("Multiple accessible windows report focus/active state. Stop and use Choose question window, then Start again.")
     app, selected = candidates[0]
 
     # The GUI passes its own PID to the capture child; avoid recursively
@@ -236,6 +242,40 @@ def select_foreground(desktop, atspi):
             safe_name(selected).lower().startswith(("socketstream", "socket_stream")):
         raise OwnWindowError("SocketStream is foreground")
     return selected
+
+
+def window_identity(frame):
+    bus = getattr(getattr(frame, "app", None), "bus_name", None)
+    path = getattr(frame, "path", None)
+    if not isinstance(bus, str) or not bus.startswith(":") or not isinstance(path, str) or not path.startswith("/"):
+        return None
+    return json.dumps([bus, path], separators=(",", ":"))
+
+
+def list_windows(desktop, atspi):
+    """List window labels/identities only; never traverse their text widgets."""
+    result = []
+    for app in children(desktop):
+        app_name = safe_name(app)
+        # GNOME exposes compositor decoration mirrors as frames in addition to
+        # the application's real accessibility tree. They contain no app text.
+        if app_name.lower() in ("gnome-shell", "gnome shell", "mutter-x11-frames"):
+            continue
+        if "socketstream" in app_name.lower() or "socket_stream" in app_name.lower():
+            continue
+        for frame in children(app):
+            identity = window_identity(frame)
+            if safe_role(frame) not in ("frame", "window", "dialog") or identity is None:
+                continue
+            if has_state(frame, "PROTECTED", atspi) or has_state(frame, "DEFUNCT", atspi):
+                continue
+            if safe_pid(app) == os.getpid() or str(safe_pid(app)) == os.environ.get("SOCKET_STREAM_GUI_PID"):
+                continue
+            title = safe_name(frame)[:200]
+            if title.lower().startswith(("socketstream", "socket_stream")):
+                continue
+            result.append({"id": identity, "title": title or "Untitled window", "application": app_name[:100]})
+    return result
 
 
 def mark_focused_ancestors(nodes):
@@ -431,7 +471,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Read the focused application through AT-SPI."
     )
-    parser.add_argument("--mode", choices=("tree", "text"), default="tree")
+    parser.add_argument("--mode", choices=("tree", "text", "windows"), default="tree")
     parser.add_argument("--max-nodes", type=int, default=DEFAULT_TREE_NODES)
     parser.add_argument("--max-depth", type=int, default=DEFAULT_TREE_DEPTH)
     parser.add_argument("--max-chars", type=int, default=DEFAULT_TREE_CHARS)
@@ -462,7 +502,9 @@ def main(argv=None):
         if hasattr(Atspi, "init"):
             Atspi.init()
         desktop = Atspi.get_desktop(0)
-        if args.mode == "text":
+        if args.mode == "windows":
+            print(json.dumps(list_windows(desktop, Atspi), separators=(",", ":")))
+        elif args.mode == "text":
             print(extract(desktop, Atspi))
         else:
             print(json.dumps(extract_tree(desktop, Atspi, args), separators=(",", ":")))

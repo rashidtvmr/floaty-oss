@@ -448,6 +448,7 @@ pub(crate) struct ScreenReader {
     keep_frames: bool,
     frame_toggle: bool,
     last_frame: Option<PathBuf>,
+    fixed_window: bool,
 }
 
 impl ScreenReader {
@@ -462,6 +463,19 @@ impl ScreenReader {
         options: A11yOptions,
         interval: u64,
     ) -> Result<Self, String> {
+        // A fixed AT-SPI object is consent for that window's text, never for
+        // foreground/full-desktop pixels. This also covers missing targets.
+        let fixed_window =
+            cfg!(target_os = "linux") && std::env::var_os("SOCKET_STREAM_ATSPI_TARGET").is_some();
+        let (allow_ocr, force_ocr, keep_frames, portal_required) = if fixed_window {
+            (false, false, false, false)
+        } else {
+            (allow_ocr, force_ocr, keep_frames, portal_required)
+        };
+        let mut options = options;
+        if fixed_window {
+            options.region_ocr = false;
+        }
         let mut session = PracticeSession::new();
         session.start(true).map_err(str::to_owned)?;
         let temp = tempfile::tempdir().map_err(|_| "cannot create temporary capture directory")?;
@@ -477,6 +491,7 @@ impl ScreenReader {
             keep_frames,
             frame_toggle: false,
             last_frame: None,
+            fixed_window,
         })
     }
 
@@ -502,6 +517,9 @@ impl ScreenReader {
     }
 
     fn capture_frame(&mut self) -> Result<PathBuf, &'static str> {
+        if self.fixed_window {
+            return Err("Selected-window mode does not permit screenshots");
+        }
         let path = if self.keep_frames && !self.portal_required {
             // Alternate between two files so a vision read never races the
             // next capture writing into the same path.
