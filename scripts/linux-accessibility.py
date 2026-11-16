@@ -133,19 +133,34 @@ def safe_name(node):
         return ""
 
 
-def safe_text(node):
+def text_content(text_iface, count, atspi=None):
+    # PyGObject may expose Accessible.get_text() (the interface getter) on the
+    # same wrapper as Text.get_text(start, end). Dispatch the Text method
+    # explicitly instead of accidentally calling the zero-argument getter.
+    read = getattr(getattr(atspi, "Text", None), "get_text", None)
+    return read(text_iface, 0, count) if callable(read) else text_iface.get_text(0, count)
+
+
+def safe_text(node, atspi=None, limit=DEFAULT_TREE_CHARS, truncation=None):
     parts = []
+    clipped = False
     try:
         text_iface = node.get_text_iface()
     except Exception:
         text_iface = None
     if text_iface is not None:
         try:
-            count = max(0, int(text_iface.get_character_count()))
+            available = max(0, int(text_iface.get_character_count()))
+            count = max(0, min(available, limit))
+            clipped = count < available
+            if clipped and truncation is not None:
+                truncation["truncated"] = True
             if count:
-                parts.append(str(text_iface.get_text(0, count)))
+                parts.append(str(text_content(text_iface, count, atspi)))
         except Exception:
             pass
+    if clipped and parts:
+        return parts[0]  # Preserve whitespace at a budget boundary/code prefix.
     return " ".join(part.strip() for part in parts if part and part.strip()).strip()
 
 
@@ -292,7 +307,7 @@ def build_tree(selected, atspi, max_nodes, max_depth, max_chars):
         role = safe_role(node)
         protected = role_is_protected(role, has_state(node, "PROTECTED", atspi))
         name = safe_name(node)
-        text = "" if protected else safe_text(node)
+        text = "" if protected else safe_text(node, atspi, max(0, max_chars - state["chars"]), state)
         # The character budget covers both accessible labels and text. Keep
         # the pre-order allocation deterministic, with each node's name first.
         remaining = max(0, max_chars - state["chars"])
@@ -402,7 +417,7 @@ def extract(desktop, atspi):
             if text_iface:
                 count = max(0, min(text_iface.get_character_count(), MAX_CHARS - size))
                 if count:
-                    emit(text_iface.get_text(0, count))
+                    emit(text_content(text_iface, count, atspi))
         except Exception:
             pass
         for child in children(node):

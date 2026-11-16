@@ -109,6 +109,16 @@ metadata testing returned an explicit ambiguous-foreground result in 3.7 seconds
 where the installed old helper had exceeded eight seconds. This does not prove
 arbitrary current-window extraction or Codex inference entitlement.
 
+Post-install real GTK text probing identified a separate PyGObject collision:
+`iface.get_text(start, end)` resolved to the zero-argument accessibility-interface
+getter and raised TypeError, silently leaving text empty despite a nonzero
+character count. The hotfix explicitly dispatches `Atspi.Text.get_text`, bounds
+reads, and preserves clipped whitespace/truncation metadata. Protected fields are
+still excluded before the text API is called. An owned synthetic GTK Entry
+confirmed the old TypeError and a corrected 38-character read recognizing bubble
+sort; no private window content was logged. Independent review approved the
+hotfix, with foreground/physical coverage limited to the diagnostic fixture.
+
 Linux answer controls are separate from capture Pause/Resume:
 - **Pause answer / Continue answer** freezes/unfreezes the displayed pair. The
   bounded in-memory live model continues receiving output; providers may continue

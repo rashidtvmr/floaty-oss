@@ -134,6 +134,39 @@ class Node:
 
 
 class LinuxAdapterTests(unittest.TestCase):
+    def test_atspi_text_dispatch_avoids_accessible_interface_getter_collision(self):
+        value = "Explain the time complexity of bubble sort."
+
+        class Interface:
+            def get_character_count(self):
+                return len(value)
+
+            def get_text(self):
+                return self  # Accessible's same-named zero-argument getter
+
+        class TextNode(Node):
+            def get_text_iface(self):
+                return Interface()
+
+        reads = []
+
+        def explicit_read(iface, start, end):
+            reads.append(end)
+            return value[start:end]
+
+        atspi = SimpleNamespace(StateType=ATSPI.StateType, Text=SimpleNamespace(get_text=explicit_read))
+        node = TextNode("text", states=["FOCUSED"])
+        app = Node(states=["ACTIVE"], kids=[node])
+        self.assertEqual(ACCESS.extract(Node(kids=[app]), atspi), value)
+        self.assertEqual(ACCESS.safe_text(node, atspi, 7), value[:7])
+        self.assertEqual(reads[-1], 7)
+        tree = ACCESS.build_tree(app, atspi, 20, 10, 1000)
+        self.assertTrue(any(item["text"] == value for item in tree["nodes"]))
+        reads.clear()
+        protected = TextNode("password entry", states=["PROTECTED"])
+        ACCESS.build_tree(protected, atspi, 20, 10, 1000)
+        self.assertEqual(reads, [], "protected fields must never invoke the text API")
+
     def test_active_app_only(self):
         other = Node(kids=[Node("text", "other app")])
         active = Node(states=["ACTIVE"], kids=[Node("text", "foreground")])
