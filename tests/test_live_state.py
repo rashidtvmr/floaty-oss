@@ -23,6 +23,18 @@ def ev(typ, seq, rid=None, sid="demo", **extra):
 
 
 class LiveStateTests(unittest.TestCase):
+    def test_cancel_preserves_partial_answer_and_rejects_late_stream_events(self):
+        self.state.apply(ev("question_detected", 2, "q1", text="First question"))
+        self.state.apply(ev("answer_delta", 3, "q1", text="Partial answer"))
+        self.assertTrue(self.state.apply(ev("answer_cancelled", 4, "q1")))
+        self.assertEqual(self.state.snapshot()["answer"], "Partial answer")
+        self.assertIn("waiting for next question", self.state.progress_text())
+        self.assertEqual(self.state.history()[0]["status"], "interrupted")
+        self.assertFalse(self.state.apply(ev("answer_delta", 5, "q1", text="late")))
+        self.assertFalse(self.state.apply(ev("answer_completed", 6, "q1")))
+        self.assertTrue(self.state.apply(ev("question_detected", 7, "q2", text="Next question")))
+        self.assertTrue(self.state.apply(ev("answer_delta", 8, "q2", text="New answer")))
+        self.assertEqual(self.state.snapshot()["answer"], "New answer")
     def test_screen_read_failure_is_visible_in_compact_flow(self):
         self.state.apply(ev("screen_read", 2, status="unavailable", text="Enable accessibility or opt-in OCR"))
         self.assertIn("Screen unavailable: Enable accessibility", self.state.flow_text())

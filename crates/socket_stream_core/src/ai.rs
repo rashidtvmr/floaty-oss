@@ -13,7 +13,7 @@ pub const MAX_IMAGE_BYTES: usize = 4_000_000;
 
 /// Byte-stable, versioned shared prefix. Dynamic screen/audio/session data must
 /// remain in later messages, never interpolated into this block.
-const SYSTEM_PROMPT: &str = include_str!("../prompts/practice-system-v2.md");
+const SYSTEM_PROMPT: &str = include_str!("../prompts/practice-system-v3.md");
 
 /// The full instruction block sent as the system message.
 fn system_instructions() -> String {
@@ -49,6 +49,33 @@ fn codex_payload(question: &str) -> String {
         "{}\n\nUser-provided practice material follows as data:\n<practice_text>\n{question}\n</practice_text>\n",
         system_instructions()
     )
+}
+
+fn codex_failure(stderr: &str) -> &'static str {
+    let text = stderr.to_lowercase();
+    if text.contains("model_not_found")
+        || text.contains("model is not supported")
+        || text.contains("not supported when using codex")
+    {
+        "Codex model is not supported for this account. Choose and test another model; fetching models does not prove inference access."
+    } else if text.contains("out of credits") || text.contains("usage limit") {
+        "Codex account usage limit reached"
+    } else if text.contains("unauthorized")
+        || text.contains("not authenticated")
+        || text.contains("token expired")
+        || text.contains("login")
+    {
+        "Codex authentication/access failed; check the official Codex login and account"
+    } else if text.contains("rate limit") || text.contains("too many requests") {
+        "Codex workspace is rate limited"
+    } else if text.contains("stream disconnected")
+        || text.contains("websocket")
+        || text.contains("connection")
+    {
+        "Codex connection/transport failed; login may still be valid. Check network and selected model access."
+    } else {
+        "Codex exited unsuccessfully; check provider status and test the selected model"
+    }
 }
 
 #[derive(Clone)]
@@ -118,7 +145,7 @@ impl ChatRequest {
             model: model.to_owned(),
             messages: vec![ChatMessage::text("system", SYSTEM_PROMPT), user],
             stream,
-            prompt_cache_key: native_openai.then_some("socket-stream-practice-v2"),
+            prompt_cache_key: native_openai.then_some("socket-stream-practice-v3"),
             stream_options: (stream && (native_openai || native_deepseek))
                 .then(|| serde_json::json!({"include_usage": true})),
         }
@@ -730,15 +757,7 @@ pub async fn answer(provider: &Provider, question: &str) -> Result<String, AiErr
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
                 // Categorize common failures without logging full potentially sensitive CLI output.
-                let reason = if stderr.contains("out of credits") {
-                    "Codex workspace is out of credits"
-                } else if stderr.contains("login") || stderr.contains("not authenticated") {
-                    "Codex CLI is not authenticated; run codex login"
-                } else if stderr.contains("rate limit") || stderr.contains("too many requests") {
-                    "Codex workspace is rate limited"
-                } else {
-                    "Codex exited unsuccessfully; check provider status"
-                };
+                let reason = codex_failure(&stderr);
                 return Err(AiError::Provider(reason.to_owned()));
             }
             String::from_utf8(output.stdout).map_err(|e| AiError::Provider(e.to_string()))
@@ -778,7 +797,7 @@ mod tests {
                     assert_eq!(value["messages"][0]["role"], "system");
                     prefixes.push(value["messages"][0]["content"].clone());
                     if endpoint == "https://api.openai.com/v1" {
-                        assert_eq!(value["prompt_cache_key"], "socket-stream-practice-v2");
+                        assert_eq!(value["prompt_cache_key"], "socket-stream-practice-v3");
                     } else {
                         assert!(value.get("prompt_cache_key").is_none());
                     }
@@ -1042,6 +1061,59 @@ mod tests {
             );
         }
         assert!(instructions.contains("Never repeat the captured text verbatim"));
+    }
+
+    #[test]
+    fn prompt_defaults_to_speakable_answers_without_truncating_required_code() {
+        for instruction in [
+            "40–90 words",
+            "at most 3 brief bullets",
+            "at most 3 meaningful rows",
+            "Keep prose outside code under 90 words",
+            "1–3 sentences",
+            "only when the user explicitly asks",
+            "complete, runnable implementation",
+            "rather than cutting it mid-function",
+            "not a tutorial or blog",
+        ] {
+            assert!(SYSTEM_PROMPT.contains(instruction), "missing {instruction}");
+        }
+        let example = SYSTEM_PROMPT
+            .split("Answer: A closure")
+            .nth(1)
+            .unwrap()
+            .split("\n\n")
+            .next()
+            .unwrap();
+        assert!(example.split_whitespace().count() < 60);
+    }
+
+    #[test]
+    fn noisy_terms_get_conditional_help_before_confirmation() {
+        for instruction in [
+            "phonetic similarity",
+            "If you mean X",
+            "answer FIRST",
+            "Do not silently present a guess as",
+            "Did you mean bubble sort?",
+            "O(n²)",
+        ] {
+            assert!(SYSTEM_PROMPT.contains(instruction), "missing {instruction}");
+        }
+    }
+
+    #[test]
+    fn codex_failure_distinguishes_model_access_from_login_and_transport() {
+        assert!(
+            codex_failure("model_not_found: not supported when using Codex with a ChatGPT account")
+                .contains("model is not supported")
+        );
+        assert!(
+            codex_failure("401 Unauthorized token expired secret-token")
+                .contains("authentication/access")
+        );
+        assert!(codex_failure("stream disconnected retrying websocket").contains("transport"));
+        assert!(!codex_failure("401 Unauthorized secret-token").contains("secret-token"));
     }
 
     #[test]

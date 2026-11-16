@@ -103,6 +103,7 @@ enum ControlCommand {
     Question(String),
     /// An explicit capture request from the answer panel.
     ReadScreen,
+    NextQuestion,
 }
 
 enum ModelMessage {
@@ -168,6 +169,7 @@ fn control_command(input: &str) -> Option<ControlCommand> {
         "resume" => Some(ControlCommand::Resume),
         "stop" => Some(ControlCommand::Stop),
         "read-screen" => Some(ControlCommand::ReadScreen),
+        "next-question" => Some(ControlCommand::NextQuestion),
         _ => line
             .strip_prefix("question ")
             .map(|rest| ControlCommand::Question(rest.trim().to_owned())),
@@ -776,6 +778,23 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             emit!("session_resumed", "system", None, None);
                         }
                         Some(ControlCommand::Stop) => break,
+                        Some(ControlCommand::NextQuestion) if !paused => {
+                            if let Some(task) = pending.take() {
+                                task.abort();
+                                emit!("answer_cancelled", "system", Some(&last_request), None);
+                            }
+                            // Ignore late messages from the cancelled worker.
+                            last_request.clear();
+                            if let Some(text) = manual_pending.take() {
+                                request_number += 1;
+                                let rid = format!("manual-{request_number}");
+                                last_request.clone_from(&rid);
+                                let prompt = compose_prompt(&text, last_screen.as_deref());
+                                emit_question!("manual", &rid, &text, &text);
+                                emit!("answer_started", "manual", Some(&rid), None);
+                                pending = Some(spawn_model_task(provider.clone(), rid, prompt, sender.clone()));
+                            }
+                        }
                         Some(ControlCommand::Question(text)) => {
                             let text = text.trim().to_owned();
                             if text.chars().filter(|c| c.is_alphabetic()).count() < 3 {

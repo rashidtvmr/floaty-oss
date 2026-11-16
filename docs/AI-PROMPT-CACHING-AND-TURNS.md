@@ -15,6 +15,16 @@ Identical screens are answered once, in-flight answers are not interrupted, and
 unreadable updates clear stale screen text/image context. OCR remains opt-in;
 unavailable accessibility does not silently enable screenshot capture.
 
+Live Ubuntu diagnosis also reproduced an accessibility helper stall beyond eight
+seconds. Helper reads are now bounded (Python AT-SPI call timeouts plus a four-
+second read deadline; Rust process/output limits of six seconds on Linux and
+fifteen on macOS). Failures surface in the panel rather than silently hanging.
+Foreground selection recognizes active child frames, reads only the selected
+window, and rejects ambiguous multi-window state instead of reading background
+windows. The user's OS accessibility settings/permissions are not changed. A
+visible question window must be focused; pixel-only content still requires
+explicitly enabled OCR and any OS screen chooser approval.
+
 The Session page now has an explicit **Use Codex** button; Configure also offers
 **Use Codex for answers when I Apply**. Fetching models alone does not change the
 active provider. Stop before switching a running session's provider.
@@ -50,21 +60,68 @@ counts, not raw prompts or credentials. HTTP 401/403, 429 and 5xx are classified
 separately when reported. Unknown causes stay unknown. A timer is cleaned up when
 the panel is destroyed. No automatic paid retries are introduced.
 
-**Configure → Codex model (this session)** offers a dropdown, manual model ID and
+**Configure → Codex model (saved with profile)** offers a dropdown, manual model ID and
 **Fetch Codex models** using the official App Server initialize/model-list
 protocol, including bounded pagination. It never reads Codex's credential file or
 runs inference. This session's selection is passed through `SOCKET_STREAM_CODEX_MODEL`
 to the existing validated CLI `--model`; cloud and Ollama selections are separate.
 Unsupported/unauthenticated discovery reports a sanitized error and permits manual
-entry. The selection is intentionally not persisted by the existing settings
-writer. A real local Codex model-list probe succeeded with eight models; that
-establishes discovery, not model entitlement, quota or successful inference.
+entry. Named profiles retain provider, endpoint credentials, preferred models and
+Codex selection across restarts. Legacy single-provider settings migrate without
+discarding their credentials. The settings file remains plaintext with mode 0600,
+not an encrypted keychain; no Codex OAuth credential file is read/copied by the app.
+Writes are bounded, locked and atomic; malformed or unsafe files are preserved.
+
+Fallback is disabled unless explicitly selected. A different saved profile can
+have its own endpoint, API key and model, including another compatible provider.
+The fallback configuration travels only in the child environment, not argv.
+Profile fallback produces a buffered, text-only answer so two providers' partial
+answers are not mixed. Captured text may be sent to the fallback and additional
+charges may apply. Model testing always tests the primary alone.
+
+Ubuntu diagnosis: official Codex login status reported ChatGPT authentication;
+normal inference stalled with connection retries. Isolated, temporary HTTP-only
+tests exposed model-not-found/account-support failures for tested model IDs.
+Global Codex configuration and credentials were not changed. Model listing is not
+proof of inference entitlement, quota or a successful answer; no working Codex
+model was verified by those tests. The app now distinguishes model-access,
+authentication, connection and quota failures without logging raw CLI output.
 
 ## Prompt design and evidence
 
+The v3 prompt defaults to a speakable 40–90-word answer, not a tutorial. Concepts
+use a few sentences, comparisons at most three table rows, and clarifications
+answer only the new distinction. Implementation tasks retain complete code with
+short prose; explicit requests for depth can expand. No output is forcibly cut
+mid-sentence or mid-function. Prompt adherence is model-dependent.
+Noisy technical terms get a context-supported conditional answer first, followed
+by one short confirmation (for example, “If you mean bubble sort, … Did you mean
+bubble sort?”), rather than a clarification-only refusal. Unsupported guesses
+must not be presented as facts.
+
+Final read-only independent review accepted the credential-store and capture-
+boundary fixes after preservation, private-mode, lock/clear and multi-window
+regressions were added. Required Rust gates passed (57 CLI + 140 core tests),
+Python ran 640 tests (6 skipped), acceptance ran 36 (6 skipped), and Ubuntu GTK
+ran 24 (3 physical-input checks skipped). Cancellation tests observed the old
+loopback HTTP connection close in both audio and screen modes. Real desktop
+metadata testing returned an explicit ambiguous-foreground result in 3.7 seconds,
+where the installed old helper had exceeded eight seconds. This does not prove
+arbitrary current-window extraction or Codex inference entitlement.
+
+Linux answer controls are separate from capture Pause/Resume:
+- **Pause answer / Continue answer** freezes/unfreezes the displayed pair. The
+  bounded in-memory live model continues receiving output; providers may continue
+  generating/billing while the display is frozen. Continue catches up.
+- **Next question** aborts the local answer task and closes its HTTP stream or
+  drops its owned Codex child. Late events are ignored. A queued manual question
+  starts immediately; otherwise selected sources remain active for a new question.
+  Partial text stays in history as interrupted. Remote cancellation/billing cannot
+  be guaranteed. A standalone one-shot ask is stopped rather than kept alive.
+
 All HTTP chat requests (streaming, nonstreaming and screenshot-assisted), and the
 Codex stdin payload, start with the same versioned instructions embedded from
-`crates/socket_stream_core/prompts/practice-system-v2.md`. Questions, screenshots,
+`crates/socket_stream_core/prompts/practice-system-v3.md`. Questions, screenshots,
 previous-answer context and transcriptions come later. No dates, request IDs,
 speaker guesses or changing screen text are interpolated into the shared prefix.
 

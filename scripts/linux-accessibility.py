@@ -13,6 +13,7 @@ This helper does not capture pixels or request/bypass OS permissions.
 import argparse
 import json
 import os
+import signal
 import sys
 
 # Legacy text-mode bounds (kept byte-for-byte compatible).
@@ -55,11 +56,11 @@ def children(node):
             yield child
 
 
-def focused_descendant(node, atspi, depth=0, visited=None):
+def focused_descendant(node, atspi, depth=0, visited=None, max_depth=MAX_DEPTH, max_nodes=MAX_NODES):
     """Find the focused widget without reading any text from other widgets."""
     if visited is None:
         visited = set()
-    if node is None or depth > MAX_DEPTH or len(visited) >= MAX_NODES:
+    if node is None or depth > max_depth or len(visited) >= max_nodes:
         return None
     identity = id(node)
     if identity in visited:
@@ -68,7 +69,7 @@ def focused_descendant(node, atspi, depth=0, visited=None):
     if has_state(node, "FOCUSED", atspi):
         return node
     for child in children(node):
-        result = focused_descendant(child, atspi, depth + 1, visited)
+        result = focused_descendant(child, atspi, depth + 1, visited, max_depth, max_nodes)
         if result is not None:
             return result
     return None
@@ -168,32 +169,56 @@ def select_foreground(desktop, atspi):
     Raises :class:`OwnWindowError` when SocketStream itself is foreground.
     """
     applications = list(children(desktop))
-    selected = None
-    for app in applications:
-        if has_state(app, "ACTIVE", atspi) or has_state(app, "FOCUSED", atspi):
-            selected = app
-            break
-    if selected is None:
-        for app in applications:
-            if focused_descendant(app, atspi) is not None:
-                selected = app
-                break
-    if selected is None:
+
+    def focused(node):
+        return focused_descendant(node, atspi, max_depth=DEFAULT_TREE_DEPTH, max_nodes=DEFAULT_TREE_NODES) is not None
+
+    # AT-SPI commonly puts ACTIVE on the top-level frame, not its application.
+    # Prefer that frame over stale FOCUSED widgets in background applications,
+    # and read only that window, never all of an application's open windows.
+    active_frames = [(app, frame) for app in applications for frame in children(app)
+                     if safe_role(frame) in ("frame", "window", "dialog") and has_state(frame, "ACTIVE", atspi)]
+    if active_frames:
+        with_focus = [(app, frame) for app, frame in active_frames if focused(frame)]
+        candidates = with_focus or active_frames
+    else:
+        eligible = [app for app in applications if has_state(app, "ACTIVE", atspi)]
+        if not eligible:
+            eligible = [app for app in applications if focused(app)]
+        candidates = []
+        for app in eligible:
+            frames = [node for node in children(app) if safe_role(node) in ("frame", "window", "dialog")]
+            focused_frames = [frame for frame in frames if focused(frame)]
+            if len(focused_frames) == 1:
+                candidates.append((app, focused_frames[0]))
+            elif len(frames) == 1:
+                candidates.append((app, frames[0]))
+            elif frames:
+                raise RuntimeError("Multiple application windows are available. Focus the intended question window and retry.")
+            else:
+                # Some toolkits expose a flat application tree with no window
+                # nodes; there is no known multi-window subtree to traverse.
+                candidates.append((app, app))
+    if not candidates:
         return None
+    if len(candidates) != 1:
+        raise RuntimeError("Multiple accessible windows report focus/active state. Focus the intended question window and retry.")
+    app, selected = candidates[0]
 
     # The GUI passes its own PID to the capture child; avoid recursively
     # interpreting the assistant's own output as a user question.
     gui_pid = os.environ.get("SOCKET_STREAM_GUI_PID", "")
     try:
-        selected_pid = selected.get_process_id()
+        selected_pid = app.get_process_id()
     except Exception:
         selected_pid = None
     try:
-        selected_name = (selected.get_name() or "").lower()
+        selected_name = (app.get_name() or "").lower()
     except Exception:
         selected_name = ""
     if (gui_pid.isdecimal() and selected_pid == int(gui_pid)) or \
-            "socket_stream" in selected_name or "socketstream" in selected_name:
+            "socket_stream" in selected_name or "socketstream" in selected_name or \
+            safe_name(selected).lower().startswith(("socketstream", "socket_stream")):
         raise OwnWindowError("SocketStream is foreground")
     return selected
 
@@ -411,7 +436,16 @@ def main(argv=None):
     except (ImportError, ValueError) as exc:
         print(f"AT-SPI unavailable: {exc}", file=sys.stderr)
         return 2
+    def deadline(_signum, _frame):
+        raise TimeoutError("Accessibility read timed out; focus the question window and retry")
+
+    previous = signal.signal(signal.SIGALRM, deadline)
+    signal.setitimer(signal.ITIMER_REAL, 4.0)
     try:
+        if hasattr(Atspi, "set_timeout"):
+            Atspi.set_timeout(250, 250)
+        if hasattr(Atspi, "init"):
+            Atspi.init()
         desktop = Atspi.get_desktop(0)
         if args.mode == "text":
             print(extract(desktop, Atspi))
@@ -422,6 +456,9 @@ def main(argv=None):
     except Exception as exc:
         print(f"AT-SPI read failed: {exc}", file=sys.stderr)
         return 3
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
     return 0
 
 

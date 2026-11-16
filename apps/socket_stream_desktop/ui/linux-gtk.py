@@ -40,7 +40,8 @@ from ui_theme import style  # noqa: E402
 from provider_settings import (  # noqa: E402  (path set just above)
     clear_provider_settings,
     load_provider_settings,
-    save_provider_settings,
+    load_provider_profiles,
+    save_provider_profile,
 )
 
 
@@ -258,6 +259,9 @@ def create_window():
             # Saved provider settings (API base/model/key) restore into memory;
             # the file is written with user-only permissions (0600).
             self.env.update(load_provider_settings())
+            self.provider_book = load_provider_profiles()
+            self.fallback_profile = self.provider_book["fallback_profile"]
+            self._syncing_profiles = False
             appearance_error = ""
             try:
                 self.appearance = load_appearance()
@@ -266,7 +270,7 @@ def create_window():
                 appearance_error = f"Appearance defaults loaded: {exc}"
             self.floating = FloatingOverlay(
                 plan=plan, session=session, stealth=True, state=self.live_state,
-                on_stop=self.stop, on_pause=self.toggle_pause,
+                on_stop=self.stop, on_pause=self.toggle_pause, on_next_question=self.next_question,
                 on_minimize=self.minimize_app, on_settings=self.open_appearance,
                 on_selection_changed=self.refresh_session,
                 on_ask=self.send_manual_question, on_capture=self.manual_capture,
@@ -333,6 +337,33 @@ def create_window():
 
         def sync_provider_label(self):
             self.provider_hint.set_text(self.provider_display())
+
+        def refresh_profile_choices(self):
+            if not hasattr(self, "profile_select"):
+                return
+            self._syncing_profiles = True
+            self.profile_select.remove_all()
+            for name in self.provider_book["profiles"]:
+                self.profile_select.append(name, name)
+            self.profile_select.set_active_id(self.provider_book["active_profile"])
+            self._syncing_profiles = False
+
+        def select_provider_profile(self, combo):
+            name = combo.get_active_id()
+            if self._syncing_profiles or self.proc is not None or name not in self.provider_book["profiles"]:
+                return
+            item = self.provider_book["profiles"][name]
+            self.env.update(item["settings"])
+            self.env["SOCKET_STREAM_PROVIDER"] = item["provider"]
+            self.provider.set_active(("mock", "ollama", "codex", "openai-compatible").index(item["provider"]))
+            if self.fallback_profile == name:
+                self.fallback_profile = ""
+            try:
+                save_provider_profile(name, item["provider"], self.env, self.fallback_profile)
+                self.provider_book = load_provider_profiles()
+            except (OSError, ValueError):
+                self.feedback(self.session_message, "Profile selected for this run, but saving the selection failed.", error=True)
+            self.sync_provider_label()
 
         def select_question(self, request_id):
             self.floating.pin_question(request_id)
@@ -888,6 +919,19 @@ def create_window():
                 self.feedback(self.session_message, "Stop the current session, then select Use Codex.")
                 return
             self.provider.set_active(2)
+            try:
+                name = next((name for name, item in self.provider_book["profiles"].items()
+                             if item["provider"] == "codex"), "Codex")
+                if name in self.provider_book["profiles"]:
+                    self.env.update(self.provider_book["profiles"][name]["settings"])
+                self.env["SOCKET_STREAM_PROVIDER"] = "codex"
+                fallback = self.fallback_profile if self.fallback_profile != name else ""
+                save_provider_profile(name, "codex", self.env, fallback)
+                self.provider_book = load_provider_profiles()
+                self.fallback_profile = self.provider_book["fallback_profile"]
+                self.refresh_profile_choices()
+            except (OSError, ValueError):
+                self.write("Codex selected, but saving its profile failed.\n")
             self.sync_provider_label()
             self.feedback(self.session_message, "Codex selected for answers. Choose sources and press Start.")
 
@@ -900,8 +944,10 @@ def create_window():
             elif selected == "openai-compatible":
                 model = self.env.get("SOCKET_STREAM_MODEL", "")
             else:
-                return "Codex CLI · " + (self.env.get("SOCKET_STREAM_CODEX_MODEL") or "CLI default")
-            return f"{selected} · {model}" if model else f"{selected} · model not configured"
+                label = "Codex CLI · " + (self.env.get("SOCKET_STREAM_CODEX_MODEL") or "CLI default")
+                return label + (f" · fallback: {self.fallback_profile}" if self.fallback_profile else "")
+            label = f"{selected} · {model}" if model else f"{selected} · model not configured"
+            return label + (f" · fallback: {self.fallback_profile}" if self.fallback_profile else "")
 
         def update_start_button(self, *_args):
             """Keep the single Start path disabled until a source is selected."""
@@ -938,6 +984,7 @@ def create_window():
             self.control_stop_button.set_sensitive(active and not self.stopping)
             self.floating.stop_button.set_sensitive(active and not self.stopping)
             self.provider.set_sensitive(self.proc is None)
+            self.profile_select.set_sensitive(self.proc is None and not self._starting)
             self.use_codex_button.set_sensitive(self.proc is None and not self._starting)
             self.audio_check.set_sensitive(self.proc is None)
             self.screen_check.set_sensitive(self.proc is None)
@@ -999,6 +1046,13 @@ def create_window():
                 return False
             env = os.environ.copy()
             env.update(self.env)
+            fallback = self.provider_book["profiles"].get(self.fallback_profile)
+            if fallback is not None and arguments[0] in ("ask", "audio-live", "observe-live", "analyze-file", "analyze-image"):
+                # Credentials stay in the child environment, never argv/logs.
+                env["SOCKET_STREAM_FALLBACK_CONFIG"] = json.dumps(fallback)
+                arguments = [*arguments, "--use-profile-fallback"]
+            else:
+                env.pop("SOCKET_STREAM_FALLBACK_CONFIG", None)
             env["SOCKET_STREAM_GUI_PID"] = str(os.getpid())
             env["SOCKET_STREAM_HOME"] = str(ROOT)
             live_mode = arguments[0] in ("observe-live", "audio-live", "replay-events", "ask")
@@ -1168,6 +1222,22 @@ def create_window():
                              "--provider", self.selected_provider()]):
                 self.show_answer_panel()
 
+        def next_question(self):
+            proc = self.proc
+            if proc is None or proc.poll() is not None:
+                return False
+            if self._stdin_live and proc.stdin is not None:
+                try:
+                    proc.stdin.write("next-question\n")
+                    proc.stdin.flush()
+                    return True
+                except (OSError, ValueError):
+                    return False
+            # A one-shot ask has no next-question control channel and owns no
+            # ongoing capture; stop only that operation, retaining partial text.
+            self.stop()
+            return True
+
         def manual_capture(self):
             """Capture button: read the screen now and answer what is on it.
 
@@ -1232,7 +1302,8 @@ def create_window():
                            "finalized speech is sent to your selected provider. Screen reads "
                             "foreground accessibility text and may use local OCR when enabled. "
                             "New screen questions are sent to the selected AI provider automatically. "
-                           "Only selected sources are used, after confirmation. Only capture "
+                            + (f"On failure, saved fallback {self.fallback_profile} may also receive the question/text and incur charges. " if self.fallback_profile else "") +
+                            "Only selected sources are used, after confirmation. Only capture "
                            "applications where assistance is permitted.")
             accepted = self.confirmation("Start selected sources?", explanation)
             if not accepted:
@@ -1392,6 +1463,27 @@ def create_window():
             style(dialog, "ss-dialog")
             dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                                Gtk.STOCK_APPLY, Gtk.ResponseType.OK)
+            profile_header = Gtk.Grid(column_spacing=10, row_spacing=8)
+            profile_header.set_border_width(12)
+            saved_profiles = Gtk.ComboBoxText()
+            for name in self.provider_book["profiles"]:
+                saved_profiles.append(name, name)
+            saved_profiles.set_active_id(self.provider_book["active_profile"])
+            profile_name = Gtk.Entry()
+            profile_name.get_accessible().set_name("Profile name")
+            profile_name.set_text(self.provider_book["active_profile"] or "Default")
+            profile_provider = Gtk.ComboBoxText()
+            profile_provider.get_accessible().set_name("Profile provider")
+            for provider in ("mock", "ollama", "codex", "openai-compatible"):
+                profile_provider.append_text(provider)
+            profile_provider.set_active(("mock", "ollama", "codex", "openai-compatible").index(self.selected_provider()))
+            for row, (title, widget) in enumerate((("Load saved profile", saved_profiles),
+                                                  ("Save as profile name", profile_name),
+                                                  ("Provider for this profile", profile_provider))):
+                profile_header.attach(Gtk.Label(label=title), 0, row, 1, 1)
+                profile_header.attach(widget, 1, row, 1, 1)
+            settings_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            settings_body.pack_start(profile_header, False, False, 0)
             grid = Gtk.Grid(column_spacing=10, row_spacing=9)
             grid.set_border_width(12)
             form = (
@@ -1412,7 +1504,7 @@ def create_window():
                 grid.attach(Gtk.Label(label=label), 0, row, 1, 1)
                 grid.attach(control, 1, row, 1, 1)
             persist = Gtk.CheckButton(
-                label="Keep these settings for future runs (saved with user-only permissions)")
+                label="Save this named profile, credentials and preferred models for future runs")
             persist.set_active(True)
             grid.attach(persist, 0, len(form), 2, 1)
             note = Gtk.Label(
@@ -1421,28 +1513,63 @@ def create_window():
             note.set_line_wrap(True)
             note.set_xalign(0)
             grid.attach(note, 0, len(form) + 1, 2, 1)
-            clear_button = Gtk.Button(label="Clear saved settings")
-            clear_button.connect(
-                "clicked", lambda _b: self.write(
-                    "Saved provider settings removed.\n" if clear_provider_settings()
-                    else "No saved provider settings found.\n"))
+            clear_button = Gtk.Button(label="Clear ALL saved provider profiles")
+
+            def clear_profiles(_button):
+                if not self.confirmation("Clear all saved provider profiles?", "This removes the app's saved endpoint credentials, models and fallback choices. Official Codex login is unchanged."):
+                    return
+                try:
+                    cleared = clear_provider_settings()
+                    self.provider_book = load_provider_profiles()
+                    self.fallback_profile = ""
+                    self.refresh_profile_choices()
+                    self.write("Saved provider profiles removed.\n" if cleared else "No saved profiles found.\n")
+                except (OSError, ValueError):
+                    self.write("Could not clear saved profiles safely; close other settings writers and check file permissions.\n")
+
+            clear_button.connect("clicked", clear_profiles)
             grid.attach(clear_button, 0, len(form) + 2, 2, 1)
             codex_combo = Gtk.ComboBoxText.new_with_entry()
             codex_entry = codex_combo.get_child()
+            codex_entry.get_accessible().set_name("Codex preferred model")
             codex_entry.set_text(self.env.get("SOCKET_STREAM_CODEX_MODEL", ""))
             codex_entry.set_placeholder_text("Blank uses Codex default; or type a model ID")
-            grid.attach(Gtk.Label(label="Codex model (this session)"), 0, len(form) + 3, 1, 1)
+            grid.attach(Gtk.Label(label="Codex model (saved with profile)"), 0, len(form) + 3, 1, 1)
             grid.attach(codex_combo, 1, len(form) + 3, 1, 1)
             fetch_button = Gtk.Button(label="Fetch Codex models")
-            model_note = Gtk.Label(label="Uses the official Codex login; no API key or inference request.")
+            model_note = Gtk.Label(label="Fetch uses official Codex login without inference. Listing does not prove model access; Apply, then Test AI response.")
             model_note.set_line_wrap(True)
             model_note.set_max_width_chars(60)
             grid.attach(fetch_button, 0, len(form) + 4, 1, 1)
             grid.attach(model_note, 1, len(form) + 4, 1, 1)
-            use_codex = Gtk.CheckButton(label="Use Codex for answers when I Apply")
-            use_codex.set_active(self.selected_provider() == "codex")
-            use_codex.set_sensitive(self.proc is None and not self._starting)
-            grid.attach(use_codex, 0, len(form) + 5, 2, 1)
+            fallback_enabled = Gtk.CheckButton(label="On failure, allow another saved profile to receive this question/text (may incur charges)")
+            fallback_enabled.get_accessible().set_name("Enable fallback profile")
+            fallback_enabled.get_child().set_line_wrap(True)
+            fallback_enabled.get_child().set_max_width_chars(60)
+            fallback_enabled.set_active(bool(self.fallback_profile))
+            fallback_combo = Gtk.ComboBoxText()
+            fallback_combo.get_accessible().set_name("Fallback profile")
+            for name in self.provider_book["profiles"]:
+                fallback_combo.append(name, name)
+            fallback_combo.set_active_id(self.fallback_profile)
+            fallback_combo.set_sensitive(fallback_enabled.get_active())
+            fallback_enabled.connect("toggled", lambda button: fallback_combo.set_sensitive(button.get_active()))
+            grid.attach(fallback_enabled, 0, len(form) + 5, 2, 1)
+            grid.attach(Gtk.Label(label="Fallback profile (text-only, buffered answer)"), 0, len(form) + 6, 1, 1)
+            grid.attach(fallback_combo, 1, len(form) + 6, 1, 1)
+
+            def load_profile(combo):
+                item = self.provider_book["profiles"].get(combo.get_active_id())
+                if item is None:
+                    return
+                profile_name.set_text(combo.get_active_id())
+                profile_provider.set_active(("mock", "ollama", "codex", "openai-compatible").index(item["provider"]))
+                for key, entry in entries.items():
+                    entry.set_text(str(item["settings"].get(key, "")))
+                codex_entry.set_text(str(item["settings"].get("SOCKET_STREAM_CODEX_MODEL", "")))
+
+            saved_profiles.connect("changed", load_profile)
+            profile_header.set_sensitive(self.proc is None and not self._starting)
             alive = [True]
 
             def fetch_models(_button):
@@ -1468,7 +1595,7 @@ def create_window():
                             for model in models:
                                 codex_combo.append_text(model["id"])
                             codex_entry.set_text(current)
-                            model_note.set_text(f"Fetched {len(models)} models. Select one or enter an ID; availability does not prove remaining quota.")
+                            model_note.set_text(f"Fetched {len(models)} models. Select one or enter an ID; listing does not prove model access or quota. Apply, then Test AI response.")
                         return False
 
                     GLib.idle_add(deliver)
@@ -1476,7 +1603,13 @@ def create_window():
                 threading.Thread(target=work, daemon=True).start()
 
             fetch_button.connect("clicked", fetch_models)
-            dialog.get_content_area().add(grid)
+            settings_body.pack_start(grid, False, False, 0)
+            settings_scroll = Gtk.ScrolledWindow()
+            settings_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            settings_scroll.add(settings_body)
+            settings_scroll.set_min_content_height(420)
+            dialog.get_content_area().add(settings_scroll)
+            dialog.set_default_size(800, 640)
             dialog.show_all()
             if dialog.run() == Gtk.ResponseType.OK:
                 from codex_models import validated_model
@@ -1485,16 +1618,27 @@ def create_window():
                     self.env["SOCKET_STREAM_CODEX_MODEL"] = validated_model(codex_model) if codex_model else ""
                 except ValueError:
                     self.write("Invalid Codex model ID; previous selection retained.\n")
-                if use_codex.get_active() and self.proc is None and not self._starting:
-                    self.provider.set_active(2)
+                chosen_provider = profile_provider.get_active_text() or self.selected_provider()
+                if self.proc is None and not self._starting:
+                    self.provider.set_active(("mock", "ollama", "codex", "openai-compatible").index(chosen_provider))
+                self.env["SOCKET_STREAM_PROVIDER"] = chosen_provider
                 for key, control in entries.items():
                     self.env[key] = control.get_text().strip()
+                requested_fallback = (fallback_combo.get_active_id() or "") if fallback_enabled.get_active() else ""
+                self.fallback_profile = (requested_fallback if requested_fallback in self.provider_book["profiles"]
+                                         and requested_fallback != profile_name.get_text().strip() else "")
                 if persist.get_active():
                     try:
-                        path = save_provider_settings(self.env)
-                        self.write(f"Provider settings saved to {path} (0600).\n")
-                    except OSError as exc:
-                        self.write(f"Could not save provider settings: {exc}\n")
+                        fallback = (fallback_combo.get_active_id() or "") if fallback_enabled.get_active() else ""
+                        if fallback_enabled.get_active() and not fallback:
+                            raise ValueError("Select a saved fallback profile, or disable fallback")
+                        path = save_provider_profile(profile_name.get_text(), chosen_provider, self.env, fallback)
+                        self.provider_book = load_provider_profiles()
+                        self.fallback_profile = self.provider_book["fallback_profile"]
+                        self.refresh_profile_choices()
+                        self.write(f"Named provider profile and model selections saved to {path} (0600).\n")
+                    except (OSError, ValueError):
+                        self.write("Could not save profile. Check the name, select a different saved fallback, and check file access. Existing saved settings were preserved.\n")
                 else:
                     self.write("Provider settings updated in memory only; key was not logged.\n")
                 self.sync_provider_label()

@@ -137,6 +137,17 @@ fn named_provider(selected: &str) -> Result<Provider, String> {
 fn provider_from_env(args: &[String]) -> Result<Provider, String> {
     let selected = value(args, "--provider").unwrap_or_else(|| "mock".to_owned());
     let primary = named_provider(&selected)?;
+    if contains(args, "--use-profile-fallback") {
+        if contains(args, "--fallback-provider") {
+            return Err("Choose one fallback configuration".into());
+        }
+        let config = std::env::var("SOCKET_STREAM_FALLBACK_CONFIG")
+            .map_err(|_| "Missing saved fallback profile")?;
+        return Ok(Provider::Fallback(vec![
+            primary,
+            profile_provider(&config)?,
+        ]));
+    }
     match value(args, "--fallback-provider") {
         Some(fallback) if fallback != selected => {
             // Explicit opt-in only: fallback could incur separate API charges.
@@ -150,10 +161,76 @@ fn provider_from_env(args: &[String]) -> Result<Provider, String> {
     }
 }
 
+fn profile_provider(config: &str) -> Result<Provider, String> {
+    if config.len() > 65_536 {
+        return Err("Fallback profile exceeds size limit".into());
+    }
+    let data: serde_json::Value =
+        serde_json::from_str(config).map_err(|_| "Invalid fallback profile configuration")?;
+    let settings = data
+        .get("settings")
+        .and_then(serde_json::Value::as_object)
+        .ok_or("Invalid fallback profile settings")?;
+    let get = |key: &str| {
+        settings
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    match data.get("provider").and_then(serde_json::Value::as_str) {
+        Some("codex") => Ok(Provider::Codex {
+            model: get("SOCKET_STREAM_CODEX_MODEL"),
+        }),
+        Some("openai-compatible") => Ok(Provider::OpenAiCompatible {
+            base_url: get("SOCKET_STREAM_BASE_URL"),
+            model: get("SOCKET_STREAM_MODEL"),
+            api_key: get("SOCKET_STREAM_API_KEY"),
+        }),
+        Some("ollama") => Ok(Provider::OpenAiCompatible {
+            base_url: get("SOCKET_STREAM_OLLAMA_URL"),
+            model: get("SOCKET_STREAM_OLLAMA_MODEL"),
+            api_key: String::new(),
+        }),
+        Some("mock") => Ok(Provider::Mock),
+        _ => Err("Unsupported fallback provider".into()),
+    }
+}
+
 fn required_path(args: &[String], flag: &str) -> Result<PathBuf, String> {
     value(args, flag)
         .map(PathBuf::from)
         .ok_or_else(|| format!("missing {flag}"))
+}
+
+#[cfg(test)]
+mod provider_profile_tests {
+    use super::*;
+
+    #[test]
+    fn fallback_profile_keeps_independent_credentials_and_redacts_debug() {
+        let config = r#"{"provider":"openai-compatible","settings":{"SOCKET_STREAM_BASE_URL":"https://example.test/v1","SOCKET_STREAM_MODEL":"preferred","SOCKET_STREAM_API_KEY":"secret-profile-key"}}"#;
+        let provider = profile_provider(config).unwrap();
+        assert!(!format!("{provider:?}").contains("secret-profile-key"));
+        assert!(
+            matches!(provider, Provider::OpenAiCompatible { model, api_key, .. } if model == "preferred" && api_key == "secret-profile-key")
+        );
+    }
+
+    #[test]
+    fn fallback_profile_errors_do_not_echo_configuration() {
+        for config in [
+            "secret-profile-key",
+            r#"{"provider":"secret-profile-key","settings":{}}"#,
+        ] {
+            assert!(
+                !profile_provider(config)
+                    .unwrap_err()
+                    .contains("secret-profile-key")
+            );
+        }
+        assert!(profile_provider(&"x".repeat(65_537)).is_err());
+    }
 }
 
 fn bounded_usize(
@@ -236,7 +313,7 @@ async fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         "provider-test" => {
-            if contains(args, "--fallback-provider") {
+            if contains(args, "--fallback-provider") || contains(args, "--use-profile-fallback") {
                 return Err("Test one provider at a time; fallback could conceal a primary-provider failure.".into());
             }
             if !contains(args, "--confirm-inference") {

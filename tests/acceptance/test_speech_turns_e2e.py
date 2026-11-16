@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -50,12 +51,15 @@ while True:
             capture.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(60)\n")
             capture.chmod(0o700)
 
-    def launch(self, role, read_screen=False):
+    def launch(self, role, read_screen=False, provider="mock", extra_env=None, screen_only=False):
         env = dict(os.environ, SOCKET_STREAM_HOME=str(self.root),
                    SOCKET_STREAM_CONFIG=str(self.root / "missing-config.json"),
-                   PATH=str(self.fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+                    PATH=str(self.fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+        env.update(extra_env or {})
         args = [str(self.binary), "audio-live", "--authorized", "--source", "microphone",
-                "--speaker-role", role, "--provider", "mock"]
+                "--speaker-role", role, "--provider", provider]
+        if screen_only:
+            args = [str(self.binary), "observe-live", "--authorized", "--provider", provider, "--interval", "2"]
         if read_screen:
             args.extend(["--read-screen", "--read-interval", "2"])
         self.proc = subprocess.Popen(
@@ -184,6 +188,88 @@ while True:
         self.assertIn("merge sort", sent)
         self.assertNotIn("binary search", sent)
         self.stop()
+
+    def _assert_next_closes_previous_http_stream(self, screen_only):
+        disconnected = threading.Event()
+        release = threading.Event()
+        count = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                body = b'{"data":[{"id":"fixture"}]}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                count.append(True)
+                first = len(count) == 1
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                try:
+                    text = "First partial" if first else "Next answer"
+                    frame = {"choices": [{"delta": {"content": text}}]}
+                    self.wfile.write(("data: " + json.dumps(frame) + "\n\n").encode())
+                    self.wfile.flush()
+                    if first:
+                        while not release.wait(0.03):
+                            self.wfile.write(b": heartbeat\n\n")
+                            self.wfile.flush()
+                    else:
+                        self.wfile.write(b"data: [DONE]\n\n")
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    if first:
+                        disconnected.set()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def close_server():
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        self.addCleanup(close_server)
+        if screen_only:
+            tree = {"schema": 1, "source": "atspi", "nodes": [
+                {"id": 1, "parent": None, "role": "paragraph", "text": "Explain the first screen question clearly.", "focused": True}
+            ]}
+            helper = (self.root / "target/native-helpers/socket_stream_a11y"
+                      if sys.platform == "darwin" else self.root / "scripts/linux-accessibility.py")
+            helper.write_text(f"#!{sys.executable}\nprint({json.dumps(tree)!r})\n")
+            helper.chmod(0o700)
+        self.launch("practice", provider="openai-compatible", screen_only=screen_only, extra_env={
+            "SOCKET_STREAM_BASE_URL": f"http://127.0.0.1:{server.server_port}/v1",
+            "SOCKET_STREAM_MODEL": "fixture", "SOCKET_STREAM_API_KEY": "",
+        })
+        if not screen_only:
+            self.command("question First question")
+        first = self.until("answer_delta")[-1]
+        self.command("question Next queued question")
+        self.command("next-question")
+        events = self.until("answer_completed")
+        self.assertTrue(any(e["type"] == "answer_cancelled" and e["request_id"] == first["request_id"] for e in events))
+        next_id = next(e["request_id"] for e in events if e["type"] == "question_detected")
+        self.assertNotEqual(next_id, first["request_id"])
+        self.assertTrue(all(e["request_id"] == next_id for e in events if e["type"] == "answer_delta"))
+        self.assertTrue(disconnected.wait(3), "Next must close the old HTTP stream, not just hide its output")
+        self.assertIsNone(self.proc.poll(), "capture session must remain running")
+        self.stop()
+
+    def test_next_question_closes_audio_answer_stream_and_starts_queued_question(self):
+        self._assert_next_closes_previous_http_stream(False)
+
+    def test_next_question_closes_screen_answer_stream_and_starts_queued_question(self):
+        self._assert_next_closes_previous_http_stream(True)
 
     def test_interviewer_questions_answered_statements_suppressed_and_role_switch_safe(self):
         self.launch("interviewer")

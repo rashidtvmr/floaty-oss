@@ -299,7 +299,7 @@ class FloatingOverlay:
                  on_copy=None, on_minimize=None, on_settings=None, state=None,
                  on_selection_changed=None, font_size=16, reduced_motion=False,
                  on_ask=None, on_capture=None, cursor_blending=True,
-                 on_cursor_blending=None):
+                  on_cursor_blending=None, on_next_question=None):
         import gi
 
         gi.require_version("Gdk", "3.0")
@@ -344,6 +344,9 @@ class FloatingOverlay:
         self._on_ask = on_ask
         self._on_capture = on_capture
         self._on_cursor_blending = on_cursor_blending
+        self._on_next_question = on_next_question
+        self._frozen_display = None
+        self._skip_request_id = ""
         # Cursor blending: on X11/XWayland the panel's background is removed
         # from the input shape so hover and clicks reach the site below while
         # the interactive controls stay usable. Off restores full input for
@@ -671,6 +674,14 @@ class FloatingOverlay:
         self.latest_button.set_no_show_all(True)
         self.latest_button.connect("clicked", lambda *_: self.follow_latest())
         self.controls.pack_start(self.latest_button, False, False, 0)
+        self.answer_pause_button = style(Gtk.Button(label="Pause answer"), "ss-quiet")
+        self.answer_pause_button.set_tooltip_text("Freeze the displayed answer. Capture and provider generation may continue; Continue catches up.")
+        self.answer_pause_button.connect("clicked", self._toggle_answer_pause)
+        self.controls.pack_start(self.answer_pause_button, False, False, 0)
+        self.next_question_button = style(Gtk.Button(label="Next question"), "ss-quiet")
+        self.next_question_button.set_tooltip_text("Cancel the current live answer and move on. When viewing an older answer, show the latest instead. Capture stays on; remote billing may continue.")
+        self.next_question_button.connect("clicked", self._next_question_clicked)
+        self.controls.pack_start(self.next_question_button, False, False, 0)
         spacer = Gtk.Box()
         self.controls.pack_start(spacer, True, True, 0)
         self.copy_button = self._icon_button("edit-copy-symbolic", "Copy answer", lambda *_: self.copy_answer())
@@ -732,10 +743,11 @@ class FloatingOverlay:
         return True
 
     def _show_progress(self):
-        self.answer_label.set_text(self._model.state.progress_text())
+        paused = self._frozen_display is not None
+        self.answer_label.set_text("Display paused" if paused else self._model.state.progress_text())
         self.answer_label.set_tooltip_text(self._model.state.diagnostic_text())
         flow = self._model.state.flow_text()
-        self.flow_label.set_text(flow)
+        self.flow_label.set_text(("Display paused · provider may continue · " if paused else "") + flow)
         self.flow_label.set_tooltip_text(flow)
 
     def _show_activity(self, *_args):
@@ -1575,6 +1587,8 @@ class FloatingOverlay:
         return False
 
     def bind_state(self, state):
+        self._frozen_display = None
+        self._skip_request_id = ""
         self._model.state = state
         self.render_state()
 
@@ -1582,7 +1596,17 @@ class FloatingOverlay:
         """Render a selected pair, keeping session activity and transcript separate."""
         if provider is not None:
             self._provider = provider
-        state = self._model.state.display_snapshot()
+        live = self._model.state.display_snapshot()
+        if self._frozen_display is not None and self._frozen_display["session_id"] != live["session_id"]:
+            self._frozen_display = None
+        state = self._frozen_display or live
+        self.answer_pause_button.set_label("Continue answer" if self._frozen_display is not None else "Pause answer")
+        self.answer_pause_button.set_sensitive(bool(state["request_id"]))
+        engine = self._model.state.snapshot()
+        older = bool(engine["request_id"] and state["request_id"] != engine["request_id"])
+        self.next_question_button.set_sensitive(older or (
+            engine["status"] == "thinking" and engine["request_id"] != self._skip_request_id
+            and (self._on_next_question is not None or self._child is not None)))
         key = (state["session_id"], state["request_id"])
         if key != self._display_request:
             self._display_request = key
@@ -1605,7 +1629,7 @@ class FloatingOverlay:
         usage = state.get("token_usage", "Cache usage not reported")
         self.token_usage_label.set_text(usage)
         self.token_usage_label.set_tooltip_text(usage)
-        session_status = state["session_status"]
+        session_status = live["session_status"]
         is_audio = self._model.snapshot()["source"] in ("microphone", "playback")
         status = {"idle": "Ready", "observing": "Listening" if is_audio else "Reading screen",
                   "thinking": "Answering", "ready": "Listening" if is_audio else "Ready",
@@ -1739,6 +1763,44 @@ class FloatingOverlay:
         return True
 
     # ---- controls -------------------------------------------------------
+
+    def _toggle_answer_pause(self, *_args):
+        if self._frozen_display is None:
+            view = self._model.state.display_snapshot()
+            if not view["request_id"]:
+                return
+            self._frozen_display = view
+        else:
+            self._frozen_display = None
+        self.render_state()
+
+    def _next_question_clicked(self, *_args):
+        view = self._model.state.snapshot()
+        selected = self._frozen_display or self._model.state.display_snapshot()
+        if view["request_id"] and selected["request_id"] != view["request_id"]:
+            self._frozen_display = None
+            self._model.state.follow_latest()
+            self.render_state()
+            return
+        if view["status"] != "thinking" or view["request_id"] == self._skip_request_id:
+            return
+        self._skip_request_id = view["request_id"]
+        self._frozen_display = None
+        try:
+            if self._on_next_question is not None:
+                sent = self._on_next_question()
+            elif self._child is not None and self._child.stdin is not None:
+                self._child.stdin.write("next-question\n")
+                self._child.stdin.flush()
+                sent = True
+            else:
+                sent = False
+        except (OSError, ValueError):
+            sent = False
+        if sent is False:
+            self._skip_request_id = ""
+            self.set_status("Could not cancel the current answer")
+        self.render_state()
 
     def scroll_answer(self, direction):
         """Scroll one readable page without changing the selected answer."""

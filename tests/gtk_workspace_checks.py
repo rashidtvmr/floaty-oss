@@ -551,6 +551,78 @@ class WorkspaceChecks(unittest.TestCase):
         self.assertIn("AI input: Binary search with current screen context", self.panel.flow_label.get_text())
         self.assertIn("Waiting for AI", self.panel.flow_label.get_text())
 
+    def test_answer_pause_continue_and_next_question_controls(self):
+        self.send("session_started")
+        self.send("question_detected", "one", text="First question")
+        self.send("answer_delta", "one", text="First words")
+        self.panel.answer_pause_button.clicked()
+        self.assertEqual(self.panel.answer_pause_button.get_label(), "Continue answer")
+        self.send("answer_delta", "one", text=" plus more")
+        self.assertEqual(self.panel.answer_text(), "First words")
+        self.assertIn("Display paused", self.panel.flow_label.get_text())
+        self.panel.answer_pause_button.clicked()
+        self.assertEqual(self.panel.answer_text(), "First words plus more")
+        sent = []
+        self.panel._on_next_question = lambda: sent.append("next-question") or True
+        self.panel.answer_pause_button.clicked()
+        self.panel.next_question_button.clicked()
+        self.assertEqual(sent, ["next-question"])
+        self.assertIsNone(self.panel._frozen_display)
+        self.assertFalse(self.panel.next_question_button.get_sensitive())
+        self.send("answer_cancelled", "one")
+        self.send("answer_delta", "one", text="stale")
+        self.assertNotIn("stale", self.panel.answer_text())
+        self.send("question_detected", "two", text="Next question")
+        self.send("answer_delta", "two", text="Next answer")
+        self.assertEqual(self.panel.answer_text(), "Next answer")
+
+    def test_named_profile_picker_restores_credentials_models_and_codex_choice(self):
+        controller.save_provider_profile("Cloud A", "openai-compatible", {"SOCKET_STREAM_API_KEY": "fixture-A", "SOCKET_STREAM_MODEL": "model-A"})
+        controller.save_provider_profile("Cloud B", "openai-compatible", {"SOCKET_STREAM_API_KEY": "fixture-B", "SOCKET_STREAM_MODEL": "model-B"}, "Cloud A")
+        self.app.provider_book = controller.load_provider_profiles()
+        self.app.fallback_profile = "Cloud A"
+        self.app.refresh_profile_choices()
+        self.app.profile_select.set_active_id("Cloud A")
+        self.assertEqual(self.app.env["SOCKET_STREAM_API_KEY"], "fixture-A")
+        self.assertEqual(self.app.env["SOCKET_STREAM_MODEL"], "model-A")
+        self.assertEqual(self.app.fallback_profile, "")
+        self.app.env["SOCKET_STREAM_CODEX_MODEL"] = "preferred-codex"
+        self.app.use_codex()
+        self.assertEqual(controller.load_provider_settings()["SOCKET_STREAM_CODEX_MODEL"], "preferred-codex")
+        self.assertEqual(controller.load_provider_settings()["SOCKET_STREAM_PROVIDER"], "codex")
+        self.assertEqual(len(controller.load_provider_profiles()["profiles"]), 3)
+
+    def test_configure_saves_named_codex_model_and_opt_in_fallback(self):
+        controller.save_provider_profile("Backup", "openai-compatible", {"SOCKET_STREAM_MODEL": "backup-model"})
+        self.app.provider_book = controller.load_provider_profiles()
+
+        def apply_settings():
+            for dialog in Gtk.Window.list_toplevels():
+                if isinstance(dialog, Gtk.Dialog) and dialog.get_title() == "AI provider settings":
+                    widgets = {}
+                    pending = [dialog]
+                    while pending:
+                        widget = pending.pop()
+                        widgets[widget.get_accessible().get_name()] = widget
+                        if isinstance(widget, Gtk.Container):
+                            pending.extend(widget.get_children())
+                    widgets["Profile name"].set_text("Saved Codex")
+                    widgets["Profile provider"].set_active(2)
+                    widgets["Codex preferred model"].set_text("chosen-model")
+                    widgets["Enable fallback profile"].set_active(True)
+                    widgets["Fallback profile"].set_active_id("Backup")
+                    dialog.response(Gtk.ResponseType.OK)
+                    return False
+            return True
+
+        GLib.timeout_add(50, apply_settings)
+        self.app.settings(None)
+        book = controller.load_provider_profiles()
+        self.assertEqual(book["active_profile"], "Saved Codex")
+        self.assertEqual(book["fallback_profile"], "Backup")
+        self.assertEqual(book["profiles"]["Saved Codex"]["settings"]["SOCKET_STREAM_CODEX_MODEL"], "chosen-model")
+        self.assertEqual(self.app.selected_provider(), "codex")
+
     def test_answer_remains_interactive_and_scroll_shortcuts_move_reader(self):
         self.send("session_started")
         self.send("question_detected", "one", text="Long answer")

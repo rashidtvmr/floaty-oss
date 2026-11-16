@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+import fcntl
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,6 +69,91 @@ class ProviderSettings(unittest.TestCase):
         self.assertTrue(settings.clear_provider_settings())
         self.assertFalse(settings.clear_provider_settings())
         self.assertEqual(settings.load_provider_settings(), {})
+
+    def test_named_profiles_preserve_legacy_credentials_and_codex_model(self):
+        settings.save_provider_settings({"SOCKET_STREAM_API_KEY": "legacy-secret", "SOCKET_STREAM_MODEL": "legacy-model"})
+        settings.save_provider_profile("Codex", "codex", {"SOCKET_STREAM_CODEX_MODEL": "preferred-codex"})
+        book = settings.load_provider_profiles()
+        self.assertEqual(book["profiles"]["Default"]["settings"]["SOCKET_STREAM_API_KEY"], "legacy-secret")
+        self.assertEqual(book["profiles"]["Codex"]["settings"]["SOCKET_STREAM_CODEX_MODEL"], "preferred-codex")
+        settings.save_provider_profile("Second cloud", "openai-compatible", {"SOCKET_STREAM_API_KEY": "second-secret", "SOCKET_STREAM_MODEL": "second-model"}, "Codex")
+        self.assertEqual(settings.load_provider_settings()["SOCKET_STREAM_API_KEY"], "second-secret")
+        self.assertEqual(settings.load_provider_profiles()["fallback_profile"], "Codex")
+        settings.save_provider_profile("Second cloud", "openai-compatible", {"SOCKET_STREAM_MODEL": "second-model"})
+        self.assertEqual(settings.load_provider_profiles()["fallback_profile"], "")
+        self.assertEqual(settings.provider_settings_path().stat().st_mode & 0o777, 0o600)
+
+    def test_fallback_requires_a_different_saved_profile(self):
+        settings.save_provider_profile("Primary", "codex", {})
+        before = settings.provider_settings_path().read_bytes()
+        for fallback in ("Primary", "not-saved"):
+            with self.assertRaises(ValueError):
+                settings.save_provider_profile("Primary", "codex", {}, fallback)
+            self.assertEqual(settings.provider_settings_path().read_bytes(), before)
+
+    def test_symlinks_and_malformed_settings_are_preserved_not_overwritten(self):
+        path = settings.provider_settings_path()
+        path.parent.mkdir(parents=True)
+        outside = Path(self.tmp.name) / "outside.json"
+        outside.write_text('{"keep":"untouched"}')
+        path.symlink_to(outside)
+        with self.assertRaises(OSError):
+            settings.save_provider_profile("Unsafe", "codex", {})
+        self.assertEqual(outside.read_text(), '{"keep":"untouched"}')
+        path.unlink()
+        path.write_text("malformed")
+        with self.assertRaises(ValueError):
+            settings.save_provider_profile("Unsafe", "codex", {})
+        self.assertEqual(path.read_text(), "malformed")
+
+    def test_profile_lock_refuses_concurrent_writes_without_waiting(self):
+        settings.save_provider_profile("First", "codex", {})
+        lock = settings.provider_settings_path().parent / ".provider-settings.lock"
+        with lock.open("r+") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaises(BlockingIOError):
+                settings.save_provider_profile("Second", "codex", {})
+            with self.assertRaises(BlockingIOError):
+                settings.clear_provider_settings()
+            self.assertTrue(settings.provider_settings_path().is_file())
+        self.assertTrue(settings.clear_provider_settings())
+
+    def test_insecure_files_and_directories_are_not_used_for_credentials(self):
+        path = settings.save_provider_settings({"SOCKET_STREAM_API_KEY": "private-secret"})
+        path.chmod(0o644)
+        self.assertEqual(settings.load_provider_settings(), {})
+        with self.assertRaises(ValueError):
+            settings.save_provider_profile("New", "codex", {})
+        path.chmod(0o600)
+        path.parent.chmod(0o777)
+        try:
+            self.assertEqual(settings.load_provider_settings(), {})
+            with self.assertRaises(ValueError):
+                settings.save_provider_profile("New", "codex", {})
+        finally:
+            path.parent.chmod(0o700)
+
+    def test_malformed_profile_metadata_is_preserved(self):
+        path = settings.save_provider_settings({})
+        cases = [{"SOCKET_STREAM_API_KEY": ["invalid-secret"]}, {"profiles": []}, {"profiles": {"Broken": {"provider": "unknown", "settings": {}}}},
+                 {"profiles": {}, "active_profile": []}, {"fallback_profile": {}},
+                 {"profiles": {}, "fallback_profile": "missing"}]
+        for data in cases:
+            before = json.dumps(data).encode()
+            path.write_bytes(before)
+            self.assertEqual(settings.load_provider_profiles()["profiles"], {})
+            with self.assertRaises(ValueError):
+                settings.save_provider_profile("New", "codex", {})
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_excessively_nested_json_is_rejected_and_preserved(self):
+        path = settings.save_provider_settings({})
+        before = ('{"unknown":' + '[' * 2000 + '0' + ']' * 2000 + '}').encode()
+        path.write_bytes(before)
+        self.assertEqual(settings.load_provider_settings(), {})
+        with self.assertRaises(ValueError):
+            settings.save_provider_profile("New", "codex", {})
+        self.assertEqual(path.read_bytes(), before)
 
 
 if __name__ == "__main__":

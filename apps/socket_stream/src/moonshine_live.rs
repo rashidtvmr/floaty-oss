@@ -463,8 +463,10 @@ fn controls() -> mpsc::Receiver<String> {
             // Forward pause/resume/stop/read-screen and bounded "question …"
             // lines; anything else is ignored so stray input cannot kill the
             // session.
-            let recognized = matches!(line.as_str(), "pause" | "resume" | "stop" | "read-screen")
-                || line.starts_with("question ")
+            let recognized = matches!(
+                line.as_str(),
+                "pause" | "resume" | "stop" | "read-screen" | "next-question"
+            ) || line.starts_with("question ")
                 || line.starts_with("speaker ");
             if recognized && tx.blocking_send(line).is_err() {
                 break;
@@ -497,7 +499,7 @@ fn deliver_read(
             }
         }
         Reading::Nothing => ScreenUpdate {
-            display: String::new(),
+            display: "No focused readable question window. Focus the question window; enable accessibility or opt-in OCR if needed.".into(),
             context: String::new(),
             source: "system",
             status: "unavailable",
@@ -784,6 +786,16 @@ async fn run_session(
                     }
                     Some("read-screen") => {
                         let _ = reader_signals.send(ReaderSignal::Read);
+                    }
+                    Some("next-question") if !paused => {
+                        if answer_task.take().is_some() {
+                            emitter.send("answer_cancelled", label, Some(&answer_id), None)?;
+                        }
+                        if let Some(text) = manual_pending.take() {
+                            start_manual!(text, "manual", true);
+                        } else if !transcript.pending.is_empty() {
+                            due = Some(Instant::now());
+                        }
                     }
                     Some(line) if line.starts_with("question ") => match control_line(line) {
                         Some(Ok(Control::Question(text))) => {

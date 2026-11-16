@@ -144,6 +144,38 @@ class LinuxAdapterTests(unittest.TestCase):
         focus = Node(kids=[Node("text", "focused", states=["FOCUSED"])])
         self.assertEqual(ACCESS.extract(Node(kids=[other, focus]), ATSPI), "focused")
 
+    def test_active_frame_beats_stale_background_focus_and_excludes_other_windows(self):
+        stale = Node(kids=[Node("window", states=["FOCUSED"], kids=[Node("text", "background private text")])])
+        background = Node("frame", kids=[Node("text", "unrelated background question")])
+        active = Node("frame", states=["ACTIVE"], kids=[Node("text", "the actual question")])
+        browser = Node(kids=[background, active])
+        self.assertEqual(ACCESS.extract(Node(kids=[stale, browser]), ATSPI), "the actual question")
+
+    def test_ambiguous_active_frames_require_focus_instead_of_reading_background(self):
+        left = Node(kids=[Node("frame", states=["ACTIVE"], kids=[Node("text", "left private")])])
+        right = Node(kids=[Node("frame", states=["ACTIVE"], kids=[Node("text", "right private")])])
+        with self.assertRaisesRegex(RuntimeError, "Multiple accessible windows"):
+            ACCESS.select_foreground(Node(kids=[left, right]), ATSPI)
+        right.kids[0].kids[0].states.add("FOCUSED")
+        self.assertIs(ACCESS.select_foreground(Node(kids=[left, right]), ATSPI), right.kids[0])
+
+    def test_own_active_frame_is_never_captured_even_with_generic_application_name(self):
+        app = Node(name="python3", kids=[Node("frame", name="SocketStream — Practice Answer", states=["ACTIVE"])])
+        with self.assertRaises(ACCESS.OwnWindowError):
+            ACCESS.select_foreground(Node(kids=[app]), ATSPI)
+
+    def test_active_application_fallback_reads_only_its_focused_frame(self):
+        background = Node("frame", kids=[Node("text", "background private text")])
+        current = Node("frame", kids=[Node("text", "current question", states=["FOCUSED"])])
+        app = Node(states=["ACTIVE"], kids=[background, current])
+        self.assertEqual(ACCESS.extract(Node(kids=[app]), ATSPI), "current question")
+        app.states.clear()
+        self.assertEqual(ACCESS.extract(Node(kids=[app]), ATSPI), "current question")
+        current.kids[0].states.clear()
+        app.states.add("ACTIVE")
+        with self.assertRaisesRegex(RuntimeError, "Multiple application windows"):
+            ACCESS.extract(Node(kids=[app]), ATSPI)
+
     def test_no_foreground_returns_empty(self):
         self.assertEqual(ACCESS.extract(Node(kids=[Node(kids=[Node("text", "secret")])]), ATSPI), "")
 

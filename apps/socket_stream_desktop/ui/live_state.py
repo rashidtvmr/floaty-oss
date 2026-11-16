@@ -12,7 +12,7 @@ _TYPES = {
     "session_started", "question_detected", "answer_started", "answer_delta",
     "answer_completed", "api_request", "api_response", "transcript_updated",
     "session_paused", "session_resumed", "error", "session_stopped",
-    "screen_read", "token_usage", "speech_status", "ai_input",
+    "screen_read", "token_usage", "speech_status", "ai_input", "answer_cancelled",
 }
 
 
@@ -135,6 +135,7 @@ class LiveState:
                  "listening": "Listening · waiting for a question", "reading": "Reading screen",
                  "sending": "Sending question to AI", "waiting": "Waiting for AI first token",
                  "streaming": "Receiving AI answer", "complete": "Answer complete",
+                 "cancelled": "Answer cancelled · waiting for next question",
                  "paused": "Paused · no capture", "stopped": "Stopped",
                  "error": "Needs attention"}.get(stage, "Waiting for activity")
         if self._view["status"] == "thinking":
@@ -211,6 +212,8 @@ class LiveState:
             status = previous_status if previous_status in ("ready", "error") else "paused"
         elif status == "observing":
             status = previous_status if previous_status != "paused" else "interrupted"
+        if kind == "answer_cancelled":
+            status = "interrupted"
         entry["status"] = status
         while len(self._history) > HISTORY_LIMIT:
             index = next(i for i, item in enumerate(self._history)
@@ -336,6 +339,13 @@ class LiveState:
             return True
         if rid != self._view["request_id"]:
             return False
+        if kind == "answer_cancelled":
+            if not self._request_open:
+                return False
+            self._request_open = False
+            self._request_started = None
+            self._view.update(status="observing", stage="cancelled")
+            return True
         if kind == "ai_input":
             if not self._request_open:
                 return False

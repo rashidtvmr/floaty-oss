@@ -4,6 +4,121 @@ use crate::a11y::A11yTree;
 use std::path::Path;
 use std::process::Command;
 
+#[cfg(unix)]
+fn helper_output(
+    mut command: Command,
+    timeout: std::time::Duration,
+) -> Result<std::process::Output, AccessibilityError> {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    const OUTPUT_LIMIT: usize = 1024 * 1024;
+
+    struct OwnedHelper(std::process::Child, bool);
+    impl Drop for OwnedHelper {
+        fn drop(&mut self) {
+            if !self.1 {
+                // Only the process group created for this helper is terminated.
+                unsafe {
+                    libc::kill(-(self.0.id() as i32), libc::SIGKILL);
+                }
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+    }
+    let mut child = OwnedHelper(
+        command
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|_| AccessibilityError::Backend("cannot start accessibility helper".into()))?,
+        false,
+    );
+    let mut stdout = child.0.stdout.take().expect("piped stdout");
+    let mut stderr = child.0.stderr.take().expect("piped stderr");
+    for fd in [stdout.as_raw_fd(), stderr.as_raw_fd()] {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(AccessibilityError::Backend(
+                "cannot monitor accessibility helper".into(),
+            ));
+        }
+    }
+    fn drain(
+        reader: &mut impl Read,
+        output: &mut Vec<u8>,
+        limit: usize,
+    ) -> Result<bool, AccessibilityError> {
+        let mut buffer = [0; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => return Ok(true),
+                Ok(size) => {
+                    if output.len() + size > limit {
+                        return Err(AccessibilityError::Backend(
+                            "accessibility helper output limit exceeded".into(),
+                        ));
+                    }
+                    output.extend_from_slice(&buffer[..size]);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    return Err(AccessibilityError::Backend(
+                        "accessibility helper pipe failed".into(),
+                    ));
+                }
+            }
+        }
+    }
+    let deadline = std::time::Instant::now() + timeout;
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    loop {
+        let out_done = drain(&mut stdout, &mut out, OUTPUT_LIMIT)?;
+        let err_done = drain(&mut stderr, &mut err, 16 * 1024)?;
+        // Do not reap the parent while descendants still hold its pipes: its
+        // reserved PID keeps the owned process-group identity unambiguous.
+        if out_done && err_done {
+            let status = child.0.try_wait().map_err(|_| {
+                AccessibilityError::Backend("cannot wait for accessibility helper".into())
+            })?;
+            if let Some(status) = status {
+                child.1 = true;
+                return Ok(std::process::Output {
+                    status,
+                    stdout: out,
+                    stderr: err,
+                });
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(AccessibilityError::Backend("accessibility read timed out; focus the question window and retry, or enable authorized OCR fallback".into()));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+fn run_helper(command: Command) -> Result<std::process::Output, AccessibilityError> {
+    #[cfg(unix)]
+    {
+        helper_output(
+            command,
+            std::time::Duration::from_secs(if cfg!(target_os = "macos") { 15 } else { 6 }),
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = command;
+        Err(AccessibilityError::Backend(
+            "unsupported operating system".into(),
+        ))
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AccessibilityError {
     #[error("permission missing or accessibility backend not available: {0}")]
@@ -50,10 +165,9 @@ fn accessibility_command(helper_root: &Path) -> Result<Command, AccessibilityErr
 }
 
 pub fn read_foreground_text(helper_root: &std::path::Path) -> Result<String, AccessibilityError> {
-    let output = accessibility_command(helper_root)?
-        .args(["--mode", "text"])
-        .output()
-        .map_err(|e| AccessibilityError::Backend(e.to_string()))?;
+    let mut command = accessibility_command(helper_root)?;
+    command.args(["--mode", "text"]);
+    let output = run_helper(command)?;
     if !output.status.success() {
         if output.status.code() == Some(4) {
             return Err(AccessibilityError::OwnWindow);
@@ -91,9 +205,7 @@ pub fn read_foreground_tree(
         "--max-chars",
         &max_chars.to_string(),
     ]);
-    let output = command
-        .output()
-        .map_err(|e| AccessibilityError::Backend(e.to_string()))?;
+    let output = run_helper(command)?;
     if !output.status.success() {
         if output.status.code() == Some(4) {
             return Err(AccessibilityError::OwnWindow);
@@ -141,6 +253,23 @@ pub fn needs_ocr(text: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn helper_timeout_and_output_limits_are_bounded() {
+        let mut slow = std::process::Command::new("sh");
+        slow.args(["-c", "sleep 10"]);
+        let started = std::time::Instant::now();
+        let error = super::helper_output(slow, std::time::Duration::from_millis(40)).unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        let mut noisy = std::process::Command::new("sh");
+        noisy.args([
+            "-c",
+            "while :; do printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'; done",
+        ]);
+        let error = super::helper_output(noisy, std::time::Duration::from_secs(3)).unwrap_err();
+        assert!(error.to_string().contains("output limit"));
+    }
     use super::*;
 
     #[test]
