@@ -1,5 +1,30 @@
 # SocketStream Linux release: installation and validation
 
+## Installed release record — 2026-11-16
+
+- `/opt/socket_stream` source: `e21730a3f8ffab35c34095f88af9475f73ddaa34`.
+- Archive SHA-256: `842b1aedbad3d4e529f172994ea4138017c45a2af637f9170297c69438f8ffd4`.
+- Installed CLI, four modified UI modules and manual-vision test hashes matched
+  the source/build. Dependency checks and bundled Moonshine initialization passed.
+- Installed manual-vision acceptance: 3/3 passed on Linux with synthetic helpers.
+  Six embedded extraction fidelity cases passed. Tesseract fixture first/p50/p95:
+  146.23/122.76/146.23 ms (three calls; two required identifiers retained).
+- Previous source `b06556c` retained at
+  `/opt/socket_stream-releases/4c4eba9-installed-20261116-121531`; the directory's
+  historical prefix is not its source identity. Older rollback was preserved.
+- Temporary GDM auto-login was disabled again with a metadata-preserving backup;
+  no desktop/GDM restart or session-authentication file change was made.
+- The saved provider's real synthetic request returned HTTP 503. This is an
+  outstanding live-answer availability blocker, not a successful provider check.
+- A post-install GUI run passed 12/13 checks but failed the physical resize
+  assertion while another installed GUI was running. It also emitted ATK warnings.
+  The earlier isolated staging run passed all 13. Do not conflate those results;
+  an installed rerun with the service temporarily stopped also passed 12/13 but
+  failed physical drag coordinates. The cause remains unresolved; installed
+  drag/resize reliability is not established. Prompt typing, input shapes and
+  the other 12 checks passed both runs. The service was restored and verified
+  active (`Type=exec`, 1 GiB memory limit, 512 tasks, unlimited runtime).
+
 This archive includes a statically linked Linux Rust CLI, a GTK3 desktop shell,
 accessible-text reading via AT-SPI2, Tesseract OCR, and the XDG ScreenCast/PipeWire
 capture helper. It is a practice assistant for authorized screen/audio capture,
