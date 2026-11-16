@@ -59,13 +59,15 @@ def children(node):
 def focused_descendant(node, atspi, depth=0, visited=None, max_depth=MAX_DEPTH, max_nodes=MAX_NODES):
     """Find the focused widget without reading any text from other widgets."""
     if visited is None:
-        visited = set()
+        visited = {}
     if node is None or depth > max_depth or len(visited) >= max_nodes:
         return None
     identity = id(node)
     if identity in visited:
         return None
-    visited.add(identity)
+    # Keep wrappers alive for this bounded traversal. GI may release them
+    # between siblings and reuse Python ids for different remote objects.
+    visited[identity] = node
     if has_state(node, "FOCUSED", atspi):
         return node
     for child in children(node):
@@ -330,7 +332,7 @@ def tree_children(node, state):
 def build_tree(selected, atspi, max_nodes, max_depth, max_chars):
     """Build the schema-1 tree payload for one application node."""
     nodes = []
-    visited = set()
+    visited = {}
     state = {"truncated": False, "chars": 0}
 
     def walk(node, parent_id, depth):
@@ -342,7 +344,7 @@ def build_tree(selected, atspi, max_nodes, max_depth, max_chars):
         identity = id(node)
         if identity in visited:
             return
-        visited.add(identity)
+        visited[identity] = node
 
         role = safe_role(node)
         protected = role_is_protected(role, has_state(node, "PROTECTED", atspi))
@@ -422,7 +424,7 @@ def extract(desktop, atspi):
 
     chunks = []
     emitted = set()
-    visited = set()
+    visited = {}
     size = 0
 
     def emit(value):
@@ -444,7 +446,7 @@ def extract(desktop, atspi):
         identity = id(node)
         if identity in visited:
             return
-        visited.add(identity)
+        visited[identity] = node
         try:
             role = (node.get_role_name() or "").lower()
             if any(token in role for token in PROTECTED_ROLES):

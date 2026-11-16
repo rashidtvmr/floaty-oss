@@ -14,6 +14,8 @@ import subprocess
 import sys
 import types
 import unittest
+import weakref
+import gc
 from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -116,6 +118,45 @@ def sample_desktop():
         children=[paragraph, entry, image, password],
     )
     return FakeNode("desktop", children=[app]), app
+
+
+class EphemeralWrapperTests(unittest.TestCase):
+    def root(self):
+        testcase = self
+
+        class EphemeralChildren(FakeNode):
+            def __init__(self):
+                super().__init__('frame')
+                self.references = []
+
+            def get_child_count(self):
+                return 12
+
+            def get_child_at_index(self, index):
+                testcase.assertTrue(all(ref() is not None for ref in self.references),
+                                    'visited GI wrappers must remain alive until traversal ends')
+                node = FakeNode('paragraph', text=f'Question sibling {index}',
+                                states=('FOCUSED',) if index == 11 else ())
+                self.references.append(weakref.ref(node))
+                return node
+
+        return EphemeralChildren()
+
+    def test_tree_retains_ephemeral_wrappers_across_siblings(self):
+        root = self.root()
+        tree = helper.build_tree(root, FakeAtspi, 100, 20, 32000)
+        self.assertEqual(len(tree['nodes']), 13)
+        self.assertIn('Question sibling 11', tree['nodes'][-1]['text'])
+        gc.collect()
+        self.assertTrue(all(ref() is None for ref in root.references), 'no retained capture after the read')
+
+    def test_focus_search_retains_ephemeral_wrappers(self):
+        self.assertIsNotNone(helper.focused_descendant(self.root(), FakeAtspi))
+
+    def test_legacy_text_retains_ephemeral_wrappers(self):
+        root = self.root()
+        with mock.patch.object(helper, 'select_foreground', return_value=root):
+            self.assertIn('Question sibling 11', helper.extract(None, FakeAtspi))
 
 
 class ArgumentParsingTests(unittest.TestCase):

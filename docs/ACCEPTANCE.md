@@ -111,3 +111,21 @@ before reinstalling. Final Python suite passes 661 tests (6 skipped), Rust passe
 Independent review approved the cancellation and private-instance-lock changes.
 This evidence does not guarantee third-party model
 availability or physical headphone/Bluetooth switching behavior.
+
+Live Chrome extraction correction (2026-11-16): real GI accessibility wrappers
+can be released between siblings and their Python object IDs reused. Keeping
+only those IDs in the traversal's visited set incorrectly skipped unrelated
+page nodes. Tree, legacy text and focus walks now retain bounded wrapper
+references for the duration of each read. Three ephemeral-wrapper regressions
+cover all walks and release after completion. On a real isolated Chrome HTML
+fixture, the old helper returned 7 nodes without the question; the corrected
+helper returned 184 nodes including the synthetic question. The explicitly
+authorized FrontendX window returned 796 nodes and 16,078 text characters with
+the corrected helper, without screenshots, speech feedback or remote AI. That
+page hit the configured traversal bounds, so this is not proof of full-page
+coverage or current-question extraction. Foreground ambiguity still fails closed;
+explicit window selection remains required when desktop focus reports conflict.
+The corrected helper also passed real Chrome fixture -> native Rust CLI -> mock
+answer completion on Ubuntu. Final gates: 664 Python tests (6 skipped), 41 source
+acceptance tests (7 skipped), 200 Rust tests, fmt and Clippy. These are local
+extraction/mock-provider results, not proof of remote-provider availability.
