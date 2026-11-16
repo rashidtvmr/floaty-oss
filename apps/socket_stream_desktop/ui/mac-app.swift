@@ -514,8 +514,21 @@ struct LaunchOptions {
 /// macOS may still include the window in some captures depending on the API and
 /// OS version. It never hides on focus changes or when the main window is
 /// minimized; only an explicit Close / Hide action changes visibility.
+/// An `NSPanel` that can never become key or main. `.nonactivatingPanel` only
+/// stops the *click* from activating the app; a view that accepts first
+/// responder (the selectable answer text) still drives `makeKeyWindow` and
+/// activates SocketStream. With `canBecomeKey = false` the panel stays
+/// non-activating for every click, including drag-selection. What is lost is
+/// keyboard input to the panel: no arrow/Page scrolling, no Cmd+C, no key
+/// equivalents. The panel is mouse-driven and has its own Copy button, which
+/// copies the selection when there is one.
+final class NonActivatingAnswerPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 final class AnswerPanel: NSObject, NSWindowDelegate {
-    let panel: NSPanel
+    let panel: NonActivatingAnswerPanel
     private let statusLabel: NSTextField
     private let questionLabel: NSTextField
     private let answerView: NSTextView
@@ -549,7 +562,7 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
 
     init(stealth: Bool = true, compact: Bool = false, opacity: Double = 0.94) {
         let frame = NSRect(x: 0, y: 0, width: 520, height: 430)
-        panel = NSPanel(contentRect: frame,
+        panel = NonActivatingAnswerPanel(contentRect: frame,
                         styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel, .resizable],
                         backing: .buffered, defer: false)
         panel.title = "SocketStream — Practice Answer"
@@ -798,6 +811,14 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
 
     var answerText: String { answerView.string }
 
+    /// The drag-selected part of the answer, or empty when nothing is selected.
+    /// A non-key panel cannot route Cmd+C, so the Copy button reads this.
+    var selectedAnswerText: String {
+        let range = answerView.selectedRange()
+        guard range.length > 0, range.location != NSNotFound else { return "" }
+        return (answerView.string as NSString).substring(with: range)
+    }
+
     // ---- controls --------------------------------------------------------
 
     func setRunning(_ value: Bool) {
@@ -893,7 +914,6 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var accessibilityLabel: NSTextField?
     var screenLabel: NSTextField?
     var answerPanel: AnswerPanel!
-
     var observationProcess: Process?
     var observationInput: Pipe?
     var utilityProcess: Process?
@@ -1780,7 +1800,11 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func copyAnswer() {
-        let text = answerPanel.answerText
+        // A non-key panel never routes Cmd+C, so copy the selection when the
+        // user made one and the whole answer otherwise.
+        let full = answerPanel.answerText
+        let selection = answerPanel.selectedAnswerText
+        let text = selection.isEmpty ? full : selection
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             answerPanel.setStatus("Nothing to copy yet")
             return
@@ -1788,8 +1812,9 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let board = NSPasteboard.general
         board.clearContents()
         board.setString(text, forType: .string)
-        answerPanel.setStatus("Answer copied to the clipboard")
-        append("\nAnswer copied to the clipboard (\(text.count) characters).\n")
+        answerPanel.setStatus(selection.isEmpty ? "Answer copied to the clipboard"
+                                                : "Selection copied to the clipboard")
+        append("\nCopied to the clipboard (\(text.count) characters).\n")
     }
 
     // ---- utility commands ------------------------------------------------
@@ -2259,10 +2284,35 @@ enum PipeReadSelfTest {
 
 // MARK: - Entry point
 
+/// Regresses the focus contract: clicking the answer panel must never activate
+/// SocketStream, because a test app watching the practice window reports any
+/// activation as "out of focus". `.nonactivatingPanel` alone is not enough:
+/// the selectable answer text accepts first responder, which makes the panel
+/// key and activates the app. The panel type therefore refuses key status.
+enum FocusSelfTest {
+    static func run() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        let panel = NonActivatingAnswerPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel, .resizable],
+            backing: .buffered, defer: false)
+        expect(!panel.canBecomeKey, "answer panel refuses key-window status")
+        expect(!panel.canBecomeMain, "answer panel refuses main-window status")
+        expect(panel.styleMask.contains(.nonactivatingPanel),
+               "answer panel keeps the nonactivating style mask")
+        panel.close()
+        return failures
+    }
+}
+
 let launchOptions = LaunchOptions.parse(CommandLine.arguments)
 
 if CommandLine.arguments.contains("--self-test") {
     let failures = LiveStateSelfTest.run() + SavedSettingsSelfTest.run() + PipeReadSelfTest.run()
+        + FocusSelfTest.run()
     if failures.isEmpty {
         print("macOS panel self-test: ok")
         exit(0)

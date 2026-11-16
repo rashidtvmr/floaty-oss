@@ -448,7 +448,7 @@ controls (Compact, Pause/Resume, Copy, Close, Main, Stop).
 | Check | Result |
 |---|---|
 | Window class / level | `NSPanel`, layer 25 (`.statusBar`), `.fullScreenAuxiliary`, `.canJoinAllSpaces`, `.nonactivatingPanel` |
-| Focus behavior | `hidesOnDeactivate = false`; focus changes never hide it |
+| Focus behavior | `hidesOnDeactivate = false`; focus changes never hide it; `canBecomeKey`/`canBecomeMain` are `false`, so no click (answer drag-selection, buttons, title bar, scroll) activates SocketStream and a practice window keeps focus |
 | Minimize main window | Panel stays visible |
 | Fullscreen app | Panel stays above a fullscreen Google Chrome window |
 | Opacity | `alphaValue = 0.94` (configurable 0.85–1.0) |

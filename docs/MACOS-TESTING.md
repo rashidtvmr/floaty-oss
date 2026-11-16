@@ -215,6 +215,14 @@ those control lines internal; they are not typed into the practice window.
 - `NSPanel` at the `.statusBar` level with `.fullScreenAuxiliary`,
   `.canJoinAllSpaces`, and `.nonactivatingPanel`.
 - `hidesOnDeactivate = false`; focus changes never hide it.
+- `canBecomeKey` and `canBecomeMain` are overridden to `false`. `.nonactivatingPanel`
+  only stops the click itself from activating the app; a view that accepts first
+  responder (the selectable answer text) still drives `makeKeyWindow` and activates
+  SocketStream, which a practice window records as focus loss. A panel that can never
+  become key keeps the other app frontmost for body clicks, drag-selection, buttons,
+  scrolling and title-bar drags. The cost: the panel takes no keyboard input, so
+  arrow/Page scrolling, Cmd+C and key equivalents do not reach it. **Copy** copies the
+  drag selection when there is one and the whole answer otherwise.
 - `sharingType = .none` while stealth is on; toggling stealth off sets
   `.readOnly` for comparison.
 - `alphaValue = 0.94` by default (`--opacity` accepts 0.85–1.0), with a

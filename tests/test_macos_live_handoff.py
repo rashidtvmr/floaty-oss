@@ -26,6 +26,24 @@ class LiveHandoffSourceTests(unittest.TestCase):
                       self.source)
         self.assertIn("PipeReadSelfTest.run()", self.source)
 
+    def test_panel_click_never_activates_socket_stream(self):
+        # A test app watching the practice window reports focus loss when
+        # SocketStream activates. `.nonactivatingPanel` alone is not enough:
+        # selecting answer text makes the panel key and activates the app, so
+        # the panel type must refuse key/main status.
+        self.assertIn("final class NonActivatingAnswerPanel: NSPanel", self.source)
+        self.assertIn("override var canBecomeKey: Bool { false }", self.source)
+        self.assertIn("override var canBecomeMain: Bool { false }", self.source)
+        self.assertIn("let panel: NonActivatingAnswerPanel", self.source)
+        self.assertIn("FocusSelfTest.run()", self.source)
+        self.assertIn(".nonactivatingPanel", self.source)
+
+    def test_copy_falls_back_to_the_selection(self):
+        # A non-key panel never routes Cmd+C, so the Copy button must handle
+        # the drag selection itself.
+        self.assertIn("var selectedAnswerText: String", self.source)
+        self.assertIn("selection.isEmpty ? full : selection", self.source)
+
 
 @unittest.skipUnless(GUI.is_file(), "the macOS GUI helper is not built")
 class BuiltGuiSelfTest(unittest.TestCase):
