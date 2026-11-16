@@ -12,7 +12,7 @@ use crate::config::ShortcutsConfig;
 
 /// Stable action names, in the order used by the docs, the config file, the
 /// CLI and the desktop shells.
-pub const ACTIONS: [&str; 17] = [
+pub const ACTIONS: [&str; 19] = [
     "start",
     "stop",
     "pause_resume",
@@ -30,12 +30,14 @@ pub const ACTIONS: [&str; 17] = [
     "previous_question",
     "next_question",
     "follow_latest",
+    "scroll_answer_up",
+    "scroll_answer_down",
 ];
 
 /// Default accelerator for each action, in [`ACTIONS`] order.
 ///
 /// Also written to a fresh config file by `socket_stream hotkeys init`.
-pub const DEFAULT_BINDINGS: [(&str, &str); 17] = [
+pub const DEFAULT_BINDINGS: [(&str, &str); 19] = [
     ("start", "ctrl+alt+s"),
     ("stop", "ctrl+alt+x"),
     ("pause_resume", "ctrl+alt+p"),
@@ -53,6 +55,8 @@ pub const DEFAULT_BINDINGS: [(&str, &str); 17] = [
     ("previous_question", "ctrl+alt+left"),
     ("next_question", "ctrl+alt+right"),
     ("follow_latest", "ctrl+alt+l"),
+    ("scroll_answer_up", "ctrl+alt+up"),
+    ("scroll_answer_down", "ctrl+alt+down"),
 ];
 
 /// Everything that can go wrong while parsing or validating shortcuts.
@@ -410,9 +414,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_have_seventeen_bindings() {
+    fn defaults_have_nineteen_bindings() {
         let map = ShortcutMap::defaults();
-        assert_eq!(map.bindings.len(), 17);
+        assert_eq!(map.bindings.len(), 19);
         assert_eq!(map.bindings.len(), ACTIONS.len());
         map.validate().expect("defaults must validate");
         for action in ACTIONS {
@@ -565,7 +569,7 @@ mod tests {
             .insert("quit".to_owned(), "meta+q".to_owned());
 
         let map = ShortcutMap::from_config(&config).expect("valid overrides");
-        assert_eq!(map.bindings.len(), 17);
+        assert_eq!(map.bindings.len(), 19);
         assert_eq!(
             map.accelerator_for("start").unwrap().display(),
             "Ctrl+Shift+1"

@@ -551,6 +551,49 @@ class WorkspaceChecks(unittest.TestCase):
         self.assertIn("AI input: Binary search with current screen context", self.panel.flow_label.get_text())
         self.assertIn("Waiting for AI", self.panel.flow_label.get_text())
 
+    def test_answer_remains_interactive_and_scroll_shortcuts_move_reader(self):
+        self.send("session_started")
+        self.send("question_detected", "one", text="Long answer")
+        self.send("answer_delta", "one", text="\n".join(f"Answer line {i}" for i in range(300)))
+        self.send("answer_completed", "one")
+        self.panel.show()
+        self.panel.set_cursor_blending(True)
+        pump()
+        self.assertIn(self.panel.answer_stack, self.panel._input_widget_list())
+        adjustment = self.panel.answer_scroll.get_vadjustment()
+        adjustment.set_value(0)
+        self.assertTrue(Gtk.accel_groups_activate(self.panel.window, Gdk.KEY_Down,
+                                                 Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK))
+        self.assertGreater(adjustment.get_value(), 0)
+        self.app._run_shortcut("scroll_answer_up")
+        self.assertEqual(adjustment.get_value(), 0)
+        self.panel.scroll_answer(10000)
+        self.assertAlmostEqual(adjustment.get_value(), adjustment.get_upper() - adjustment.get_page_size())
+        self.panel.scroll_answer(-10000)
+        self.assertEqual(adjustment.get_value(), 0)
+
+    @unittest.skipUnless(os.environ.get("SOCKET_STREAM_GTK_WHEEL_CHECKS") == "1", "opt-in X11 wheel injection")
+    def test_mouse_wheel_reaches_answer_with_cursor_blending(self):
+        if not shutil.which("xdotool"):
+            self.skipTest("xdotool is required")
+        gi.require_version("GdkX11", "3.0")
+        from gi.repository import GdkX11
+        self.send("session_started")
+        self.send("question_detected", "one", text="Scrollable answer")
+        self.send("answer_delta", "one", text="\n".join(f"Line {i}" for i in range(300)))
+        self.send("answer_completed", "one")
+        self.panel.show()
+        self.panel.set_cursor_blending(True)
+        pump()
+        adjustment = self.panel.answer_scroll.get_vadjustment()
+        adjustment.set_value(0)
+        x, y = self.panel.answer_scroll.translate_coordinates(self.panel.window, 30, 30)
+        xid = GdkX11.X11Window.get_xid(self.panel.window.get_window())
+        subprocess.run(["xdotool", "mousemove", "--window", str(xid), str(x), str(y),
+                        "click", "--repeat", "3", "--delay", "60", "5"], check=True)
+        pump()
+        self.assertGreater(adjustment.get_value(), 0, "mouse wheel must reach the answer, not the underlying app")
+
     def test_cursor_blending_applied_xshape_region(self):
         """Read back ShapeInput (coverage is X11 region, not compositor clicks)."""
         if not self.panel.input_shape_supported:
@@ -608,8 +651,8 @@ class WorkspaceChecks(unittest.TestCase):
             self.assertTrue(initial, "initial mapped ShapeInput region missing")
             self.assertFalse(contains(initial, background := (1, 1)),
                              "initial ON mode includes panel corner")
-            self.assertFalse(contains(initial, answer_background),
-                             "initial ON mode includes answer background")
+            self.assertTrue(contains(initial, answer_background),
+                            "initial ON mode must accept answer scrolling")
             for point in points:
                 self.assertTrue(contains(initial, point), f"initial ON mode excluded control point {point}")
             # Force both signal transitions so the X server has received the
@@ -622,7 +665,7 @@ class WorkspaceChecks(unittest.TestCase):
             on = region()
             self.assertTrue(on, "ShapeInput region was not applied in ON mode")
             self.assertFalse(contains(on, background), "ON mode includes panel corner")
-            self.assertFalse(contains(on, answer_background), "ON mode includes answer background")
+            self.assertTrue(contains(on, answer_background), "ON mode excludes answer scrolling")
             for point in points:
                 self.assertTrue(contains(on, point), f"ON mode excluded control point {point}")
             self.panel.passthrough_button.set_active(False)

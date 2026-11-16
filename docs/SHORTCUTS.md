@@ -2,9 +2,16 @@
 
 **Ticket:** `HOTKEYS-008` · **Contract:** [A11Y-TREE-SHORTCUTS.md](A11Y-TREE-SHORTCUTS.md), section 3
 
-Linux GTK implements **seventeen editable in-app actions**. They work while the
-control window is focused. macOS retains twelve Swift actions. See
+Linux GTK implements **nineteen editable in-app actions**. They work while the
+control window or answer panel is focused. macOS retains twelve Swift actions. See
 [UI verification](READABLE-ANSWER-UI.md) for the exact tested scope.
+
+**Ctrl+Alt+Up** (`scroll_answer_up`) and **Ctrl+Alt+Down** (`scroll_answer_down`)
+scroll the Linux answer by a readable page. Both can be rebound in Keyboard
+shortcuts. Mouse wheel/trackpad scrolling works over the answer even with cursor
+blending on. Out-of-focus use requires user-managed desktop shortcut bindings;
+the app installs no global key grab. Native macOS does not yet implement these
+two actions.
 
 ## Actions and defaults
 

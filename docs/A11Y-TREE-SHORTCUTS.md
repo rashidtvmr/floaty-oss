@@ -317,10 +317,11 @@ tool exists.
 
 `start`, `stop`, `pause_resume`, `toggle_overlay`, `show_overlay`, `hide_overlay`,
 `copy_answer`, `compact_toggle`, `toggle_stealth`, `open_settings`, `refresh_question`, `quit`,
-`listen_audio`, `pin_question`, `previous_question`, `next_question`, `follow_latest`.
+`listen_audio`, `pin_question`, `previous_question`, `next_question`, `follow_latest`,
+`scroll_answer_up`, `scroll_answer_down`.
 
-The shared Rust/Python contract has seventeen actions; macOS Swift implements
-the original twelve. The five Q&A actions and arrow-key bindings are Linux-only.
+The shared Rust/Python contract has nineteen actions; macOS Swift implements
+the original twelve. The seven Q&A/scroll actions and arrow-key bindings are Linux-only.
 
 `hide_overlay` is the "hide the app from screen" action. In the Linux GTK shell,
 the shortcut is intentionally show-only/reminder behavior: closing requires
@@ -330,7 +331,7 @@ Focus and screen-share state never automatically hide or restore it.
 ### 3.2 Rust contract — `crates/socket_stream_core/src/shortcuts.rs` (new)
 
 ```rust
-pub const ACTIONS: [&str; 17] = [ ... ]; // the names above, in order
+pub const ACTIONS: [&str; 19] = [ ... ]; // the names above, in order
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Accelerator {
@@ -395,6 +396,8 @@ Default bindings (also written to a fresh config file):
 | previous_question | `ctrl+alt+left` |
 | next_question | `ctrl+alt+right` |
 | follow_latest | `ctrl+alt+l` |
+| scroll_answer_up | `ctrl+alt+up` |
+| scroll_answer_down | `ctrl+alt+down` |
 
 ### 3.3 CLI — `apps/socket_stream/src/hotkeys.rs` (new)
 
@@ -413,8 +416,8 @@ Default bindings (also written to a fresh config file):
 
 - `apps/socket_stream_desktop/ui/shortcuts.py` (new, pure stdlib): parse accelerators, hold the
   action -> callback map, and dispatch a key event. GTK-agnostic so it is unit testable.
-- `linux-gtk.py`: register seventeen GTK accelerators (`Gtk.AccelGroup`) on the
-  control window and provide a Shortcuts page with recording, validation,
+- `linux-gtk.py`: register nineteen GTK accelerators (`Gtk.AccelGroup`) on the
+  control window and answer panel and provide a Shortcuts page with recording, validation,
   enable/disable, Save and Reset. Save applies immediately; Reset edits the form
   until saved. `open_settings` opens Appearance. `hide_overlay` retains its
   reminder-only behavior; the panel's Close control calls `hide()` explicitly.

@@ -3,13 +3,17 @@
 //! discards pending speech; Resume starts a fresh audio stream. With
 //! --read-screen, a parallel reader keeps the latest screen text (and, for
 //! OpenAI-compatible providers, a screenshot for model vision) so spoken and
-//! manually typed questions are answered with on-screen context.
+//! manually typed questions are answered with on-screen context. New stable
+//! screen questions also dispatch independently, without interrupting answers.
 use crate::live_events::Emitter;
-use crate::live_observe::{ScreenReader, a11y_options, bound_context, compose_prompt};
+use crate::live_observe::{
+    ScreenReader, a11y_options, bound_context, compose_prompt, plausible_question,
+};
 use crate::turn_gate::{SpeechRole, TurnGate};
 use socket_stream_core::ai::{
     ApiEvent, MAX_IMAGE_BYTES, Provider, TokenUsage, stream_answer_with_meta_vision,
 };
+use socket_stream_core::context::Deduplicator;
 use std::collections::VecDeque;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -470,9 +474,7 @@ fn controls() -> mpsc::Receiver<String> {
     rx
 }
 
-/// Read the screen once and deliver the outcome. Automatic interval reads
-/// only carry context; manual reads (from the panel's Capture button) become
-/// questions in the session loop.
+/// Read the screen once for context and automatic/manual question detection.
 fn deliver_read(
     reader: &mut ScreenReader,
     updates: &tokio::sync::mpsc::UnboundedSender<ScreenUpdate>,
@@ -701,6 +703,7 @@ async fn run_session(
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| "Cannot install audio stop handler.")?;
     emitter.send("session_started", label, None, None)?;
+    let mut screen_dedup = Deduplicator::new(64);
     emitter.send(
         "speech_status",
         label,
@@ -821,10 +824,12 @@ async fn run_session(
                 if status == "ok" && !context.trim().is_empty() {
                     screen_context = context;
                     warned_screen = false;
+                } else {
+                    screen_context.clear();
                 }
-                if frame.is_some() {
-                    screen_frame = frame;
-                }
+                // Never retain a screenshot from an earlier read after a new
+                // text-only or failed read.
+                screen_frame = frame;
                 if status == "ok" {
                     emitter.send_screen_read(source, "ok", &display)?;
                 } else if manual || !warned_screen {
@@ -832,6 +837,17 @@ async fn run_session(
                     warned_screen = true;
                     if manual {
                         emitter.send("error", "system", None, Some(&display))?;
+                    }
+                }
+                // Selected screen capture must work independently of speech.
+                // Learn volatility while busy, but never replace an active
+                // answer or consume the signature until dispatch is possible.
+                if !manual && status == "ok" && plausible_question(&screen_context) {
+                    let (signature, stable) = screen_dedup.observe(&screen_context);
+                    if stable && screen_dedup.is_new(signature) && answer_task.is_none() && !paused {
+                        screen_dedup.remember(signature);
+                        let text = screen_context.clone();
+                        start_manual!(text, source, false);
                     }
                 }
                 // A manual capture becomes a question: the read itself is the

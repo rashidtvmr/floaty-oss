@@ -154,12 +154,14 @@ fn snippet_for(platform: ShortcutPlatform) -> String {
         "previous_question",
         "next_question",
         "follow_latest",
+        "scroll_answer_up",
+        "scroll_answer_down",
     ];
     let mut out = String::new();
     match platform {
         ShortcutPlatform::X11 => {
             out.push_str(
-                "# Out-of-focus global shortcuts for SocketStream on X11 (17 actions).\n\
+                "# Out-of-focus global shortcuts for SocketStream on X11 (19 actions).\n\
                  # User-managed snippet (not installed or managed automatically by the app).\n\
                  # Save as ~/.config/sxhkd/sxhkdrc and run sxhkd. Requires xdotool.\n\
                  # Targets the main control window only, identified by its status title\n\
@@ -186,9 +188,8 @@ fn snippet_for(platform: ShortcutPlatform) -> String {
                 "# Wayland: out-of-focus global shortcuts are owned by the compositor.\n\
                  # SocketStream installs no grab. Bind these keys in your desktop's own\n\
                  # settings, or use the org.freedesktop.portal.GlobalShortcuts portal when\n\
-                 # your desktop implements it. The 17 in-app accelerators below then work\n\
-                 # while the SocketStream main/control window is focused (not the overlay\n\
-                 # answer panel):\n#\n",
+                 # your desktop implements it. The 19 in-app accelerators below then work\n\
+                 # while the SocketStream control window or answer panel is focused:\n#\n",
             );
             push_binding_list(&mut out);
         }
@@ -197,9 +198,10 @@ fn snippet_for(platform: ShortcutPlatform) -> String {
                 "# macOS: the SocketStream app registers these as NSMenu key equivalents\n\
                  # (active while the app is focused) and as a global key monitor while it\n\
                  # runs. It installs no login item and no background grab.\n\
-                 # macOS currently wires 12 of the 17 actions. The five Linux-only Q&A\n\
+                 # macOS currently wires 12 of the 19 actions. The seven Linux-only Q&A\n\
                  # actions are not implemented on macOS yet: listen_audio, pin_question,\n\
-                 # previous_question, next_question, follow_latest. Arrow keysyms\n\
+                 # previous_question, next_question, follow_latest, scroll_answer_up,\n\
+                 # scroll_answer_down. Arrow keysyms\n\
                  # (Left/Right) and the aliases for them exist in the shared Rust/Python\n\
                  # model but are unsupported on the Swift side, so do not rebind shared\n\
                  # actions to arrows expecting them to work on macOS.\n#\n",
@@ -346,14 +348,14 @@ mod tests {
         assert!(x11.contains("sxhkd"));
         assert!(x11.contains("ctrl + alt + s"));
         assert!(x11.contains("xdotool"));
-        assert!(x11.contains("17 actions"));
+        assert!(x11.contains("19 actions"));
 
         let wayland = snippet_for(ShortcutPlatform::Wayland);
         assert!(wayland.contains("GlobalShortcuts"));
 
         let macos = snippet_for(ShortcutPlatform::MacOs);
         assert!(macos.contains("NSMenu"));
-        assert!(macos.contains("12 of the 17"));
+        assert!(macos.contains("12 of the 19"));
         assert!(macos.contains("Linux-only"));
 
         for platform in [

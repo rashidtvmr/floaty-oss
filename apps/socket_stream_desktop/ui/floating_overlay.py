@@ -910,8 +910,8 @@ class FloatingOverlay:
                     "Wayland, so the whole panel accepts input.")
         if self.cursor_blending:
             return ("Cursor blending on: the panel background passes hover and clicks "
-                    "through to the window below (X11/XWayland). Turn off to select "
-                    "and scroll the whole panel.")
+                    "through to the window below (X11/XWayland). Answers always accept "
+                    "selection and scrolling.")
         return ("Cursor blending off: the whole panel accepts clicks, selection and "
                 "scrolling. Turn on to let the background pass through.")
 
@@ -996,6 +996,9 @@ class FloatingOverlay:
             getattr(self, "pin_button", None),
             getattr(self, "resize_handle", None),
             getattr(self, "activity_button", None),
+            # The answer is a reading surface, never a pass-through background.
+            getattr(self, "answer_stack", None),
+            getattr(self, "flow_label", None),
         ]
         revealer = getattr(self, "history_revealer", None)
         if revealer is not None and revealer.get_reveal_child():
@@ -1736,6 +1739,14 @@ class FloatingOverlay:
         return True
 
     # ---- controls -------------------------------------------------------
+
+    def scroll_answer(self, direction):
+        """Scroll one readable page without changing the selected answer."""
+        adjustment = self.answer_scroll.get_vadjustment()
+        step = max(40.0, adjustment.get_page_size() * 0.8)
+        maximum = max(adjustment.get_lower(), adjustment.get_upper() - adjustment.get_page_size())
+        adjustment.set_value(max(adjustment.get_lower(), min(maximum, adjustment.get_value() + direction * step)))
+        return True
 
     def _on_compact(self, button):
         self.compact = button.get_active()

@@ -44,6 +44,8 @@ ACTIONS = (
     "previous_question",
     "next_question",
     "follow_latest",
+    "scroll_answer_up",
+    "scroll_answer_down",
 )
 
 #: Default accelerator for each action. Must match ``shortcuts.rs`` and the
@@ -66,6 +68,8 @@ DEFAULT_BINDINGS = {
     "previous_question": "ctrl+alt+left",
     "next_question": "ctrl+alt+right",
     "follow_latest": "ctrl+alt+l",
+    "scroll_answer_up": "ctrl+alt+up",
+    "scroll_answer_down": "ctrl+alt+down",
 }
 
 #: Friendly labels for UI.
@@ -87,6 +91,8 @@ ACTION_LABELS = {
     "previous_question": "Previous question",
     "next_question": "Next question",
     "follow_latest": "Follow latest",
+    "scroll_answer_up": "Scroll answer up",
+    "scroll_answer_down": "Scroll answer down",
 }
 
 #: Default appearance values (top-level desktop.appearance in config).

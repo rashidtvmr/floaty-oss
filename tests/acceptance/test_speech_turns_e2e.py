@@ -50,13 +50,16 @@ while True:
             capture.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(60)\n")
             capture.chmod(0o700)
 
-    def launch(self, role):
+    def launch(self, role, read_screen=False):
         env = dict(os.environ, SOCKET_STREAM_HOME=str(self.root),
                    SOCKET_STREAM_CONFIG=str(self.root / "missing-config.json"),
                    PATH=str(self.fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+        args = [str(self.binary), "audio-live", "--authorized", "--source", "microphone",
+                "--speaker-role", role, "--provider", "mock"]
+        if read_screen:
+            args.extend(["--read-screen", "--read-interval", "2"])
         self.proc = subprocess.Popen(
-            [str(self.binary), "audio-live", "--authorized", "--source", "microphone",
-             "--speaker-role", role, "--provider", "mock"],
+            args,
             env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.addCleanup(self.cleanup)
         self.events = queue.Queue()
@@ -153,6 +156,33 @@ while True:
         sent = next(event["text"] for event in events if event["type"] == "ai_input")
         self.assertIn("Explain merge sort", sent)
         self.assertTrue(any(event["type"] == "question_detected" for event in events))
+        self.stop()
+
+    def test_combined_mode_answers_new_screen_without_speech_and_deduplicates(self):
+        tree_file = self.root / "screen.json"
+
+        def screen(question):
+            tree_file.write_text(json.dumps({"schema": 1, "source": "atspi", "nodes": [
+                {"id": 1, "parent": None, "role": "paragraph", "text": question, "focused": True}
+            ]}))
+
+        screen("Explain the time complexity of binary search on a sorted array.")
+        helper = (self.root / "target/native-helpers/socket_stream_a11y"
+                  if sys.platform == "darwin" else self.root / "scripts/linux-accessibility.py")
+        helper.write_text(f"#!{sys.executable}\nimport pathlib\nprint(pathlib.Path({str(tree_file)!r}).read_text())\n")
+        helper.chmod(0o700)
+        self.launch("interviewee", read_screen=True)
+        first = self.until("answer_completed")
+        self.assertTrue(any(e["type"] == "question_detected" and e["source"] == "accessibility" for e in first))
+        # Two interval reads must not dispatch the identical screen again.
+        for _ in range(2):
+            events = self.until("screen_read")
+            self.assertFalse(any(e["type"] == "question_detected" for e in events))
+        screen("Explain why merge sort has logarithmic recursion depth and linear merging.")
+        second = self.until("answer_completed")
+        sent = next(e["text"] for e in second if e["type"] == "ai_input")
+        self.assertIn("merge sort", sent)
+        self.assertNotIn("binary search", sent)
         self.stop()
 
     def test_interviewer_questions_answered_statements_suppressed_and_role_switch_safe(self):

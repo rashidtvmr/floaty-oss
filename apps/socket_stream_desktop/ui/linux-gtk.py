@@ -483,17 +483,21 @@ def create_window():
                 "previous_question": lambda: self.floating.step_question(-1),
                 "next_question": lambda: self.floating.step_question(1),
                 "follow_latest": self.floating.follow_latest,
+                "scroll_answer_up": lambda: self.floating.scroll_answer(-1),
+                "scroll_answer_down": lambda: self.floating.scroll_answer(1),
             }
             for action in self.shortcuts.actions():
                 self.shortcuts.register(action, handlers[action])
             if self._accel_group is not None:
                 self.remove_accel_group(self._accel_group)
+                self.floating.window.remove_accel_group(self._accel_group)
                 self._accel_group = None
             if not self.shortcuts_enabled:
                 return
             group = Gtk.AccelGroup()
             self._accel_group = group
             self.add_accel_group(group)
+            self.floating.window.add_accel_group(group)
             for action in self.shortcuts.actions():
                 accelerator = self.shortcuts.accelerator_for(action)
                 keyval = Gdk.keyval_from_name(gtk_key_name(accelerator.key))
@@ -511,7 +515,7 @@ def create_window():
             # GTK accelerators can run before an Entry's key-press handler.
             # Recording Quit/Start/Stop must never invoke those actions.
             if (self._exiting or self._recording_action
-                    or self.get_focus() in self.shortcut_entries.values()):
+                    or (self.is_active() and self.get_focus() in self.shortcut_entries.values())):
                 return False
             try:
                 self.shortcuts.dispatch(self.shortcuts.accelerator_for(action))
@@ -1226,7 +1230,8 @@ def create_window():
                 sources.append("foreground screen reading")
             explanation = ("Start " + " and ".join(sources) + "? Audio uses local Moonshine; "
                            "finalized speech is sent to your selected provider. Screen reads "
-                           "foreground accessibility text and may use local OCR when enabled. "
+                            "foreground accessibility text and may use local OCR when enabled. "
+                            "New screen questions are sent to the selected AI provider automatically. "
                            "Only selected sources are used, after confirmation. Only capture "
                            "applications where assistance is permitted.")
             accepted = self.confirmation("Start selected sources?", explanation)

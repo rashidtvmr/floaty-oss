@@ -31,7 +31,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd};
 
 /// Default accelerator strings, mirroring docs/A11Y-TREE-SHORTCUTS.md section 3.2.
 /// Kept local so configuration does not depend on the shortcut runtime module.
-pub const DEFAULT_BINDINGS: [(&str, &str); 17] = [
+pub const DEFAULT_BINDINGS: [(&str, &str); 19] = [
     ("start", "ctrl+alt+s"),
     ("stop", "ctrl+alt+x"),
     ("pause_resume", "ctrl+alt+p"),
@@ -49,6 +49,8 @@ pub const DEFAULT_BINDINGS: [(&str, &str); 17] = [
     ("previous_question", "ctrl+alt+left"),
     ("next_question", "ctrl+alt+right"),
     ("follow_latest", "ctrl+alt+l"),
+    ("scroll_answer_up", "ctrl+alt+up"),
+    ("scroll_answer_down", "ctrl+alt+down"),
 ];
 
 /// Owner-only mode for the config and its lock file.
@@ -580,7 +582,7 @@ impl Config {
     }
 }
 
-/// JSON object holding the 17 default bindings, in the same shape the Python
+/// JSON object holding the 19 default bindings, in the same shape the Python
 /// shell writes.
 fn default_bindings_value() -> serde_json::Value {
     let mut bindings = serde_json::Map::new();
@@ -614,7 +616,7 @@ mod tests {
         let config = Config::load_from(&dir.path().join("missing.json")).unwrap();
         assert!(config.shortcuts.enabled);
         assert!(!config.ocr.enabled);
-        assert_eq!(config.shortcuts.bindings.len(), 17);
+        assert_eq!(config.shortcuts.bindings.len(), 19);
     }
 
     #[test]
@@ -762,7 +764,7 @@ mod tests {
         assert_eq!(root["shortcuts"]["enabled"], true);
         assert_eq!(root["shortcuts"]["unknown_shortcuts"], "keep");
         assert_eq!(root["shortcuts"]["bindings"]["start"], "ctrl+alt+s");
-        assert_eq!(root["shortcuts"]["bindings"].as_object().unwrap().len(), 17);
+        assert_eq!(root["shortcuts"]["bindings"].as_object().unwrap().len(), 19);
         // Documented: the typed binding map replaces the old mapping wholesale.
         assert!(root["shortcuts"]["bindings"].get("custom_action").is_none());
         assert_eq!(root["overlay"]["stealth"], true);
@@ -831,7 +833,7 @@ mod tests {
         let root = read_json(&path);
         assert_eq!(root["shortcuts"]["enabled"], true);
         let bindings = root["shortcuts"]["bindings"].as_object().unwrap();
-        assert_eq!(bindings.len(), 17);
+        assert_eq!(bindings.len(), 19);
         assert_eq!(bindings["start"], "ctrl+alt+s");
         assert_eq!(bindings["previous_question"], "ctrl+alt+left");
         assert!(bindings.get("custom_action").is_none());
@@ -879,7 +881,7 @@ mod tests {
         Config::reset_shortcuts_preserve_others(Some(&path)).unwrap();
         let root = read_json(&path);
         assert_eq!(root["shortcuts"]["enabled"], true);
-        assert_eq!(root["shortcuts"]["bindings"].as_object().unwrap().len(), 17);
+        assert_eq!(root["shortcuts"]["bindings"].as_object().unwrap().len(), 19);
         assert!(path.with_file_name("config.json.lock").is_file());
     }
 

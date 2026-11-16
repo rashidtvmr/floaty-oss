@@ -107,7 +107,7 @@ class ConfigPersistenceAcceptance(unittest.TestCase):
         data = json.loads(self.config.read_text(encoding="utf-8"))
         self.assertIs(data["shortcuts"]["enabled"], True)
         bindings = data["shortcuts"]["bindings"]
-        self.assertEqual(len(bindings), 17)
+        self.assertEqual(len(bindings), 19)
         self.assertEqual(bindings["start"], "ctrl+alt+s")
         self.assertEqual(bindings["previous_question"], "ctrl+alt+left")
         self.assertNotIn("custom_action", bindings)
@@ -123,7 +123,7 @@ class ConfigPersistenceAcceptance(unittest.TestCase):
 
         # Round trip: the Python shell reads the Rust-written defaults.
         shortcut_map = self.shortcuts.from_config_file(self.config)
-        self.assertEqual(len(shortcut_map.actions()), 17)
+        self.assertEqual(len(shortcut_map.actions()), 19)
         self.assertTrue(self.shortcuts.enabled_from_config_file(self.config))
         self.assertEqual(shortcut_map.accelerator_for("next_question").display(),
                          "Ctrl+Alt+Right")
@@ -145,7 +145,7 @@ class ConfigPersistenceAcceptance(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         path = self.tmp / ".socket_stream.json"
         self.assertTrue(path.is_file())
-        self.assertEqual(len(self.shortcuts.from_config_file(path).actions()), 17)
+        self.assertEqual(len(self.shortcuts.from_config_file(path).actions()), 19)
 
     def test_two_concurrent_init_runs_have_exactly_one_winner(self):
         procs = [
@@ -169,7 +169,7 @@ class ConfigPersistenceAcceptance(unittest.TestCase):
         self.assertEqual(len(losers), 1, results)
         self.assertIn("already exists", losers[0][2])
         data = json.loads(self.config.read_text(encoding="utf-8"))
-        self.assertEqual(len(data["shortcuts"]["bindings"]), 17)
+        self.assertEqual(len(data["shortcuts"]["bindings"]), 19)
         self.assertIs(data["shortcuts"]["enabled"], True)
 
     def test_init_force_refuses_dangling_symlink(self):

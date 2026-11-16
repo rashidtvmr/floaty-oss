@@ -88,7 +88,7 @@ pub(crate) fn a11y_options(args: &[String]) -> Result<A11yOptions, String> {
     })
 }
 
-fn plausible_question(text: &str) -> bool {
+pub(crate) fn plausible_question(text: &str) -> bool {
     text.len() >= 24
         && text.len() <= 64_000
         && text.chars().filter(|ch| ch.is_alphabetic()).count() >= 12

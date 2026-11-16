@@ -27,11 +27,11 @@ def _extract_swift_bindings(path):
 
 
 class DefaultsParityTests(unittest.TestCase):
-    def test_python_and_rust_share_all_seventeen_defaults_in_order(self):
+    def test_python_and_rust_share_all_nineteen_defaults_in_order(self):
         rust_config = _extract_rust_bindings(ROOT / "crates/socket_stream_core/src/config.rs")
         rust_shortcuts = _extract_rust_bindings(ROOT / "crates/socket_stream_core/src/shortcuts.rs")
-        self.assertEqual(len(SHORTCUTS.DEFAULT_BINDINGS), 17)
-        self.assertEqual(len(rust_config), 17)
+        self.assertEqual(len(SHORTCUTS.DEFAULT_BINDINGS), 19)
+        self.assertEqual(len(rust_config), 19)
         self.assertEqual(rust_config, dict(SHORTCUTS.DEFAULT_BINDINGS))
         self.assertEqual(rust_shortcuts, rust_config)
         self.assertEqual(list(SHORTCUTS.DEFAULT_BINDINGS), list(SHORTCUTS.ACTIONS))
@@ -44,7 +44,8 @@ class DefaultsParityTests(unittest.TestCase):
             self.assertEqual(accel, SHORTCUTS.DEFAULT_BINDINGS[action], action)
         linux_only = set(SHORTCUTS.DEFAULT_BINDINGS) - set(swift)
         self.assertEqual(linux_only, {"listen_audio", "pin_question",
-                                      "previous_question", "next_question", "follow_latest"})
+                                      "previous_question", "next_question", "follow_latest",
+                                      "scroll_answer_up", "scroll_answer_down"})
         self.assertNotIn("previous_question", swift)
         self.assertNotIn("next_question", swift)
         self.assertNotIn("ctrl+alt+left", swift.values())

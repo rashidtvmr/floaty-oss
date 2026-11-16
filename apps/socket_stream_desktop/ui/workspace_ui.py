@@ -214,7 +214,7 @@ def build_workspace(app):
     app.cursor_blending_check = Gtk.CheckButton(label="Cursor blending")
     app.cursor_blending_check.set_tooltip_text(
         "Let the answer panel's background pass hover and clicks through to the "
-        "window below (X11/XWayland). Turn off to select and scroll the whole panel.")
+        "window below (X11/XWayland). Answers always accept selection and scrolling.")
     app.cursor_blending_check.get_accessible().set_name("Cursor blending")
     app.cursor_blending_check.set_active(bool(getattr(app.floating, "cursor_blending", True)))
     app.cursor_blending_check.connect("toggled", app.on_cursor_blending_toggled)
@@ -223,7 +223,7 @@ def build_workspace(app):
     appearance_card.pack_start(app.cursor_blending_note, False, False, 0)
     if getattr(app.floating, "input_shape_supported", False):
         app.cursor_blending_note.set_text(
-            "On: the panel background passes hover and clicks through. "
+            "On: surrounding background passes through; answers stay scrollable. "
             "Off: the whole panel accepts selection and scrolling.")
     else:
         app.cursor_blending_check.set_sensitive(False)

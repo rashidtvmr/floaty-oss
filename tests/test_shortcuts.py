@@ -80,10 +80,10 @@ class AcceleratorParseTests(unittest.TestCase):
 
 class ShortcutMapTests(unittest.TestCase):
     def test_defaults_cover_every_action(self):
-        self.assertEqual(len(SHORTCUTS.DEFAULT_BINDINGS), 17)
-        self.assertEqual(len(SHORTCUTS.ACTIONS), 17)
+        self.assertEqual(len(SHORTCUTS.DEFAULT_BINDINGS), 19)
+        self.assertEqual(len(SHORTCUTS.ACTIONS), 19)
         shortcut_map = ShortcutMap.defaults()
-        self.assertEqual(len(shortcut_map.actions()), 17)
+        self.assertEqual(len(shortcut_map.actions()), 19)
         for action in SHORTCUTS.ACTIONS:
             self.assertIsNotNone(shortcut_map.accelerator_for(action))
         self.assertEqual(shortcut_map.accelerator_for("start").display(), "Ctrl+Alt+S")
@@ -126,7 +126,7 @@ class ShortcutMapTests(unittest.TestCase):
 
     def test_parse_bindings_overrides_defaults(self):
         shortcut_map = SHORTCUTS.parse_bindings({"start": "ctrl+shift+1"})
-        self.assertEqual(len(shortcut_map.actions()), 17)
+        self.assertEqual(len(shortcut_map.actions()), 19)
         self.assertEqual(shortcut_map.accelerator_for("start").display(), "Ctrl+Shift+1")
         self.assertEqual(shortcut_map.accelerator_for("stop").display(), "Ctrl+Alt+X")
 
@@ -155,7 +155,7 @@ class ConfigFileTests(unittest.TestCase):
             path = Path(tmp) / "config.json"
             path.write_text("{ this is not json", encoding="utf-8")
             shortcut_map = SHORTCUTS.from_config_file(path)
-        self.assertEqual(len(shortcut_map.actions()), 17)
+        self.assertEqual(len(shortcut_map.actions()), 19)
         self.assertEqual(shortcut_map.accelerator_for("quit").display(), "Ctrl+Alt+Q")
 
     def test_invalid_binding_falls_back_to_defaults(self):
@@ -451,7 +451,7 @@ class StrictConfigWriteTests(unittest.TestCase):
             SHORTCUTS.save_config_file({"start": "ctrl+alt+s"}, path=path)
             data = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(data["desktop"], 5)
-            self.assertEqual(len(data["shortcuts"]["bindings"]), 17)
+            self.assertEqual(len(data["shortcuts"]["bindings"]), 19)
 
     def test_malformed_config_makes_appearance_loader_raise_not_default(self):
         for raw in self.MALFORMED_ROOT + self.MALFORMED_DESKTOP:
@@ -637,7 +637,7 @@ class StrictConfigWriteTests(unittest.TestCase):
             SHORTCUTS.save_config_file({"start": "ctrl+shift+1"}, path=path)
             data = json.loads(path.read_text(encoding="utf-8"))
             bindings = data["shortcuts"]["bindings"]
-            self.assertEqual(len(bindings), 17)
+            self.assertEqual(len(bindings), 19)
             self.assertEqual(bindings["start"], "ctrl+shift+1")
             # Unspecified actions reset to defaults, and enabled defaults to true.
             self.assertEqual(bindings["quit"], "ctrl+alt+q")
@@ -742,7 +742,7 @@ class CooperativeLockingTests(unittest.TestCase):
             self.assertIs(data["from_holder"], True)
             self.assertEqual(data["a11y"]["mode"], "text")
             self.assertEqual(data["shortcuts"]["bindings"]["start"], "ctrl+shift+1")
-            self.assertEqual(len(data["shortcuts"]["bindings"]), 17)
+            self.assertEqual(len(data["shortcuts"]["bindings"]), 19)
 
     def test_appearance_writer_waits_and_preserves_shortcuts(self):
         with tempfile.TemporaryDirectory() as tmp:

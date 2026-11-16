@@ -23,6 +23,12 @@ def ev(typ, seq, rid=None, sid="demo", **extra):
 
 
 class LiveStateTests(unittest.TestCase):
+    def test_screen_read_failure_is_visible_in_compact_flow(self):
+        self.state.apply(ev("screen_read", 2, status="unavailable", text="Enable accessibility or opt-in OCR"))
+        self.assertIn("Screen unavailable: Enable accessibility", self.state.flow_text())
+        self.state.apply(ev("screen_read", 3, status="ok", text="What is binary search?"))
+        self.assertNotIn("Screen unavailable", self.state.flow_text())
+
     def test_live_flow_tracks_heard_gating_actual_input_and_waiting(self):
         self.state.apply(ev("transcript_updated", 2, text="Explain\nbinary search"))
         self.state.apply(ev("speech_status", 3, text="Not sent · My answers mode"))

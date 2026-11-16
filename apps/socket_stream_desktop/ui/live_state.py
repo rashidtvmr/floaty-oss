@@ -46,6 +46,7 @@ class LiveState:
         self._api_status = None
         self._speech_status = "No speech received yet"
         self._ai_input = ""
+        self._screen_notice = ""
 
     def flow_text(self):
         """Single-line, in-memory preview; never a diagnostic log."""
@@ -55,6 +56,8 @@ class LiveState:
         heard = line(self._view["transcript"][-500:], 180) or "no speech yet"
         sent = line(self._ai_input or self._view["question"], 240) or "nothing sent"
         state = self.progress_text()
+        if self._screen_notice:
+            state += " · " + self._screen_notice
         if self._view["stage"] in ("listening", "reading", "complete"):
             state += " · " + self._speech_status
         return f"{state}  ·  Heard: {heard}  →  AI input: {sent}"
@@ -234,6 +237,7 @@ class LiveState:
             self._api_status = None
             self._speech_status = "No speech received yet"
             self._ai_input = ""
+            self._screen_notice = ""
             source = event.get("source")
             self._view.update(
                 status="observing", session_id=sid, request_id="",
@@ -301,6 +305,8 @@ class LiveState:
 
         if kind == "screen_read":
             self._view["screen"] = clean(event.get("text"), 12000)
+            self._screen_notice = ("Screen unavailable: " + " ".join(self._view["screen"].split())[:180]
+                                   if event.get("status") == "unavailable" else "")
             return True
 
         rid = event.get("request_id")

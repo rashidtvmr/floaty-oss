@@ -2,6 +2,19 @@
 
 ## Unified Start and runtime diagnostics
 
+The answer reading surface now accepts mouse-wheel/trackpad input even with
+cursor blending enabled; only the surrounding background passes through.
+**Ctrl+Alt+Up / Ctrl+Alt+Down** scroll the answer by a page in the Linux control
+window or focused answer panel. These are configurable under Keyboard shortcuts.
+Out-of-focus use still requires user-managed desktop shortcut registration.
+
+Combined audio+screen sessions now detect screen questions independently of
+speech, using the same plausibility, stability and deduplication rules as
+screen-only mode. Previously automatic reads only supplied speech context.
+Identical screens are answered once, in-flight answers are not interrupted, and
+unreadable updates clear stale screen text/image context. OCR remains opt-in;
+unavailable accessibility does not silently enable screenshot capture.
+
 The Session page now has an explicit **Use Codex** button; Configure also offers
 **Use Codex for answers when I Apply**. Fetching models alone does not change the
 active provider. Stop before switching a running session's provider.
