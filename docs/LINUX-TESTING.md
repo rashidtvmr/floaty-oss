@@ -46,6 +46,24 @@ speech model available, mock `analyze-file`, sample OCR, Moonshine runtime
 runner cannot exercise the desktop GUI, real capture permissions, or a live
 screencast; those remain manual on-desktop steps.
 
+The readable-answer release at commit **`b06556c`** was installed at
+`/opt/socket_stream` on 2026-11-16: archive
+`socket_stream_linux-x86_64-20261116.tar.gz`, SHA-256
+`dacd737ffec3fd099fdd5746783019b0ef4e4ba44b18a5956950c099da164b11`,
+162,938,026 bytes, transferred over HTTP from the build host and verified with
+`sha256sum -c` before extraction. Verified on that host: `SOURCE-COMMIT.txt`
+matches the commit, six desktop UI modules and `bin/socket_stream` md5-match
+the commit's tree, `check-dependencies.sh` reports all-OK (tesseract, ffmpeg,
+GTK3, AT-SPI2, GStreamer pipewiresrc), and the bundled English Moonshine
+`--check` emits `ready`. The transient user service
+`socket-stream-installed-live` was recreated with its original properties
+(`MemoryMax=1073741824`, `TasksMax=512`, `Type=exec`,
+`PartOf=graphical-session.target`, `CollectMode=inactive-or-failed`; the
+`90-session-lifetime` drop-in keeps `RuntimeMaxSec=infinity`) and one
+`linux-gtk.py` instance runs from the new installation. The prior installation
+is retained at `/opt/socket_stream-releases/4c4eba9-installed-20261116-080818`
+alongside the earlier `a74adaa` rollback.
+
 The subsequent capture release at commit **`4c4eba9`** was installed at
 `/opt/socket_stream`: archive SHA-256
 `6cd60e591d70d376a4d2d8220adb2f422c533ffd3007d68012c3d2c3b35fc14e`,
