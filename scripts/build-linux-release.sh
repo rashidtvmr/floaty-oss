@@ -71,6 +71,7 @@ fi
 cp "$ROOT/tests/acceptance/test_config_persistence.py" "$PKG/tests/acceptance/test_config_persistence.py"
 cp "$ROOT/tests/acceptance/test_manual_vision_e2e.py" "$PKG/tests/acceptance/test_manual_vision_e2e.py"
 cp "$ROOT/tests/acceptance/test_speech_turns_e2e.py" "$PKG/tests/acceptance/test_speech_turns_e2e.py"
+cp "$ROOT/tests/acceptance/test_provider_profiles_e2e.py" "$PKG/tests/acceptance/test_provider_profiles_e2e.py"
 cp "$ROOT/docs/LINUX-TESTING.md" "$PKG/README-LINUX.md"
 cp "$ROOT/docs/AUTH-AND-ENDPOINTS.md" "$PKG/AUTH-AND-ENDPOINTS.md"
 cp "$ROOT/docs/STEALTH-OVERLAY.md" "$PKG/STEALTH-OVERLAY.md"
@@ -83,7 +84,7 @@ fi
 cp "$ROOT/docs/A11Y-TREE-SHORTCUTS.md" "$PKG/A11Y-TREE-SHORTCUTS.md"
 cp "$ROOT/docs/EXTRACTION-BENCHMARK.md" "$PKG/EXTRACTION-BENCHMARK.md"
 cp "$ROOT/docs/AI-PROMPT-CACHING-AND-TURNS.md" "$PKG/AI-PROMPT-CACHING-AND-TURNS.md"
-cp "$ROOT/crates/socket_stream_core/prompts/practice-system-v2.md" "$PKG/AI-SYSTEM-PROMPT.md"
+cp "$ROOT/crates/socket_stream_core/prompts/practice-system-v3.md" "$PKG/AI-SYSTEM-PROMPT.md"
 test ! -f "$ROOT/models/ggml-tiny.en.bin" || cp "$ROOT/models/ggml-tiny.en.bin" "$PKG/models/ggml-tiny.en.bin"
 for f in "$ROOT/LICENSE" "$ROOT/COPYING"; do if [ -f "$f" ]; then cp "$f" "$PKG/"; break; fi; done
 if ! git -C "$ROOT" rev-parse --verify HEAD > "$PKG/SOURCE-COMMIT.txt" 2>/dev/null; then
