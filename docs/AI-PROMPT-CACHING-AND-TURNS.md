@@ -2,6 +2,19 @@
 
 ## Unified Start and runtime diagnostics
 
+The Session page now has an explicit **Use Codex** button; Configure also offers
+**Use Codex for answers when I Apply**. Fetching models alone does not change the
+active provider. Stop before switching a running session's provider.
+
+One small line in the answer panel shows the current stage/elapsed time, latest
+heard text and a bounded AI-input preview. Speech events report finalization and
+the actual request-gate outcome (including My answers suppression); `ai_input`
+reports the composed user prompt, including supplied screen/clarification context,
+immediately before dispatch. This is a text preview, not a full serialized request
+or a view of attached image pixels/system instructions. Content stays in memory
+and the live UI event pipe; it is not added to diagnostic logs. Pinned answers do
+not pin this live status line. No capture permissions or role defaults changed.
+
 The Linux Session page has **Listen to audio** and **Read the screen** checkboxes
 above one **Start** button. No selection disables Start. Audio options configures
 the device/source and explicit speaker role without opening capture. Combined

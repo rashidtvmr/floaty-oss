@@ -139,6 +139,22 @@ while True:
         self.until("answer_completed")
         self.stop()
 
+    def test_flow_reports_actual_gate_and_composed_ai_input(self):
+        self.launch("interviewee")
+        self.speech("Explain binary search")
+        self.until("transcript_updated")
+        self.until("speech_status")  # final received, before debounce
+        blocked = self.until("speech_status")[-1]
+        self.assertIn("Not sent", blocked["text"])
+        self.assertIn("Solo practice", blocked["text"])
+        self.command("speaker practice")
+        self.speech("Explain merge sort")
+        events = self.until("answer_completed")
+        sent = next(event["text"] for event in events if event["type"] == "ai_input")
+        self.assertIn("Explain merge sort", sent)
+        self.assertTrue(any(event["type"] == "question_detected" for event in events))
+        self.stop()
+
     def test_interviewer_questions_answered_statements_suppressed_and_role_switch_safe(self):
         self.launch("interviewer")
         self.speech("Type vs interface in TypeScript?")

@@ -98,6 +98,8 @@ def build_workspace(app):
     app.provider.connect("changed", lambda *_: app.sync_provider_label())
     provider_row.pack_start(app.provider, True, True, 0)
     app.add_button(provider_row, "Configure", app.settings)
+    app.use_codex_button = app.add_button(provider_row, "Use Codex", app.use_codex)
+    app.use_codex_button.set_tooltip_text("Select Codex for answers. Stop an active session before switching providers.")
     app.provider_hint = label("")
     provider_card.pack_start(app.provider_hint, False, False, 0)
     sources = card(session, "Choose what to start")

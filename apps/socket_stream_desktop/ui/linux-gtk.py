@@ -879,6 +879,14 @@ def create_window():
         def selected_provider(self):
             return self.provider.get_active_text() or "mock"
 
+        def use_codex(self, _button=None):
+            if self.proc is not None or self._starting:
+                self.feedback(self.session_message, "Stop the current session, then select Use Codex.")
+                return
+            self.provider.set_active(2)
+            self.sync_provider_label()
+            self.feedback(self.session_message, "Codex selected for answers. Choose sources and press Start.")
+
         def provider_display(self):
             selected = self.selected_provider()
             if selected == "mock":
@@ -926,6 +934,7 @@ def create_window():
             self.control_stop_button.set_sensitive(active and not self.stopping)
             self.floating.stop_button.set_sensitive(active and not self.stopping)
             self.provider.set_sensitive(self.proc is None)
+            self.use_codex_button.set_sensitive(self.proc is None and not self._starting)
             self.audio_check.set_sensitive(self.proc is None)
             self.screen_check.set_sensitive(self.proc is None)
             self.update_start_button()
@@ -1425,6 +1434,10 @@ def create_window():
             model_note.set_max_width_chars(60)
             grid.attach(fetch_button, 0, len(form) + 4, 1, 1)
             grid.attach(model_note, 1, len(form) + 4, 1, 1)
+            use_codex = Gtk.CheckButton(label="Use Codex for answers when I Apply")
+            use_codex.set_active(self.selected_provider() == "codex")
+            use_codex.set_sensitive(self.proc is None and not self._starting)
+            grid.attach(use_codex, 0, len(form) + 5, 2, 1)
             alive = [True]
 
             def fetch_models(_button):
@@ -1467,6 +1480,8 @@ def create_window():
                     self.env["SOCKET_STREAM_CODEX_MODEL"] = validated_model(codex_model) if codex_model else ""
                 except ValueError:
                     self.write("Invalid Codex model ID; previous selection retained.\n")
+                if use_codex.get_active() and self.proc is None and not self._starting:
+                    self.provider.set_active(2)
                 for key, control in entries.items():
                     self.env[key] = control.get_text().strip()
                 if persist.get_active():

@@ -537,6 +537,20 @@ class WorkspaceChecks(unittest.TestCase):
         self.assertIn("provider unavailable", seen[0])
         self.assertNotIn("private fixture question", seen[0])
 
+    def test_live_flow_and_explicit_codex_selection(self):
+        self.app.use_codex_button.clicked()
+        self.assertEqual(self.app.selected_provider(), "codex")
+        self.send("session_started")
+        self.send("transcript_updated", text="Explain binary search")
+        self.send("speech_status", text="Not sent · My answers mode")
+        self.assertIn("Explain binary search", self.panel.flow_label.get_text())
+        self.assertIn("Not sent", self.panel.flow_label.get_text())
+        self.send("question_detected", "one", text="Explain binary search")
+        self.send("ai_input", "one", text="Binary search with current screen context")
+        self.send("answer_started", "one")
+        self.assertIn("AI input: Binary search with current screen context", self.panel.flow_label.get_text())
+        self.assertIn("Waiting for AI", self.panel.flow_label.get_text())
+
     def test_cursor_blending_applied_xshape_region(self):
         """Read back ShapeInput (coverage is X11 region, not compositor clicks)."""
         if not self.panel.input_shape_supported:

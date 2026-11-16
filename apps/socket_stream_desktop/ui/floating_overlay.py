@@ -476,8 +476,9 @@ class FloatingOverlay:
         self.hide_button.set_valign(Gtk.Align.CENTER)
         command_row.pack_start(self.hide_button, False, False, 0)
 
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        body.set_border_width(18)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4 if self.compact else 10)
+        body.set_border_width(12 if self.compact else 18)
+        self.body = body
         layout.pack_start(body, True, True, 0)
         meta = Gtk.Box(spacing=8)
         self.source_label = style(Gtk.Label(label="Ready"), "ss-chip")
@@ -540,6 +541,13 @@ class FloatingOverlay:
         self.activity_button.set_tooltip_text("Capture and AI request status (no prompt or credentials)")
         self.activity_button.connect("clicked", self._show_activity)
         answer_meta.pack_end(self.activity_button, False, False, 0)
+        self.flow_label = style(Gtk.Label(), "ss-muted")
+        self.flow_label.set_xalign(0)
+        self.flow_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.flow_label.set_hexpand(True)
+        self.flow_label.set_max_width_chars(1)
+        self.flow_label.get_accessible().set_name("Live audio to AI flow")
+        body.pack_start(self.flow_label, False, False, 0)
         self.answer_stack = Gtk.Stack()
         self.answer_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.answer_stack.set_vexpand(True)
@@ -726,6 +734,9 @@ class FloatingOverlay:
     def _show_progress(self):
         self.answer_label.set_text(self._model.state.progress_text())
         self.answer_label.set_tooltip_text(self._model.state.diagnostic_text())
+        flow = self._model.state.flow_text()
+        self.flow_label.set_text(flow)
+        self.flow_label.set_tooltip_text(flow)
 
     def _show_activity(self, *_args):
         dialog = self._Gtk.MessageDialog(
@@ -1728,6 +1739,8 @@ class FloatingOverlay:
 
     def _on_compact(self, button):
         self.compact = button.get_active()
+        self.body.set_spacing(4 if self.compact else 10)
+        self.body.set_border_width(12 if self.compact else 18)
         if self.compact:
             self.history_button.set_active(False)
             self.question_revealer.set_reveal_child(False)

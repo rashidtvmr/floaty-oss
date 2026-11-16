@@ -23,6 +23,23 @@ def ev(typ, seq, rid=None, sid="demo", **extra):
 
 
 class LiveStateTests(unittest.TestCase):
+    def test_live_flow_tracks_heard_gating_actual_input_and_waiting(self):
+        self.state.apply(ev("transcript_updated", 2, text="Explain\nbinary search"))
+        self.state.apply(ev("speech_status", 3, text="Not sent · My answers mode"))
+        self.assertIn("Heard: Explain binary search", self.state.flow_text())
+        self.assertIn("nothing sent", self.state.flow_text())
+        self.assertIn("Not sent", self.state.flow_text())
+        self.state.apply(ev("question_detected", 4, "q1", text="Explain binary search"), now=10)
+        self.state.apply(ev("ai_input", 5, "q1", text="Actual question plus screen context"))
+        self.state.apply(ev("answer_started", 6, "q1"))
+        self.state.tick(13)
+        self.assertIn("AI input: Actual question plus screen context", self.state.flow_text())
+        self.assertIn("Waiting for AI first token · 3s", self.state.flow_text())
+        self.assertNotIn("\n", self.state.flow_text())
+        self.assertNotIn("Actual question", self.state.diagnostic_text())
+        self.state.apply(ev("answer_completed", 7, "q1"))
+        self.assertFalse(self.state.apply(ev("ai_input", 8, "q1", text="late input")))
+
     def test_real_progress_and_provider_error_category(self):
         self.state.apply(ev("question_detected", 2, "q1", text="What is a closure?"), now=10)
         self.state.apply(ev("api_request", 3, "q1", url="https://example.test/v1", model="test"), now=11)

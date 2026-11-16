@@ -12,7 +12,7 @@ _TYPES = {
     "session_started", "question_detected", "answer_started", "answer_delta",
     "answer_completed", "api_request", "api_response", "transcript_updated",
     "session_paused", "session_resumed", "error", "session_stopped",
-    "screen_read", "token_usage",
+    "screen_read", "token_usage", "speech_status", "ai_input",
 }
 
 
@@ -44,6 +44,20 @@ class LiveState:
         self._request_started = None
         self._last_progress = None
         self._api_status = None
+        self._speech_status = "No speech received yet"
+        self._ai_input = ""
+
+    def flow_text(self):
+        """Single-line, in-memory preview; never a diagnostic log."""
+        def line(value, limit):
+            value = " ".join(value.split())
+            return value[:limit] + ("…" if len(value) > limit else "")
+        heard = line(self._view["transcript"][-500:], 180) or "no speech yet"
+        sent = line(self._ai_input or self._view["question"], 240) or "nothing sent"
+        state = self.progress_text()
+        if self._view["stage"] in ("listening", "reading", "complete"):
+            state += " · " + self._speech_status
+        return f"{state}  ·  Heard: {heard}  →  AI input: {sent}"
 
     def snapshot(self):
         return self._view.copy()
@@ -218,6 +232,8 @@ class LiveState:
             self._request_open = False
             self._request_started = None
             self._api_status = None
+            self._speech_status = "No speech received yet"
+            self._ai_input = ""
             source = event.get("source")
             self._view.update(
                 status="observing", session_id=sid, request_id="",
@@ -279,6 +295,10 @@ class LiveState:
             self._view["transcript"] = clean(event.get("text"), 24000)
             return True
 
+        if kind == "speech_status":
+            self._speech_status = clean(event.get("text"), 240)
+            return True
+
         if kind == "screen_read":
             self._view["screen"] = clean(event.get("text"), 12000)
             return True
@@ -305,10 +325,16 @@ class LiveState:
             self._request_started = now
             self._last_progress = now
             self._api_status = None
+            self._ai_input = ""
             self._request_open = True
             return True
         if rid != self._view["request_id"]:
             return False
+        if kind == "ai_input":
+            if not self._request_open:
+                return False
+            self._ai_input = clean(event.get("text"), 12000)
+            return True
         if kind == "token_usage":
             self._view["token_usage"] = clean(event.get("text"), 200)
             return True

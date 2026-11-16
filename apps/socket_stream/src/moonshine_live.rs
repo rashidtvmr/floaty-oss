@@ -701,6 +701,19 @@ async fn run_session(
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| "Cannot install audio stop handler.")?;
     emitter.send("session_started", label, None, None)?;
+    emitter.send(
+        "speech_status",
+        label,
+        None,
+        Some(match turn_gate.role {
+            SpeechRole::Interviewee => {
+                "My answers mode · automatic replies suppressed; choose Solo practice"
+            }
+            SpeechRole::Unknown => "Mixed/unknown mode · manual Send only",
+            SpeechRole::Interviewer => "Question mode · waiting for finalized questions",
+            SpeechRole::Practice => "Solo practice · waiting for finalized speech",
+        }),
+    )?;
     // Start one manual request. A typed question gets the latest screen text
     // as context; a manual capture's read IS the question, so no extra
     // context is added. Vision frames are attached when the provider can use
@@ -718,6 +731,7 @@ async fn run_session(
                 question_prompt
             };
             let image = vision_frame(&provider, screen_frame.as_deref());
+            emitter.send("ai_input", $source, Some(&answer_id), Some(&prompt))?;
             let (task, rx) = start_answer(provider.clone(), prompt, image);
             answer_task = Some(task);
             answer_rx = rx;
@@ -841,11 +855,13 @@ async fn run_session(
                     SpeechEvent::Partial(text) => {
                         if !text.is_empty() && !transcript.pending.is_empty() { due = Some(Instant::now() + Duration::from_millis(900)); }
                         emitter.send("transcript_updated", label, None, Some(&transcript.display(&text)))?;
+                        emitter.send("speech_status", label, None, Some("Transcribing · waiting for a speech pause"))?;
                     }
                     SpeechEvent::Final(text) => {
                         if transcript.finalize(&text) {
                             due = Some(Instant::now() + Duration::from_millis(900));
                             emitter.send("transcript_updated", label, None, Some(&transcript.display("")))?;
+                            emitter.send("speech_status", label, None, Some("Final speech received · checking request gate"))?;
                         }
                     }
                     SpeechEvent::Ready => {}
@@ -855,14 +871,26 @@ async fn run_session(
                 if due.is_some() && answer_task.is_none() && !paused => {
                 let prompt = std::mem::take(&mut transcript.pending);
                 due = None;
-                if prompt.chars().filter(|c| c.is_alphabetic()).count() < 3 { continue; }
-                let Some(permitted_prompt) = turn_gate.speech(&prompt) else { continue; };
+                if prompt.chars().filter(|c| c.is_alphabetic()).count() < 3 {
+                    emitter.send("speech_status", label, None, Some("Not sent · speech too short"))?;
+                    continue;
+                }
+                let Some(permitted_prompt) = turn_gate.speech(&prompt) else {
+                    let reason = match turn_gate.role {
+                        SpeechRole::Interviewee => "Not sent · My answers mode; choose Solo practice to answer your speech",
+                        SpeechRole::Unknown => "Not sent · Mixed/unknown mode; use manual Send",
+                        _ => "Not sent · no new question detected",
+                    };
+                    emitter.send("speech_status", label, None, Some(reason))?;
+                    continue;
+                };
                 request += 1;
                 answer_id = format!("spoken-{request}");
                 emitter.send("question_detected", label, Some(&answer_id), Some(&prompt))?;
                 emitter.send("answer_started", label, Some(&answer_id), None)?;
                 let context_prompt = compose_prompt(&permitted_prompt, Some(&screen_context));
                 let image = vision_frame(&provider, screen_frame.as_deref());
+                emitter.send("ai_input", label, Some(&answer_id), Some(&context_prompt))?;
                 let (task, rx) = start_answer(provider.clone(), context_prompt, image);
                 answer_task = Some(task);
                 answer_rx = rx;
