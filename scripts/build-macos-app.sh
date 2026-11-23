@@ -46,7 +46,7 @@ for argument in "$@"; do
 done
 
 echo "Building socket_stream ($PROFILE)…"
-cargo build --manifest-path "$ROOT/Cargo.toml" -p socket_stream --profile "$PROFILE"
+cargo build --locked --manifest-path "$ROOT/Cargo.toml" -p socket_stream --profile "$PROFILE"
 CLI="$ROOT/target/$PROFILE/socket_stream"
 [ -x "$CLI" ] || { echo "socket_stream was not built at $CLI" >&2; exit 1; }
 

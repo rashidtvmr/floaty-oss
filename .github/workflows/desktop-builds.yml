@@ -21,6 +21,8 @@ jobs:
           python-version: '3.12'
       - name: Install build tools
         run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-gtk-3.0 xvfb xauth
           python -m pip install ziglang==0.15.2
           cargo install --locked cargo-zigbuild
       - name: Build and validate the portable archive
@@ -30,7 +32,12 @@ jobs:
           cd dist
           sha256sum --check socket_stream_linux-x86_64-*.sha256
           tar -xzf socket_stream_linux-x86_64-*.tar.gz
-          ./socket_stream_linux-x86_64-*/bin/socket_stream --help
+          cd socket_stream_linux-x86_64-*/
+          ./socket_stream --help
+          export XDG_CONFIG_HOME="$(mktemp -d)"
+          status=0
+          timeout 10s xvfb-run -a ./socket_stream || status=$?
+          test "$status" -eq 124
       - uses: actions/upload-artifact@v4
         with:
           name: socket-stream-linux-x86_64
@@ -53,6 +60,9 @@ jobs:
           SOCKET_STREAM_BUILD_PYTHON=python scripts/package-macos.sh
           cd dist
           shasum -a 256 -c socket_stream_macos-arm64-*.sha256
+          unpacked=$(mktemp -d)
+          ditto -x -k socket_stream_macos-arm64-*.zip "$unpacked"
+          codesign --verify --deep --strict "$unpacked/SocketStream.app"
       - uses: actions/upload-artifact@v4
         with:
           name: socket-stream-macos-arm64
