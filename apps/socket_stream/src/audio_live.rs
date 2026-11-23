@@ -1,6 +1,7 @@
 //! Explicit, repeated audio practice: bounded segments, offline Whisper, no persistence.
 //! This is segmented listening, not full streaming ASR or speaker diarization.
 use crate::live_events::Emitter;
+use crate::turn_gate::{SpokenTranscript, clean_spoken_segment, with_spoken_context};
 use socket_stream_core::ai::{Provider, answer};
 use socket_stream_core::audio::{WhisperConfig, record_audio, record_system_audio, transcribe};
 use socket_stream_core::context::Deduplicator;
@@ -144,6 +145,11 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
     };
     let temporary = tempfile::tempdir().map_err(|_| "cannot create private audio workspace")?;
     let mut dedup = Deduplicator::new(128);
+    // Ordered, bounded record of finalized speech. Every transcribed segment is
+    // retained (minus fillers/noise and echoes) so a later question resolves
+    // against earlier speech instead of being answered as an isolated snippet.
+    let mut spoken = SpokenTranscript::default();
+    let mut last_answer: Option<String> = None;
     let mut stop = Box::pin(tokio::signal::ctrl_c());
     emitter.send("session_started", label, None, None)?;
     for index in 0..max_segments {
@@ -166,9 +172,9 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
             result = recorded => result.map_err(|_| "audio worker failed".to_owned())?,
             _ = &mut stop => break,
         };
-        let text = match transcript {
-            Ok(Some(text)) if looks_like_question(&text) && dedup.should_process(&text) => text,
-            Ok(_) => continue,
+        let raw = match transcript {
+            Ok(Some(text)) => text,
+            Ok(None) => continue,
             Err(_) => {
                 emitter.send(
                     "error",
@@ -179,15 +185,30 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                 break;
             }
         };
+        // Record all finalized speech (cleaned and bounded) before deciding
+        // whether this segment is a question. Non-question speech still becomes
+        // context for a follow-up later in the session.
+        let text = clean_spoken_segment(&raw);
+        if text.trim().is_empty() {
+            continue;
+        }
+        spoken.finalize_cleaned(&text, last_answer.as_deref());
+        if !looks_like_question(&text) || !dedup.should_process(&text) {
+            continue;
+        }
         let id = format!("spoken-{}", index + 1);
         emitter.send("question_detected", label, Some(&id), Some(&text))?;
         emitter.send("answer_started", label, Some(&id), None)?;
+        let prompt = with_spoken_context(&text, spoken.take_prior_context());
         let response = tokio::select! {
-            result = answer(&provider, &text) => Some(result),
+            result = answer(&provider, &prompt) => Some(result),
             _ = &mut stop => None,
         };
         match response {
             Some(Ok(text)) => {
+                // Keep only a bounded copy as an echo filter: a captured TTS /
+                // playback of our own answer must not be recorded as new speech.
+                last_answer = Some(text.chars().take(4_000).collect());
                 emitter.send("answer_delta", label, Some(&id), Some(&text))?;
                 emitter.send("answer_completed", label, Some(&id), None)?;
             }
@@ -230,6 +251,35 @@ mod tests {
     fn silence_filter_fails_closed() {
         let temp = tempfile::tempdir().unwrap();
         assert!(!has_audio_energy(&temp.path().join("missing.wav")));
+    }
+
+    #[test]
+    fn whisper_segments_accumulate_ordered_transcript_context_and_drop_answer_echoes() {
+        // Every finalized segment enters the ordered history, not only questions.
+        let mut spoken = SpokenTranscript::default();
+        assert!(spoken.finalize_cleaned("um what is a closure", None));
+        assert!(spoken.finalize_cleaned("it captures its surrounding variables", None));
+        assert!(spoken.finalize_cleaned("and why is that useful", None));
+        // The first question gets no context (nothing consumed yet).
+        let first_question = clean_spoken_segment("what is a closure");
+        let first_prompt = with_spoken_context(&first_question, spoken.take_prior_context());
+        assert_eq!(first_prompt, "what is a closure");
+
+        // The follow-up sees the earlier segments in speaking order but not itself.
+        let follow_up = clean_spoken_segment("and why is that useful");
+        let prompt = with_spoken_context(&follow_up, spoken.take_prior_context());
+        assert!(prompt.starts_with("and why is that useful\n\n"));
+        assert!(prompt.contains("1. what is a closure"));
+        assert!(prompt.contains("2. it captures its surrounding variables"));
+        assert!(
+            prompt.find("1. what is a closure").unwrap()
+                < prompt.find("2. it captures its surrounding").unwrap()
+        );
+
+        // A captured echo of the assistant's answer never becomes speech.
+        let answer = "A closure captures variables from its enclosing scope.";
+        assert!(!spoken.finalize_cleaned(answer, Some(answer)));
+        assert!(!spoken.finalize(answer, Some(answer)));
     }
 
     #[test]

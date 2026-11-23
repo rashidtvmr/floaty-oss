@@ -6,11 +6,12 @@
 //! manually typed questions are answered with on-screen context.
 use crate::live_events::Emitter;
 use crate::live_observe::{ScreenReader, a11y_options, bound_context, compose_prompt};
-use crate::turn_gate::{SpeechRole, TurnGate};
+use crate::turn_gate::{
+    SpeechRole, SpokenTranscript, TurnGate, clean_spoken_segment_bounded, with_spoken_context,
+};
 use socket_stream_core::ai::{
     ApiEvent, MAX_IMAGE_BYTES, Provider, TokenUsage, stream_answer_with_meta_vision,
 };
-use std::collections::VecDeque;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -325,9 +326,16 @@ impl SpeechSession {
 
 #[derive(Default)]
 struct Transcript {
-    lines: VecDeque<String>,
+    /// Full ordered, bounded history of finalized speech. Persists across
+    /// pause/resume so follow-up questions can resolve against earlier speech;
+    /// discarded only when the session ends.
+    spoken: SpokenTranscript,
+    /// Finalized speech since the last answered question; the current utterance.
     pending: String,
     last_final: Option<String>,
+    /// The assistant's last generated answer, kept only as an echo filter so
+    /// captured TTS/playback of our own answer never enters the spoken history.
+    last_answer: Option<String>,
 }
 
 impl Transcript {
@@ -337,9 +345,10 @@ impl Transcript {
             return false;
         }
         self.last_final = Some(text.to_owned());
-        self.lines.push_back(text.to_owned());
-        while self.lines.len() > 20 || self.lines.iter().map(String::len).sum::<usize>() > 24_000 {
-            self.lines.pop_front();
+        if !self.spoken.finalize(text, self.last_answer.as_deref()) {
+            // Empty after cleaning, a captured echo of our own answer, or a
+            // duplicate final: never becomes part of the pending question.
+            return false;
         }
         if !self.pending.is_empty() {
             self.pending.push(' ');
@@ -358,13 +367,22 @@ impl Transcript {
     }
 
     fn display(&self, partial: &str) -> String {
-        self.lines
-            .iter()
-            .map(String::as_str)
+        self.spoken
+            .segments()
             .chain(std::iter::once(partial))
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    /// Ordered context from questions already answered, excluding the current
+    /// utterance. Advances the boundary only when a request is actually sent.
+    fn take_context(&mut self) -> Option<String> {
+        self.spoken.take_prior_context()
+    }
+
+    fn remember_answer(&mut self, answer: &str) {
+        self.last_answer = Some(answer.chars().take(MAX_TEXT).collect::<String>());
     }
 }
 
@@ -707,6 +725,10 @@ async fn run_session(
             emitter.send("question_detected", $source, Some(&answer_id), Some(&$text))?;
             emitter.send("answer_started", $source, Some(&answer_id), None)?;
             let question_prompt = turn_gate.manual(&$text);
+            // A typed question or manual capture in an audio session can refer
+            // to earlier speech ("what does that mean?"), so add the ordered
+            // finalized transcript as bounded, clearly labeled context.
+            let question_prompt = with_spoken_context(&question_prompt, transcript.take_context());
             let prompt = if $with_context {
                 compose_prompt(&question_prompt, Some(&screen_context))
             } else {
@@ -848,10 +870,18 @@ async fn run_session(
             }
             _ = tokio::time::sleep_until(due.unwrap_or_else(|| Instant::now() + Duration::from_secs(3600))),
                 if due.is_some() && answer_task.is_none() && !paused => {
-                let prompt = std::mem::take(&mut transcript.pending);
+                // Clean the utterance too: leading fillers ("um, how do I ...")
+                // would otherwise defeat question-prefix detection in the gate.
+                let prompt = clean_spoken_segment_bounded(&std::mem::take(&mut transcript.pending), MAX_TEXT);
                 due = None;
                 if prompt.chars().filter(|c| c.is_alphabetic()).count() < 3 { continue; }
+                // Turn/gate decisions use the raw utterance only. The ordered
+                // finalized transcript is attached afterwards as untrusted,
+                // labeled context so follow-ups resolve across segments and
+                // pause boundaries instead of being treated as isolated snippets.
                 let Some(permitted_prompt) = turn_gate.speech(&prompt) else { continue; };
+                let permitted_prompt =
+                    with_spoken_context(&permitted_prompt, transcript.take_context());
                 request += 1;
                 answer_id = format!("spoken-{request}");
                 emitter.send("question_detected", label, Some(&answer_id), Some(&prompt))?;
@@ -876,6 +906,10 @@ async fn run_session(
                     }
                     if !view.failed {
                         turn_gate.completed(&view.text);
+                        // Remember the answer only as an echo filter: a TTS or
+                        // playback copy captured by a system-audio source must
+                        // never be recorded as new speech or trigger a reply.
+                        transcript.remember_answer(&view.text);
                     }
                     if view.failed { emitter.send("error", "provider", Some(&answer_id), Some("AI provider failed; check endpoint, credentials and model."))?; }
                     else { emitter.send("answer_completed", label, Some(&answer_id), None)?; }
@@ -917,7 +951,55 @@ mod tests {
             t.finalize(&format!("{n} {}", "é".repeat(8000)));
         }
         assert!(t.pending.chars().count() <= MAX_TEXT);
-        assert!(t.lines.iter().map(String::len).sum::<usize>() <= 24_000);
+        let stored: String = t.spoken.segments().collect();
+        assert!(stored.chars().count() <= 24_000);
+    }
+
+    #[test]
+    fn transcript_context_spans_segments_and_pause_but_not_the_current_question() {
+        let mut t = Transcript::default();
+        // Utterance 1 -> answer 1: no earlier speech to use as context.
+        assert!(t.finalize("How does binary search work?"));
+        assert!(
+            t.take_context().is_none(),
+            "first question has no prior speech"
+        );
+        t.pending.clear();
+
+        // A pause/resume cycle does not clear the ordered transcript. Utterance 2
+        // has two finalized segments that together form one question.
+        assert!(t.finalize("what about its complexity"));
+        assert!(t.finalize("and can you show the code?"));
+        let context = t.take_context().expect("ordered transcript context");
+        assert!(context.contains("1. How does binary search work?"));
+        assert!(
+            !context.contains("show the code"),
+            "current question is not its own context"
+        );
+        assert!(
+            !context.contains("complexity"),
+            "current finalized segments are not their own context"
+        );
+
+        // Utterance 3 sees everything from the earlier utterances, in order.
+        assert!(t.finalize("Now explain big-O."));
+        let next = t.take_context().expect("next context");
+        assert!(next.contains("what about its complexity"));
+        assert!(next.contains("show the code"));
+        assert!(!next.contains("big-O"));
+    }
+
+    #[test]
+    fn transcript_filters_fillers_and_captured_answer_echoes() {
+        let mut t = Transcript::default();
+        assert!(t.finalize("um how does a hash map work uh [inaudible]"));
+        let stored: Vec<&str> = t.spoken.segments().collect();
+        assert_eq!(stored, ["how does a hash map work"]);
+        t.remember_answer("A hash map stores key value pairs.");
+        // A TTS echo of our own answer is not recorded as new speech.
+        assert!(!t.finalize("A hash map stores key value pairs."));
+        let stored: Vec<&str> = t.spoken.segments().collect();
+        assert_eq!(stored, ["how does a hash map work"]);
     }
 
     #[tokio::test]
