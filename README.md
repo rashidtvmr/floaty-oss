@@ -96,9 +96,12 @@ Contributions welcome. Actual lightweight native UI shells are AppKit and GTK3; 
 ## Built-in streaming speech
 
 Choose **Listen · Moonshine** on macOS or **Listen to audio** on Linux. The app
-bundles local English speech recognition and streams finalized speech to your
-selected AI provider. Microphone/system playback selection, rolling transcripts,
-Pause/Resume and Stop are integrated into the answer panel.
+bundles local English speech recognition. For each permitted audio answer, it
+sends text—not raw audio—to the selected AI provider. The request includes
+recent finalized speech in order, so requirements spoken before the question
+can inform the answer. The transcript stays in memory, is bounded, and is
+discarded at the end of the session. Microphone/system playback selection,
+rolling transcripts, Pause/Resume and Stop are integrated into the answer panel.
 See [build instructions and tested platform limits](docs/MOONSHINE.md).
 
 ## Linux reading workspace

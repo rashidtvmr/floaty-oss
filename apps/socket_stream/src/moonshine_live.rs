@@ -375,10 +375,9 @@ impl Transcript {
             .join("\n")
     }
 
-    /// Ordered context from questions already answered, excluding the current
-    /// utterance. Advances the boundary only when a request is actually sent.
-    fn take_context(&mut self) -> Option<String> {
-        self.spoken.take_prior_context()
+    /// Ordered context includes setup and constraints that did not trigger an answer.
+    fn context(&self) -> Option<String> {
+        self.spoken.context()
     }
 
     fn remember_answer(&mut self, answer: &str) {
@@ -728,7 +727,7 @@ async fn run_session(
             // A typed question or manual capture in an audio session can refer
             // to earlier speech ("what does that mean?"), so add the ordered
             // finalized transcript as bounded, clearly labeled context.
-            let question_prompt = with_spoken_context(&question_prompt, transcript.take_context());
+            let question_prompt = with_spoken_context(&question_prompt, transcript.context());
             let prompt = if $with_context {
                 compose_prompt(&question_prompt, Some(&screen_context))
             } else {
@@ -881,7 +880,7 @@ async fn run_session(
                 // pause boundaries instead of being treated as isolated snippets.
                 let Some(permitted_prompt) = turn_gate.speech(&prompt) else { continue; };
                 let permitted_prompt =
-                    with_spoken_context(&permitted_prompt, transcript.take_context());
+                    with_spoken_context(&permitted_prompt, transcript.context());
                 request += 1;
                 answer_id = format!("spoken-{request}");
                 emitter.send("question_detected", label, Some(&answer_id), Some(&prompt))?;
@@ -956,37 +955,19 @@ mod tests {
     }
 
     #[test]
-    fn transcript_context_spans_segments_and_pause_but_not_the_current_question() {
+    fn transcript_context_includes_setup_across_completed_turns_and_pause() {
         let mut t = Transcript::default();
-        // Utterance 1 -> answer 1: no earlier speech to use as context.
-        assert!(t.finalize("How does binary search work?"));
-        assert!(
-            t.take_context().is_none(),
-            "first question has no prior speech"
-        );
+        assert!(t.finalize("The input is a sorted list. Use constant extra space."));
+        // Non-question setup is still available after clearing the pending turn.
         t.pending.clear();
-
-        // A pause/resume cycle does not clear the ordered transcript. Utterance 2
-        // has two finalized segments that together form one question.
-        assert!(t.finalize("what about its complexity"));
-        assert!(t.finalize("and can you show the code?"));
-        let context = t.take_context().expect("ordered transcript context");
-        assert!(context.contains("1. How does binary search work?"));
-        assert!(
-            !context.contains("show the code"),
-            "current question is not its own context"
-        );
-        assert!(
-            !context.contains("complexity"),
-            "current finalized segments are not their own context"
-        );
-
-        // Utterance 3 sees everything from the earlier utterances, in order.
+        assert!(t.finalize("Implement binary search in Rust."));
+        let context = t.context().expect("ordered transcript context");
+        assert!(context.contains("1. The input is a sorted list. Use constant extra space."));
+        assert!(context.contains("2. Implement binary search in Rust."));
         assert!(t.finalize("Now explain big-O."));
-        let next = t.take_context().expect("next context");
-        assert!(next.contains("what about its complexity"));
-        assert!(next.contains("show the code"));
-        assert!(!next.contains("big-O"));
+        let next = t.context().expect("next context");
+        assert!(next.contains("constant extra space"));
+        assert!(next.contains("3. Now explain big-O."));
     }
 
     #[test]

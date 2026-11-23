@@ -139,6 +139,24 @@ while True:
         self.until("answer_completed")
         self.stop()
 
+    def test_first_coding_request_includes_setup_from_prior_segments(self):
+        self.launch("interviewer")
+        self.speech("Um, the input is a sorted array of signed integers. [noise]")
+        self.until("transcript_updated")
+        self.assert_no_automatic_question()
+        self.speech("Use O(log n) time and return -1 if the target is missing.")
+        self.until("transcript_updated")
+        self.assert_no_automatic_question()
+        self.speech("Implement the search in Rust.")
+        events = self.until("answer_completed")
+        text = "".join(event.get("text", "") for event in events if event["type"] == "answer_delta")
+        self.assertIn("the input is a sorted array of signed integers", text)
+        self.assertIn("Use O(log n) time and return -1", text)
+        self.assertIn("Implement the search in Rust", text)
+        self.assertNotIn("[noise]", text)
+        self.assertNotIn("Um,", text)
+        self.stop()
+
     def test_interviewer_questions_answered_statements_suppressed_and_role_switch_safe(self):
         self.launch("interviewer")
         self.speech("Type vs interface in TypeScript?")

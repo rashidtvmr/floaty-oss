@@ -192,14 +192,16 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
         if text.trim().is_empty() {
             continue;
         }
-        spoken.finalize_cleaned(&text, last_answer.as_deref());
-        if !looks_like_question(&text) || !dedup.should_process(&text) {
+        if !spoken.finalize_cleaned(&text, last_answer.as_deref())
+            || !looks_like_question(&text)
+            || !dedup.should_process(&text)
+        {
             continue;
         }
         let id = format!("spoken-{}", index + 1);
         emitter.send("question_detected", label, Some(&id), Some(&text))?;
         emitter.send("answer_started", label, Some(&id), None)?;
-        let prompt = with_spoken_context(&text, spoken.take_prior_context());
+        let prompt = with_spoken_context(&text, spoken.context());
         let response = tokio::select! {
             result = answer(&provider, &prompt) => Some(result),
             _ = &mut stop => None,
@@ -257,17 +259,12 @@ mod tests {
     fn whisper_segments_accumulate_ordered_transcript_context_and_drop_answer_echoes() {
         // Every finalized segment enters the ordered history, not only questions.
         let mut spoken = SpokenTranscript::default();
-        assert!(spoken.finalize_cleaned("um what is a closure", None));
+        assert!(spoken.finalize("um what is a closure", None));
         assert!(spoken.finalize_cleaned("it captures its surrounding variables", None));
         assert!(spoken.finalize_cleaned("and why is that useful", None));
-        // The first question gets no context (nothing consumed yet).
-        let first_question = clean_spoken_segment("what is a closure");
-        let first_prompt = with_spoken_context(&first_question, spoken.take_prior_context());
-        assert_eq!(first_prompt, "what is a closure");
-
-        // The follow-up sees the earlier segments in speaking order but not itself.
+        // The first request can already see all finalized segments in order.
         let follow_up = clean_spoken_segment("and why is that useful");
-        let prompt = with_spoken_context(&follow_up, spoken.take_prior_context());
+        let prompt = with_spoken_context(&follow_up, spoken.context());
         assert!(prompt.starts_with("and why is that useful\n\n"));
         assert!(prompt.contains("1. what is a closure"));
         assert!(prompt.contains("2. it captures its surrounding variables"));
