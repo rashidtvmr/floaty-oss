@@ -27,6 +27,22 @@ No vision LLM is required for the OCR path; it works by sending extracted text.
 
 ## Try it
 
+### Prebuilt desktop packages
+
+The repository's **Actions → Desktop installers** workflow builds both packages
+from the same revision. Download the appropriate artifact from a successful
+run and unpack it. Local rebuilds put the same archives and SHA-256 files in
+`dist/`; the large binaries are not checked into Git.
+
+- **macOS 15+, Apple silicon:** verify the ZIP with `shasum -a 256 -c <file.zip.sha256>`, then double-click the ZIP, move `SocketStream.app` to `~/Applications`, and open it. The workflow build is not notarized. If macOS blocks it, you can build a locally signed copy from source instead with `./scripts/build-macos-app.sh`. Grant only the permissions for the features you use.
+- **Linux x86-64:** verify with `sha256sum -c <file.tar.gz.sha256>`, then run `tar -xzf <file.tar.gz>`. In the extracted directory, run `./check-dependencies.sh` and then `./socket_stream`. On Debian/Ubuntu, `./install-dependencies-debian.sh` installs missing desktop dependencies.
+
+To create the archives locally, run `./scripts/package-macos.sh` on an Apple
+silicon Mac. On Linux x86-64 with Rust, Zig and `cargo-zigbuild` installed, run
+`python3 scripts/build-moonshine.py`, then `./scripts/build-linux-release.sh x86_64`.
+
+### From source
+
 - Install Rust stable. macOS OCR uses Apple's built-in Vision framework; no Tesseract needed. Linux OCR uses distro Tesseract plus AT-SPI2/GTK Python bindings.
 - `cargo test`
 - `cargo run -p socket_stream -- doctor`

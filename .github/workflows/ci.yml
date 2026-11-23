@@ -22,9 +22,10 @@ jobs:
         run: |
           swiftc -typecheck scripts/macos-accessibility.swift
           swiftc -typecheck scripts/macos-ocr.swift
-          swiftc -typecheck apps/context-desktop/ui/mac-app.swift
+          scripts/build-macos-helpers.sh
+          target/native-helpers/socket_stream_gui --self-test
           swiftc -parse-as-library -typecheck scripts/macos-system-audio.swift
       - name: Python helper syntax and runner tests
         run: |
-          python3 -m py_compile scripts/linux-accessibility.py scripts/linux-portal-capture.py scripts/task_queue.py scripts/dev_agent_runner.py apps/context-desktop/ui/linux-gtk.py
+          python3 -m py_compile scripts/linux-accessibility.py scripts/linux-portal-capture.py scripts/task_queue.py scripts/dev_agent_runner.py apps/socket_stream_desktop/ui/linux-gtk.py
           python3 -m unittest discover -s tests -v

@@ -1,0 +1,62 @@
+name: Desktop installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build tools
+        run: |
+          python -m pip install ziglang==0.15.2
+          cargo install --locked cargo-zigbuild
+      - name: Build and validate the portable archive
+        run: |
+          python scripts/build-moonshine.py
+          scripts/build-linux-release.sh x86_64
+          cd dist
+          sha256sum --check socket_stream_linux-x86_64-*.sha256
+          tar -xzf socket_stream_linux-x86_64-*.tar.gz
+          ./socket_stream_linux-x86_64-*/bin/socket_stream --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: socket-stream-linux-x86_64
+          path: |
+            dist/socket_stream_linux-x86_64-*.tar.gz
+            dist/socket_stream_linux-x86_64-*.sha256
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and validate the app archive
+        run: |
+          test "$(uname -m)" = arm64
+          SOCKET_STREAM_BUILD_PYTHON=python scripts/package-macos.sh
+          cd dist
+          shasum -a 256 -c socket_stream_macos-arm64-*.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: socket-stream-macos-arm64
+          path: |
+            dist/socket_stream_macos-arm64-*.zip
+            dist/socket_stream_macos-arm64-*.sha256
+          if-no-files-found: error
