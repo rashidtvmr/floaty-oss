@@ -93,6 +93,25 @@ class InputShapePlanning(unittest.TestCase):
         self.assertEqual(overlay.input_region_rects([("x", 0, 10, 10)], (100, 100), False), [])
 
 
+class ConversationLayoutContract(unittest.TestCase):
+    """Keep the native chat reader connected on Linux and macOS."""
+
+    def test_linux_panel_uses_bounded_history_reader(self):
+        source = (UI / "floating_overlay.py").read_text()
+        self.assertIn("from conversation_reader import ConversationReader", source)
+        self.assertIn("self.conversation.update(self._model.state.history()", source)
+        reader = (UI / "conversation_reader.py").read_text()
+        self.assertIn("Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)", reader)
+        self.assertIn("reorder_child(question, 0)", reader)
+        self.assertIn("def update(self, history", reader)
+
+    def test_macos_panel_has_scrollable_vertical_question_answer_feed(self):
+        source = (UI / "mac-app.swift").read_text()
+        self.assertIn("answerScroll.documentView = answerView", source)
+        self.assertIn("answerView.textContainer?.widthTracksTextView = true", source)
+        self.assertIn(r'"\n\nAnswer\n"', source)
+        self.assertIn("chatRanges.count > 24", source)
+
 class PanelManualControls(unittest.TestCase):
     """The panel source must expose the manual prompt and pass-through hooks."""
 

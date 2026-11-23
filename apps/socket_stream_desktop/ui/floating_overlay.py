@@ -30,6 +30,7 @@ if str(_HERE) not in sys.path:
 
 from live_state import LiveState  # noqa: E402  (path set above)
 from answer_format import answer_parts, markdown_runs, question_title  # noqa: E402
+from conversation_reader import ConversationReader  # noqa: E402
 from ui_theme import install_theme, style  # noqa: E402
 from capture_rules import PANEL_APP_ID, PANEL_WM_CLASS  # noqa: E402  (path set above)
 from overlay_guard import (  # noqa: E402  (path set above)
@@ -553,6 +554,15 @@ class FloatingOverlay:
         self.answer.connect("button-press-event", self._on_selectable_press)
         self.answer_scroll.add(self.answer)
         self.answer_stack.add_named(self.answer_scroll, "answer")
+        # The production reader is a vertically stacked, scrollable chat feed.
+        # Keep the legacy answer widgets as an inert compatibility surface; the
+        # reader owns presentation and preserves each question/answer pair.
+        self.chat_scroll = Gtk.ScrolledWindow()
+        self.chat_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.answer_stack.add_named(self.chat_scroll, "conversation")
+        self.conversation = ConversationReader(
+            self.chat_scroll, self.pin_question, self.follow_latest,
+            lambda: self._motion_enabled, on_press=self._on_selectable_press)
         empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         empty.set_valign(Gtk.Align.CENTER)
         self.empty_title = Gtk.Label(label="A little space to think.")
@@ -1511,8 +1521,11 @@ class FloatingOverlay:
             for text, tag in runs[common:]:
                 buffer.insert_with_tags_by_name(buffer.get_end_iter(), text, tag)
             self._rendered_runs = runs
-        self.answer_stack.set_visible_child_name("answer" if content.strip() else "empty")
+        self.answer_stack.set_visible_child_name(
+            "conversation" if self.conversation.card_count() else ("answer" if content.strip() else "empty"))
         self.copy_button.set_sensitive(bool(content.strip()))
+        if self.conversation.card_count():
+            return False  # The conversation reader manages its own scroll position.
         key = self._display_request
         top = getattr(self, "_scroll_top", False)
         self._scroll_top = False
@@ -1540,7 +1553,8 @@ class FloatingOverlay:
             self._provider = provider
         state = self._model.state.display_snapshot()
         key = (state["session_id"], state["request_id"])
-        if key != self._display_request:
+        key_changed = key != self._display_request
+        if key_changed:
             self._display_request = key
             self._scroll_top = True
             self.question_revealer.set_reveal_child(False)
@@ -1552,6 +1566,13 @@ class FloatingOverlay:
         self.set_question(question)
         self.question.set_text(question_title(question, state["answer"]) or "Ready for your next question")
         self.set_answer(state["answer"])
+        self.conversation.update(self._model.state.history(),
+                                 pinned_id=state.get("request_id") if state.get("pinned") else "",
+                                 session_id=state.get("session_id", ""))
+        if self.conversation.card_count():
+            self.answer_stack.set_visible_child_name("conversation")
+            if state.get("pinned") and key_changed:
+                self.conversation.jump(state["request_id"])
         sources = {"screen": "Screen", "accessibility": "Accessibility", "ocr": "Local OCR",
                    "microphone": "Microphone", "playback": "System audio", "file": "Imported",
                    "manual": "Typed question"}

@@ -7,6 +7,7 @@ import re
 import unicodedata
 
 MAX_ANSWER = 64000
+MAX_BLOCKS = 512
 _ANSWER = re.compile(r"(?m)^\s*(?:\*\*)?Answer:(?:\*\*)?[ \t]*")
 _QUESTION = re.compile(r"^\s*(?:\*\*)?Question:(?:\*\*)?[ \t]*")
 _INLINE = re.compile(r"(`+)([^`\n]+)\1|\*\*([^*\n]+)\*\*|(?<!\*)\*([^*\n]+)\*(?!\*)")
@@ -177,3 +178,50 @@ def question_title(question, answer="", limit=220):
     summarized, _ = answer_parts(answer)
     text = " ".join((summarized or question or "").split())
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def markdown_blocks(text):
+    """Bounded inert blocks for native cards; no HTML, URLs, or executable nodes."""
+    lines = (text or '')[:MAX_ANSWER].splitlines(keepends=True)
+    blocks, prose = [], []
+
+    def flush():
+        if prose:
+            blocks.append({'type': 'prose', 'text': ''.join(prose)})
+            prose.clear()
+
+    i = 0
+    while i < len(lines):
+        if len(blocks) >= MAX_BLOCKS:
+            # A pathological stream of tiny blocks must not create unbounded
+            # widgets; keep the remaining text as one inert prose block.
+            prose.extend(lines[i:])
+            break
+        line = lines[i]; i += 1
+        fence = re.match(r'^\s*(`{3,}|~{3,})([^\n]*)', line)
+        if fence:
+            flush(); code = []; marker = fence.group(1)
+            while i < len(lines):
+                candidate = lines[i]; i += 1
+                if candidate.lstrip().startswith(marker) and not candidate.lstrip()[len(marker):].strip('`~ \t\r\n'):
+                    break
+                code.append(candidate)
+            blocks.append({'type': 'code', 'language': fence.group(2).strip()[:32], 'text': ''.join(code)})
+        elif i < len(lines) and '|' in line:
+            header, sep = _table_cells(line), _table_cells(lines[i])
+            if 2 <= len(header) <= 8 and len(sep) == len(header) and all(re.fullmatch(r':?-{3,}:?', s) for s in sep):
+                flush(); i += 1; rows = [header]
+                while i < len(lines) and len(rows) < 256 and '|' in lines[i]:
+                    cells = _table_cells(lines[i])
+                    if len(cells) != len(header): break
+                    rows.append(cells); i += 1
+                blocks.append({'type': 'table', 'rows': rows})
+            else: prose.append(line)
+        elif re.match(r'^\s*\d+[.)]\s+', line):
+            flush(); items = [re.sub(r'^\s*\d+[.)]\s+', '', line).strip()]
+            while i < len(lines) and len(items) < 256 and re.match(r'^\s*\d+[.)]\s+', lines[i]):
+                items.append(re.sub(r'^\s*\d+[.)]\s+', '', lines[i]).strip()); i += 1
+            blocks.append({'type': 'pills', 'items': items})
+        else: prose.append(line)
+    flush()
+    return blocks

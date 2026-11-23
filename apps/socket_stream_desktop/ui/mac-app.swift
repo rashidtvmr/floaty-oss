@@ -530,7 +530,6 @@ final class NonActivatingAnswerPanel: NSPanel {
 final class AnswerPanel: NSObject, NSWindowDelegate {
     let panel: NonActivatingAnswerPanel
     private let statusLabel: NSTextField
-    private let questionLabel: NSTextField
     private let answerView: NSTextView
     private let answerScroll: NSScrollView
     private let apiView: NSTextView
@@ -551,8 +550,10 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
     private(set) var running = false
     /// Mirrors the last state applied to the widgets so a stream of deltas does
     /// not rebuild the whole text view on every event.
-    private var lastQuestion = ""
     private var lastAnswer = ""
+    private var chatRequest = ""
+    private var chatRanges: [Int] = []
+    private var chatAnswerStart = 0
     private var lastAPI = ""
 
     var onStop: (() -> Void)?
@@ -590,19 +591,18 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.setAccessibilityIdentifier("panel-status")
 
-        questionLabel = NSTextField(wrappingLabelWithString: "No question detected yet")
-        questionLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        questionLabel.maximumNumberOfLines = 4
-        questionLabel.lineBreakMode = .byTruncatingTail
-        questionLabel.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        questionLabel.setAccessibilityIdentifier("panel-question")
-
         answerView = NSTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 200))
         answerView.isEditable = false
         answerView.isSelectable = true
         answerView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         answerView.textContainerInset = NSSize(width: 4, height: 4)
-        answerView.string = "The model answer appears here."
+        answerView.isVerticallyResizable = true
+        answerView.isHorizontallyResizable = false
+        answerView.autoresizingMask = [.width]
+        answerView.textContainer?.widthTracksTextView = true
+        answerView.textContainer?.containerSize = NSSize(width: 480, height: CGFloat.greatestFiniteMagnitude)
+        answerView.string = "No question detected yet"
+        answerView.setAccessibilityLabel("Conversation: question followed by answer")
         answerView.setAccessibilityIdentifier("panel-answer")
 
         answerScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 200))
@@ -677,7 +677,7 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
         panel.backgroundColor = background
         panel.contentView = content
 
-        for view in [statusLabel, questionLabel, answerScroll, apiScroll, compactButton, pauseButton,
+        for view in [statusLabel, answerScroll, apiScroll, compactButton, pauseButton,
                      copyButton, closeButton, mainButton, stopButton] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
@@ -690,7 +690,6 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
         controls.translatesAutoresizingMaskIntoConstraints = false
 
         content.addSubview(statusLabel)
-        content.addSubview(questionLabel)
         content.addSubview(answerScroll)
         content.addSubview(apiScroll)
         content.addSubview(controls)
@@ -700,12 +699,7 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
             statusLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -14),
 
-            questionLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 5),
-            questionLabel.leadingAnchor.constraint(equalTo: statusLabel.leadingAnchor),
-            questionLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
-            questionLabel.heightAnchor.constraint(lessThanOrEqualToConstant: 62),
-
-            answerScroll.topAnchor.constraint(equalTo: questionLabel.bottomAnchor, constant: 7),
+            answerScroll.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 7),
             answerScroll.leadingAnchor.constraint(equalTo: statusLabel.leadingAnchor),
             answerScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
             answerScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
@@ -775,19 +769,48 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
         statusLabel.textColor = error ? .systemRed : .secondaryLabelColor
     }
 
-    func setQuestion(_ text: String) {
-        let value = text.isEmpty ? "No question detected yet" : String(text.prefix(650))
-        if value != lastQuestion {
-            lastQuestion = value
-            questionLabel.stringValue = value
-        }
+    func resetChat() {
+        chatRequest = ""
+        chatRanges = []
+        chatAnswerStart = 0
+        lastAnswer = ""
+        answerView.string = "No question detected yet"
     }
 
-    func setAnswer(_ text: String) {
-        guard text != lastAnswer else { return }
-        lastAnswer = text
-        answerView.string = text
-        if !text.isEmpty {
+    func setTurn(requestID: String, question: String, answer: String) {
+        guard !requestID.isEmpty, let storage = answerView.textStorage else { return }
+        let newTurn = requestID != chatRequest
+        guard newTurn || answer != lastAnswer else { return }
+        let visible = answerScroll.contentView.bounds
+        let following = visible.maxY >= answerView.bounds.maxY - 24
+        let body: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        let heading: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.controlAccentColor,
+        ]
+        storage.beginEditing()
+        if newTurn {
+            if chatRanges.isEmpty { storage.setAttributedString(NSAttributedString(string: "")) }
+            chatRanges.append(storage.length)
+            storage.append(NSAttributedString(string: chatRequest.isEmpty ? "Question\n" : "\n\nQuestion\n", attributes: heading))
+            storage.append(NSAttributedString(string: question, attributes: body))
+            storage.append(NSAttributedString(string: "\n\nAnswer\n", attributes: heading))
+            if chatRanges.count > 24 {
+                let trim = chatRanges[1]
+                storage.deleteCharacters(in: NSRange(location: 0, length: trim))
+                chatRanges = chatRanges.dropFirst().map { $0 - trim }
+            }
+            chatRequest = requestID
+            chatAnswerStart = storage.length
+        }
+        lastAnswer = answer
+        let tail = NSRange(location: chatAnswerStart, length: storage.length - chatAnswerStart)
+        storage.replaceCharacters(in: tail, with: NSAttributedString(string: answer, attributes: body))
+        storage.endEditing()
+        if newTurn || following {
             answerView.scrollToEndOfDocument(nil)
         }
     }
@@ -809,7 +832,7 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
         onCopy?()
     }
 
-    var answerText: String { answerView.string }
+    var answerText: String { lastAnswer }
 
     /// The drag-selected part of the answer, or empty when nothing is selected.
     /// A non-key panel cannot route Cmd+C, so the Copy button reads this.
@@ -1637,8 +1660,7 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
         observationBuffer.removeAll()
         pauseRequested = false
         liveState.reset()
-        answerPanel.setQuestion("")
-        answerPanel.setAnswer("")
+        answerPanel.resetChat()
         answerPanel.setAPI("", response: "")
         answerPanel.setPaused(false)
         answerPanel.setRunning(true)
@@ -1729,9 +1751,7 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func updatePanel(_ state: LiveView) {
         let question = state.questionDisplay.isEmpty ? state.question : state.questionDisplay
-        answerPanel.setQuestion(state.transcript.isEmpty ? question :
-            "Heard: \(state.transcript.suffix(450))\nAnswering: \(question.prefix(180))")
-        answerPanel.setAnswer(state.answer)
+        answerPanel.setTurn(requestID: state.requestID, question: question, answer: state.answer)
         answerPanel.setAPI(state.apiRequest, response: state.apiResponse)
         answerPanel.setStatus(panelStatusLine(), error: !state.error.isEmpty)
         answerPanel.setPaused(state.status == "paused" || pauseRequested)
