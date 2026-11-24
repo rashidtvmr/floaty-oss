@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-installers-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   linux:
     runs-on: ubuntu-24.04
@@ -70,3 +74,62 @@ jobs:
             dist/socket_stream_macos-arm64-*.zip
             dist/socket_stream_macos-arm64-*.sha256
           if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !github.event.deleted
+    needs: [linux, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: socket-stream-*
+          merge-multiple: true
+          path: release-assets
+      - name: Verify assets and publish GitHub Release
+        working-directory: release-assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo 'Expected a tag like v0.1.0 or v0.1.0-rc.1' >&2
+            exit 1
+          fi
+          shopt -s nullglob
+          mac=(socket_stream_macos-arm64-*.zip)
+          linux=(socket_stream_linux-x86_64-*.tar.gz)
+          if [[ ${#mac[@]} != 1 || ${#linux[@]} != 1 ]]; then
+            echo 'Expected exactly one archive for each platform' >&2
+            exit 1
+          fi
+          assets=("${mac[0]}" "${mac[0]}.sha256" "${linux[0]}" "${linux[0]}.sha256")
+          for archive in "${mac[0]}" "${linux[0]}"; do
+            # Check the expected file, not an arbitrary path in the sidecar.
+            checksum=$(sha256sum -- "$archive")
+            [[ "$checksum" == "$(cat -- "$archive.sha256")" ]] || {
+              echo "Checksum mismatch: $archive" >&2
+              exit 1
+            }
+          done
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "A release or draft already exists for $TAG; refusing to overwrite it" >&2
+            exit 1
+          fi
+          release_flags=()
+          if [[ "$TAG" == *-* ]]; then
+            release_flags=(--prerelease)
+          fi
+          # Keep uploads private until all four assets have made it to GitHub.
+          gh release create "$TAG" "${assets[@]}" --verify-tag --draft \
+            --title "SocketStream $TAG" --generate-notes "${release_flags[@]}"
+          uploaded=$(gh release view "$TAG" --json assets --jq '.assets[].name' | LC_ALL=C sort)
+          expected=$(printf '%s\n' "${assets[@]}" | LC_ALL=C sort)
+          if [[ "$uploaded" != "$expected" ]]; then
+            echo 'Draft does not contain all expected assets; not publishing' >&2
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false
