@@ -527,6 +527,14 @@ final class NonActivatingAnswerPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+private final class IndigoSurface: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let top = NSColor(srgbRed: 0.18, green: 0.20, blue: 0.34, alpha: 1)
+        let bottom = NSColor(srgbRed: 0.09, green: 0.10, blue: 0.18, alpha: 1)
+        NSGradient(starting: top, ending: bottom)?.draw(in: bounds, angle: -55)
+    }
+}
+
 final class AnswerPanel: NSObject, NSWindowDelegate {
     let panel: NonActivatingAnswerPanel
     private let statusLabel: NSTextField
@@ -667,15 +675,15 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
     }
 
     private func buildLayout() {
-        let content = NSView()
+        let content = IndigoSurface()
         content.wantsLayer = true
-        // Utility panels pick up a vibrant translucent material; a near-opaque
-        // backing keeps the answer legible over busy practice content while the
-        // window's 94% alpha still makes it feel light.
-        let background = NSColor.windowBackgroundColor.withAlphaComponent(0.97)
-        content.layer?.backgroundColor = background.cgColor
-        panel.backgroundColor = background
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.backgroundColor = NSColor(srgbRed: 0.09, green: 0.10, blue: 0.18, alpha: 1)
         panel.contentView = content
+        for textView in [answerView, apiView] {
+            textView.backgroundColor = NSColor(srgbRed: 0.14, green: 0.16, blue: 0.27, alpha: 1)
+            textView.textColor = NSColor(srgbRed: 0.94, green: 0.94, blue: 0.99, alpha: 1)
+        }
 
         for view in [statusLabel, answerScroll, apiScroll, compactButton, pauseButton,
                      copyButton, closeButton, mainButton, stopButton] {
@@ -735,6 +743,7 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        let entering = !panel.isVisible
         if !positioned {
             let onScreen = NSScreen.screens.contains { $0.visibleFrame.intersects(panel.frame) }
             if panel.frame.origin == .zero || !onScreen {
@@ -745,9 +754,25 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
         // `orderFrontRegardless` shows the panel without activating the app or
         // stealing focus from the practice window.
         panel.orderFrontRegardless()
+        if entering,
+           let fade = Self.entryAnimation(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion),
+           let layer = panel.contentView?.layer {
+            layer.add(fade, forKey: "panel-entry")
+        }
+    }
+
+    static func entryAnimation(reduceMotion: Bool) -> CABasicAnimation? {
+        guard !reduceMotion else { return nil }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.45
+        fade.toValue = 1.0
+        fade.duration = 0.16
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        return fade
     }
 
     func hide() {
+        panel.contentView?.layer?.removeAnimation(forKey: "panel-entry")
         panel.orderOut(nil)
     }
 
@@ -785,11 +810,11 @@ final class AnswerPanel: NSObject, NSWindowDelegate {
         let following = visible.maxY >= answerView.bounds.maxY - 24
         let body: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor(srgbRed: 0.94, green: 0.94, blue: 0.99, alpha: 1),
         ]
         let heading: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-            .foregroundColor: NSColor.controlAccentColor,
+            .foregroundColor: NSColor(srgbRed: 0.73, green: 0.80, blue: 1, alpha: 1),
         ]
         storage.beginEditing()
         if newTurn {
@@ -1012,8 +1037,9 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.setFrameAutosaveName("SocketStreamMainWindow")
         self.window = window
 
-        let root = NSView(frame: rect)
+        let root = IndigoSurface(frame: rect)
         root.autoresizingMask = [.width, .height]
+        window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = root
 
         let note = NSTextField(labelWithString: "Authorized practice only. No capture is active until you explicitly start it.")
@@ -2324,6 +2350,12 @@ enum FocusSelfTest {
         expect(panel.styleMask.contains(.nonactivatingPanel),
                "answer panel keeps the nonactivating style mask")
         panel.close()
+        expect(AnswerPanel.entryAnimation(reduceMotion: true) == nil, "Reduce Motion skips panel fade")
+        let fade = AnswerPanel.entryAnimation(reduceMotion: false)
+        expect(fade?.keyPath == "opacity" && fade?.duration == 0.16, "panel has a short opacity-only entry")
+        let answer = AnswerPanel(stealth: false)
+        expect(answer.panel.contentView is IndigoSurface, "native panel uses the indigo surface")
+        expect(answer.panel.appearance?.name == .darkAqua, "indigo panel controls use dark contrast")
         return failures
     }
 }

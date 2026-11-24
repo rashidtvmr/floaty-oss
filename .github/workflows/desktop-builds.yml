@@ -31,6 +31,7 @@ jobs:
           cargo install --locked cargo-zigbuild
       - name: Build and validate the portable archive
         run: |
+          xvfb-run -a /usr/bin/python3 -m unittest tests.test_desktop_theme
           python scripts/build-moonshine.py
           scripts/build-linux-release.sh x86_64
           cd dist

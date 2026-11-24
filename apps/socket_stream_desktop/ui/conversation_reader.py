@@ -121,6 +121,10 @@ class ConversationReader:
     def card_count(self):
         return len(self.cards)
 
+    def set_motion_duration(self, duration):
+        for card in self.cards.values():
+            card['widget'].set_transition_duration(duration)
+
     def _text_views(self):
         """Every TextView in the feed, for tag re-theming."""
         views, pending = [], [self.content]

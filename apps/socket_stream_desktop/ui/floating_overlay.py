@@ -1045,7 +1045,7 @@ class FloatingOverlay:
             self.set_cursor_blending(cursor_blending, notify=False)
         alpha = self.opacity if self._has_alpha else 1.0
         self._surface_css.load_from_data((
-            f"#socket-stream-answer-panel .ss-panel, #socket-stream-answer-panel .ss-command-bar {{ background-color: rgba(23,23,28,{alpha}); }}\n"
+            f"#socket-stream-answer-panel .ss-panel, #socket-stream-answer-panel .ss-command-bar {{ background-image: linear-gradient(145deg, rgba(45,50,87,{alpha}), rgba(25,28,49,{alpha})); }}\n"
             f"#socket-stream-answer-panel .ss-answer {{ font-size: {self.font_size}px; }}\n"
         ).encode())
         settings = self._Gtk.Settings.get_default()
@@ -1061,6 +1061,7 @@ class FloatingOverlay:
         for widget in (self.question_revealer, self.history_revealer, self.answer_stack, self.history_stack):
             widget.set_transition_duration(duration)
         self._motion_enabled = duration > 0
+        self.conversation.set_motion_duration(duration)
         self._update_code_size()
 
     def _create_answer_tags(self):
@@ -1446,7 +1447,7 @@ class FloatingOverlay:
         self.window.set_opacity(0.45)
 
         def tick(_widget, _clock):
-            progress = min(1.0, (self._GLib.get_monotonic_time() - start) / 140000)
+            progress = min(1.0, (self._GLib.get_monotonic_time() - start) / 160000)
             eased = 1 - (1 - progress) ** 3
             self.window.set_opacity(0.45 + 0.55 * eased)
             if progress >= 1:

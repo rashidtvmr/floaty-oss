@@ -1,7 +1,8 @@
 """Shared GTK3 visual language for the workspace and floating reading panel."""
 
 CSS = b"""
-.ss-app, .ss-dialog { background-color: #fafafa; color: #18181b; }
+.ss-app { background-image: linear-gradient(145deg, #30345b, #181b31); color: #f0effb; }
+.ss-dialog { background-color: #fafafa; color: #18181b; }
 .ss-app headerbar { background: #f4f4f5; border-bottom: 1px solid #e4e5e9; box-shadow: none; }
 .ss-app label, .ss-dialog label { color: #24262c; }
 .ss-app button, .ss-dialog button, .ss-overlay button {
@@ -90,6 +91,30 @@ CSS = b"""
 .ss-app button.ss-danger label { color: #b44750; }
 .ss-app .ss-shortcut { font-family: monospace; font-size: 12px; }
 .ss-app .ss-banner { background: #edf3fc; border: 1px solid #d4e2f6; border-radius: 10px; padding: 12px 16px; }
+.ss-app headerbar { background: #242741; border-color: #45496e; }
+.ss-app headerbar label { color: #efeffa; }
+.ss-app label, .ss-app checkbutton, .ss-app list, .ss-app list row { color: #efeffa; }
+.ss-app .ss-title, .ss-app .ss-section-title { color: #faf9ff; }
+.ss-app .ss-muted, .ss-app .ss-eyebrow { color: #bfc3e1; }
+.ss-app .ss-nav { background: #20223a; border-color: #45496e; }
+.ss-app .ss-nav button label { color: #c4c8e4; }
+.ss-app .ss-nav button:checked { background: #444c80; }
+.ss-app .ss-nav button:checked label { color: #fff; }
+.ss-app .ss-card { background: rgba(126, 135, 192, 0.15); border-color: #50557a; }
+.ss-app .ss-banner { background: #292f51; border-color: #50557a; }
+.ss-app .ss-chip { color: #b9d7ff; }
+.ss-app button, .ss-app entry, .ss-app spinbutton { background: #2e3354; border-color: #535a83; color: #f0effb; }
+.ss-app button:hover { background: #3e456d; border-color: #7783ae; }
+.ss-app button:disabled { background: #292d48; color: #a1a6c3; }
+.ss-app button.ss-primary, .ss-overlay button.ss-primary { background-image: linear-gradient(to bottom, #5469cb, #3f51aa); border-color: #7989e3; }
+.ss-app button.ss-primary:disabled { background-image: none; }
+.ss-app .ss-error, .ss-app button.ss-danger label { color: #ffb8c1; }
+.ss-overlay .ss-question-card, .ss-overlay .ss-answer-card {
+  background: rgba(113, 130, 192, 0.13); border: 1px solid rgba(151, 166, 222, 0.34);
+  border-radius: 13px; padding: 12px;
+}
+.ss-overlay .ss-question-card { background: rgba(111, 124, 214, 0.25); }
+.ss-overlay .ss-pinned-row .ss-question-card { border-color: #a5b7fd; }
 .ss-reduced-motion button { transition: none; }
 """
 
