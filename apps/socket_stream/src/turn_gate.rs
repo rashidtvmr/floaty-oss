@@ -135,6 +135,19 @@ impl TurnGate {
         self.request(text, refine)
     }
 
+    /// A bounded checkpoint may split one spoken task. Never reinterpret an
+    /// interviewee or unknown speaker's reply as a continuation.
+    pub(crate) fn continuation(&mut self, text: &str) -> Option<String> {
+        if self.question.is_empty()
+            || !matches!(self.role, SpeechRole::Practice | SpeechRole::Interviewer)
+            || question_like(text)
+            || normalized(text) == normalized(&self.question)
+        {
+            return None;
+        }
+        Some(self.request(text, true))
+    }
+
     fn request(&mut self, text: &str, refine: bool) -> String {
         if refine {
             format!(
@@ -385,6 +398,19 @@ impl SpokenTranscript {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkpoint_followup_can_refine_but_does_not_reclassify_new_questions_or_other_roles() {
+        let mut gate = TurnGate::new(SpeechRole::Interviewer);
+        gate.speech("Implement binary search in Rust").unwrap();
+        gate.completed("Use a sorted slice");
+        let refinement = gate.continuation("Return -1 when missing").unwrap();
+        assert!(refinement.contains("Implement binary search"));
+        assert!(refinement.contains("Return -1"));
+        assert!(gate.continuation("What is a hash map?").is_none());
+        gate.role = SpeechRole::Interviewee;
+        assert!(gate.continuation("Return -1 when missing").is_none());
+    }
 
     #[test]
     fn own_answers_and_rhetorical_questions_never_trigger_inference() {

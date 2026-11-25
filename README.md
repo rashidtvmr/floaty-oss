@@ -114,6 +114,20 @@ recent finalized speech in order, so requirements spoken before the question
 can inform the answer. The transcript stays in memory, is bounded, and is
 discarded at the end of the session. Microphone/system playback selection,
 rolling transcripts, Pause/Resume and Stop are integrated into the answer panel.
+Moonshine checkpoints the recognizer every ten seconds without reopening the
+audio device. Finalized speech waits at most eight seconds for a quiet gap when
+no answer is running. A nearby continuation of a checkpointed task can produce
+a new refinement below the original; existing replies aren't overwritten.
+
+To explicitly export an authorized Moonshine session's text from the CLI, use
+a new private file outside the repository. The stream contains finalized speech,
+questions and streamed answers, and can also include screen/provider context
+if those features are enabled. Get consent from everyone being transcribed.
+Raw audio is not included; the desktop app does not save these files by default.
+
+```sh
+(umask 077; set -C; ./socket_stream audio-live --authorized --source microphone --export-transcript > "$HOME/socketstream-session.jsonl")
+```
 See [build instructions and tested platform limits](docs/MOONSHINE.md).
 
 ## Linux reading workspace

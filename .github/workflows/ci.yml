@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +26,12 @@ jobs:
           target/native-helpers/socket_stream_gui --self-test
           swiftc -parse-as-library -typecheck scripts/macos-system-audio.swift
       - name: Python helper syntax and runner tests
+        if: runner.os != 'Windows'
         run: |
           python3 -m py_compile scripts/linux-accessibility.py scripts/linux-portal-capture.py scripts/task_queue.py scripts/dev_agent_runner.py apps/socket_stream_desktop/ui/linux-gtk.py
           python3 -m unittest discover -s tests -v
+      - name: Audio session integration with synthetic speech
+        if: runner.os != 'Windows'
+        run: |
+          cargo build --locked -p socket_stream
+          python3 -m unittest discover -s tests/acceptance -p test_speech_turns_e2e.py -v

@@ -12,6 +12,10 @@ spec.loader.exec_module(worker)
 class Listener:
     completed = False
     failed = False
+    checkpoints = 0
+
+    def flush_checkpoint(self):
+        self.checkpoints += 1
 
 
 class FakeStream:
@@ -57,12 +61,15 @@ class WorkerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             worker.pcm_samples(b"\x00")
 
-    def test_native_history_rotation_soft_and_hard_limit(self):
-        for complete, seconds in ((True, 60), (False, 120)):
+    def test_native_history_rotates_even_without_silence(self):
+        seconds = worker.MAX_STREAM_SECONDS
+        for complete in (True, False):
             with self.subTest(complete=complete):
                 transcriber = FakeTranscriber(complete)
                 source = io.BytesIO(b"\0\0" * worker.SAMPLE_RATE * (seconds + 1))
-                worker.transcribe_pcm(transcriber, source, Listener())
+                listener = Listener()
+                worker.transcribe_pcm(transcriber, source, listener)
+                self.assertEqual(listener.checkpoints, 1)
                 self.assertEqual(len(transcriber.streams), 2)
                 self.assertEqual(transcriber.streams[0].samples, seconds * worker.SAMPLE_RATE)
                 self.assertTrue(all(s.closed and s.stopped for s in transcriber.streams))

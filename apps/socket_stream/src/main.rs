@@ -35,6 +35,9 @@ fn usage() {
     eprintln!("    Moonshine is built in; legacy Whisper requires --stt whisper --model MODEL.");
     eprintln!("    audio-live stdin controls: pause, resume, stop, read-screen, question TEXT");
     eprintln!(
+        "    --export-transcript adds individual finalized Moonshine segments to stdout; no raw audio."
+    );
+    eprintln!(
         "    Moonshine: --speaker-role practice|interviewer|interviewee|unknown; stdin speaker ROLE"
     );
     eprintln!(

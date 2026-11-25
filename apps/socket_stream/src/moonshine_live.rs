@@ -27,6 +27,12 @@ const MAX_TEXT: usize = 8000;
 const MAX_CONTROL_LINE: usize = 9_000;
 /// Longest manual question accepted over stdin after the "question " prefix.
 const MAX_MANUAL_QUESTION: usize = 8_000;
+const SPEECH_IDLE: Duration = Duration::from_millis(900);
+const SPEECH_MAX_WAIT: Duration = Duration::from_secs(8);
+
+fn speech_due(first: Instant, now: Instant) -> Instant {
+    (now + SPEECH_IDLE).min(first + SPEECH_MAX_WAIT)
+}
 
 fn option(args: &[String], flag: &str) -> Option<String> {
     args.windows(2).find(|p| p[0] == flag).map(|p| p[1].clone())
@@ -120,6 +126,7 @@ enum SpeechEvent {
     Ready,
     Partial(String),
     Final(String),
+    Checkpoint,
 }
 
 fn parse_event(bytes: &[u8]) -> Result<SpeechEvent, String> {
@@ -133,6 +140,7 @@ fn parse_event(bytes: &[u8]) -> Result<SpeechEvent, String> {
         Some("ready") => Ok(SpeechEvent::Ready),
         Some("partial") => Ok(SpeechEvent::Partial(text.into())),
         Some("final") => Ok(SpeechEvent::Final(text.into())),
+        Some("checkpoint") => Ok(SpeechEvent::Checkpoint),
         _ => Err("Built-in Moonshine failed; verify the speech runtime and model.".into()),
     }
 }
@@ -662,6 +670,9 @@ async fn run_session(
         return Err("--source must be microphone or system.".into());
     }
     let device = option(args, "--device").unwrap_or_else(|| "default".into());
+    // Explicit CLI export only: the caller owns the stdout destination. Keep
+    // individual recognizer segments (including ones the turn gate suppresses).
+    let export_segments = has(args, "--export-transcript");
     let role =
         SpeechRole::parse(&option(args, "--speaker-role").unwrap_or_else(|| "practice".into()))?;
     let mut turn_gate = TurnGate::new(role);
@@ -708,6 +719,9 @@ async fn run_session(
     let mut answer_sent = 0;
     let mut request = 0_u64;
     let mut due: Option<Instant> = None;
+    let mut first_final = None;
+    let mut checkpoint = false;
+    let mut provisional_until: Option<Instant> = None;
     let mut interrupt = Box::pin(tokio::signal::ctrl_c());
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -720,6 +734,7 @@ async fn run_session(
     macro_rules! start_manual {
         ($text:expr, $source:expr, $with_context:expr) => {{
             manual_number += 1;
+            provisional_until = None;
             answer_id = format!("manual-{manual_number}");
             emitter.send("question_detected", $source, Some(&answer_id), Some(&$text))?;
             emitter.send("answer_started", $source, Some(&answer_id), None)?;
@@ -771,6 +786,9 @@ async fn run_session(
                         transcript.pending.clear();
                         manual_pending = None;
                         due = None;
+                        first_final = None;
+                        checkpoint = false;
+                        provisional_until = None;
                         let _ = reader_signals.send(ReaderSignal::Pause);
                         emitter.send("session_paused", label, None, None)?;
                     }
@@ -810,6 +828,9 @@ async fn run_session(
                             transcript.pending.clear();
                             transcript.last_final = None;
                             due = None;
+                            first_final = None;
+                            checkpoint = false;
+                            provisional_until = None;
                         }
                         Some(Err(message)) => emitter.send("error", "system", None, Some(&message))?,
                         _ => {}
@@ -855,13 +876,26 @@ async fn run_session(
                 if epoch != generation || paused { continue; }
                 match event? {
                     SpeechEvent::Partial(text) => {
-                        if !text.is_empty() && !transcript.pending.is_empty() { due = Some(Instant::now() + Duration::from_millis(900)); }
+                        if !text.is_empty() && !checkpoint && let Some(first) = first_final {
+                            due = Some(speech_due(first, Instant::now()));
+                        }
                         emitter.send("transcript_updated", label, None, Some(&transcript.display(&text)))?;
                     }
                     SpeechEvent::Final(text) => {
+                        if export_segments && !text.trim().is_empty() {
+                            emitter.send("transcript_final", label, None, Some(&text))?;
+                        }
                         if transcript.finalize(&text) {
-                            due = Some(Instant::now() + Duration::from_millis(900));
+                            let now = Instant::now();
+                            let first = *first_final.get_or_insert(now);
+                            if !checkpoint { due = Some(speech_due(first, now)); }
                             emitter.send("transcript_updated", label, None, Some(&transcript.display("")))?;
+                        }
+                    }
+                    SpeechEvent::Checkpoint => {
+                        if !transcript.pending.is_empty() {
+                            checkpoint = true;
+                            due = Some(Instant::now());
                         }
                     }
                     SpeechEvent::Ready => {}
@@ -872,18 +906,32 @@ async fn run_session(
                 // Clean the utterance too: leading fillers ("um, how do I ...")
                 // would otherwise defeat question-prefix detection in the gate.
                 let prompt = clean_spoken_segment_bounded(&std::mem::take(&mut transcript.pending), MAX_TEXT);
+                let forced = std::mem::take(&mut checkpoint)
+                    || first_final.is_some_and(|first| Instant::now() >= first + SPEECH_MAX_WAIT);
+                let received = first_final.take().unwrap_or_else(Instant::now);
                 due = None;
                 if prompt.chars().filter(|c| c.is_alphabetic()).count() < 3 { continue; }
                 // Turn/gate decisions use the raw utterance only. The ordered
                 // finalized transcript is attached afterwards as untrusted,
                 // labeled context so follow-ups resolve across segments and
                 // pause boundaries instead of being treated as isolated snippets.
-                let Some(permitted_prompt) = turn_gate.speech(&prompt) else { continue; };
+                let continuation = provisional_until.take().is_some_and(|until| received <= until);
+                let (permitted_prompt, refined) = if continuation {
+                    if let Some(refinement) = turn_gate.continuation(&prompt) {
+                        (refinement, true)
+                    } else if let Some(new_task) = turn_gate.speech(&prompt) {
+                        (new_task, false)
+                    } else { continue; }
+                } else if let Some(new_task) = turn_gate.speech(&prompt) {
+                    (new_task, false)
+                } else { continue; };
+                if forced { provisional_until = Some(Instant::now() + Duration::from_secs(15)); }
                 let permitted_prompt =
                     with_spoken_context(&permitted_prompt, transcript.context());
                 request += 1;
                 answer_id = format!("spoken-{request}");
-                emitter.send("question_detected", label, Some(&answer_id), Some(&prompt))?;
+                let display = if refined { format!("Refining with additional context: {prompt}") } else { prompt };
+                emitter.send("question_detected", label, Some(&answer_id), Some(&display))?;
                 emitter.send("answer_started", label, Some(&answer_id), None)?;
                 let context_prompt = compose_prompt(&permitted_prompt, Some(&screen_context));
                 let image = vision_frame(&provider, screen_frame.as_deref());
@@ -935,6 +983,20 @@ async fn run_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuous_updates_cannot_extend_the_first_final_deadline() {
+        let first = Instant::now();
+        assert_eq!(speech_due(first, first), first + SPEECH_IDLE);
+        assert_eq!(
+            speech_due(first, first + Duration::from_secs(7)),
+            first + Duration::from_millis(7900)
+        );
+        assert_eq!(
+            speech_due(first, first + Duration::from_secs(20)),
+            first + SPEECH_MAX_WAIT
+        );
+    }
 
     #[test]
     fn transcript_deduplicates_finals_and_bounds_history_and_pending() {

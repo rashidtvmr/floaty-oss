@@ -487,39 +487,6 @@ class FloatingOverlay:
         self.pin_button.connect("toggled", self._on_pin)
         meta.pack_end(self.pin_button, False, False, 0)
         body.pack_start(meta, False, False, 0)
-        self.question = style(Gtk.Label(label="Ready for your next question"), "ss-question")
-        self.question.set_xalign(1)
-        self.question.set_justify(Gtk.Justification.RIGHT)
-        self.question.set_line_wrap(True)
-        self.question.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        self.question.set_lines(3)
-        self.question.set_ellipsize(Pango.EllipsizeMode.END)
-        self.question.set_width_chars(1)
-        self.question.set_hexpand(True)
-        self.question_button = style(Gtk.Button(), "ss-question-bubble")
-        self.question_button.set_margin_start(36)
-        self.question_button.add(self.question)
-        self.question_button.set_tooltip_text("Show the full recognized question")
-        self.question_button.connect("clicked", lambda *_: self.question_revealer.set_reveal_child(
-            not self.question_revealer.get_reveal_child()))
-        body.pack_start(self.question_button, False, False, 0)
-        self.question_revealer = Gtk.Revealer()
-        self.question_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-        question_scroll = Gtk.ScrolledWindow()
-        question_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        question_scroll.set_min_content_height(100)
-        self.full_question = style(Gtk.Label(), "ss-muted")
-        self.full_question.set_xalign(0)
-        self.full_question.set_line_wrap(True)
-        self.full_question.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        self.full_question.set_selectable(True)
-        self.full_question.set_max_width_chars(60)
-        self.full_question.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        self.full_question.connect("button-press-event", self._on_selectable_press)
-        question_scroll.add(self.full_question)
-        self.question_revealer.add(question_scroll)
-        body.pack_start(self.question_revealer, False, False, 0)
-
         answer_meta = Gtk.Box(spacing=8)
         self.answer_label = style(Gtk.Label(label="ANSWER"), "ss-eyebrow")
         answer_meta.pack_start(self.answer_label, False, False, 0)
@@ -703,7 +670,6 @@ class FloatingOverlay:
         # whenever geometry or reveal state changes.
         self.window.connect("map", lambda *_: self._schedule_input_shape())
         self.window.connect("size-allocate", lambda *_: self._schedule_input_shape())
-        self.question_button.connect("size-allocate", lambda *_: self._schedule_input_shape())
         self.history_revealer.connect("notify::reveal-child", lambda *_: self._schedule_input_shape())
 
         # GTK3 on Wayland derives ``xdg_toplevel.app_id`` from
@@ -959,7 +925,6 @@ class FloatingOverlay:
         """
         widgets = [
             getattr(self, "toolbar", None),
-            getattr(self, "question_button", None),
             getattr(self, "prompt_row", None),
             getattr(self, "controls", None),
             getattr(self, "hide_button", None),
@@ -1058,7 +1023,7 @@ class FloatingOverlay:
             context.add_class("ss-reduced-motion")
             self._cancel_fade()
             self.spinner.stop()
-        for widget in (self.question_revealer, self.history_revealer, self.answer_stack, self.history_stack):
+        for widget in (self.history_revealer, self.answer_stack, self.history_stack):
             widget.set_transition_duration(duration)
         self._motion_enabled = duration > 0
         self.conversation.set_motion_duration(duration)
@@ -1479,11 +1444,6 @@ class FloatingOverlay:
 
     # ---- content --------------------------------------------------------
 
-    def set_question(self, text):
-        text = (text or "").strip()[:12000]
-        self.question.set_text(question_title(text) or "Ready for your next question")
-        self.full_question.set_text(text)
-
     def set_answer(self, text):
         text = (text or "")[:ANSWER_LIMIT]
         if self._raw_answer == text:
@@ -1558,14 +1518,10 @@ class FloatingOverlay:
         if key_changed:
             self._display_request = key
             self._scroll_top = True
-            self.question_revealer.set_reveal_child(False)
             self._raw_answer = ""
             self._rendered_runs = []
             self.answer.get_buffer().set_text("")
             self.answer_stack.set_visible_child_name("empty")
-        question = state["question_display"] or state["question"]
-        self.set_question(question)
-        self.question.set_text(question_title(question, state["answer"]) or "Ready for your next question")
         self.set_answer(state["answer"])
         self.conversation.update(self._model.state.history(),
                                  pinned_id=state.get("request_id") if state.get("pinned") else "",
@@ -1721,7 +1677,6 @@ class FloatingOverlay:
         self.compact = button.get_active()
         if self.compact:
             self.history_button.set_active(False)
-            self.question_revealer.set_reveal_child(False)
         self.window.resize(*(COMPACT_PANEL_SIZE if self.compact else PANEL_SIZE))
 
     def _on_delete(self, *_args):

@@ -294,9 +294,10 @@ class SourceContract(unittest.TestCase):
             ("self.prompt_entry", "focus-out-event"),
             ("self.window", "notify::is-active"),
             ("self.answer", "button-press-event"),
-            ("self.full_question", "button-press-event"),
         ):
             self.assertIn(expected, pairs)
+        self.assertNotIn(("self.full_question", "button-press-event"), pairs)
+        self.assertIn("on_press=self._on_selectable_press", ast.unparse(self.method("__init__")))
 
     def test_constructor_keeps_the_panel_nonactivating_by_default(self):
         calls = [(ast.unparse(node.func), [ast.unparse(arg) for arg in node.args])

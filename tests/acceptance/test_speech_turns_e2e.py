@@ -50,13 +50,13 @@ while True:
             capture.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(60)\n")
             capture.chmod(0o700)
 
-    def launch(self, role):
+    def launch(self, role, *extra):
         env = dict(os.environ, SOCKET_STREAM_HOME=str(self.root),
                    SOCKET_STREAM_CONFIG=str(self.root / "missing-config.json"),
                    PATH=str(self.fake_bin) + os.pathsep + os.environ.get("PATH", ""))
         self.proc = subprocess.Popen(
             [str(self.binary), "audio-live", "--authorized", "--source", "microphone",
-             "--speaker-role", role, "--provider", "mock"],
+             "--speaker-role", role, "--provider", "mock", *extra],
             env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.addCleanup(self.cleanup)
         self.events = queue.Queue()
@@ -85,8 +85,11 @@ while True:
         self.proc.stdin.flush()
 
     def speech(self, text):
+        self.speech_event("final", text)
+
+    def speech_event(self, kind, text=""):
         with self.commands.open("a") as handle:
-            handle.write(json.dumps({"type": "final", "text": text}) + "\n")
+            handle.write(json.dumps({"type": kind, "text": text}) + "\n")
 
     def until(self, kind):
         seen = []
@@ -155,6 +158,19 @@ while True:
         self.assertIn("Implement the search in Rust", text)
         self.assertNotIn("[noise]", text)
         self.assertNotIn("Um,", text)
+        self.stop()
+
+    def test_checkpoint_answers_then_refines_and_exports_each_final(self):
+        self.launch("interviewer", "--export-transcript")
+        self.speech("Implement binary search in Rust.")
+        self.assertEqual(self.until("transcript_final")[-1]["text"], "Implement binary search in Rust.")
+        self.speech_event("checkpoint")
+        first = self.until("answer_completed")[-1]["request_id"]
+        self.speech("Return -1 if the target is missing.")
+        events = self.until("answer_completed")
+        self.assertNotEqual(first, events[-1]["request_id"])
+        self.assertTrue(any(e["type"] == "question_detected" and e["text"].startswith("Refining") for e in events))
+        self.assertTrue(any(e["type"] == "transcript_final" for e in events))
         self.stop()
 
     def test_interviewer_questions_answered_statements_suppressed_and_role_switch_safe(self):

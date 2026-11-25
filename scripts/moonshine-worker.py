@@ -13,6 +13,7 @@ from pathlib import Path
 SAMPLE_RATE = 16000
 CHUNK_BYTES = 3200
 MAX_TEXT = 8000
+MAX_STREAM_SECONDS = 10
 
 
 def emit(kind, text=""):
@@ -29,11 +30,7 @@ def pcm_samples(data):
 
 
 def transcribe_pcm(transcriber, source, listener):
-    """Rotate native transcript state at phrase boundaries, at most 120s.
-
-    Rotation bounds Moonshine's native transcript/audio history. At the hard
-    limit an uninterrupted utterance is finalized before starting a new stream.
-    """
+    """Finalize running speech at a fixed sample budget, without reopening capture."""
     stream = None
     samples = 0
     try:
@@ -46,16 +43,15 @@ def transcribe_pcm(transcriber, source, listener):
                 stream.add_listener(listener)
                 stream.start()
                 samples = 0
-            listener.completed = False
             values = pcm_samples(data)
             stream.add_audio(values, SAMPLE_RATE)
             if listener.failed:
                 raise RuntimeError("transcription failed")
             samples += len(values)
-            if samples >= SAMPLE_RATE * 120 or (
-                samples >= SAMPLE_RATE * 60 and listener.completed
-            ):
+            if samples >= SAMPLE_RATE * MAX_STREAM_SECONDS:
                 stream.stop()
+                listener.flush_checkpoint()
+                emit("checkpoint")
                 stream.close()
                 stream = None
         if stream is not None:
@@ -79,15 +75,21 @@ def main():
         from moonshine_voice import Transcriber, TranscriptEventListener, ModelArch
 
         class Listener(TranscriptEventListener):
-            completed = False
             failed = False
+            partial = ""
 
             def on_line_text_changed(self, event):
+                self.partial = event.line.text
                 emit("partial", event.line.text)
 
             def on_line_completed(self, event):
-                self.completed = True
+                self.partial = ""
                 emit("final", event.line.text)
+
+            def flush_checkpoint(self):
+                if self.partial.strip():
+                    emit("final", self.partial)
+                self.partial = ""
 
             def on_error(self, _event):
                 self.failed = True
