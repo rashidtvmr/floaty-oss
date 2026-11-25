@@ -908,6 +908,9 @@ def create_window():
                 self.show_answer_panel()
 
         def apply_live_event(self, event):
+            if isinstance(event, dict) and event.get("type") == "session_archive":
+                self.write(f"Saving a local session archive: {event.get('text', '')}\n")
+                return
             if self._events_closed or self._exiting:
                 return False
             if not self.live_state.apply(event):
@@ -1383,18 +1386,24 @@ def create_window():
             role_note.set_line_wrap(True)
             role_note.set_max_width_chars(65)
             grid.attach(role_note, 0, 6, 2, 1)
+            save_archive = Gtk.CheckButton(label="Save audio, transcript and answers locally")
+            grid.attach(save_archive, 0, 7, 2, 1)
             dialog.get_content_area().add(grid)
             dialog.show_all()
             confirmed = dialog.run() == Gtk.ResponseType.OK
             selection = (source.get_active_text(), device.get_text().strip(),
-                         read_screen.get_active(), speaker_role.get_active_id())
+                         read_screen.get_active(), speaker_role.get_active_id(), save_archive.get_active())
             dialog.destroy()
             if not confirmed:
                 return
-            audio_source, device_name, parallel_screen, role = selection
+            audio_source, device_name, parallel_screen, role, archive = selection
             explanation = ("Stream the selected source through local Moonshine speech recognition. "
                            "Finalized speech is sent to your selected AI provider for answers. "
-                           "Pause/Stop end capture immediately. No recording is saved.")
+                           "Pause/Stop end capture immediately.")
+            if archive:
+                explanation += " Raw audio, finalized speech, questions and answers are saved locally. Only continue with everyone's consent."
+            else:
+                explanation += " No recording is saved."
             if parallel_screen:
                 explanation += (" With parallel screen reading, the app also reads foreground "
                                 "accessibility text (local OCR fallback) as answer context; "
@@ -1404,6 +1413,15 @@ def create_window():
             args = ["audio-live", "--authorized", "--source", audio_source,
                     "--stt", "moonshine", "--speaker-role", role,
                     "--provider", self.selected_provider()]
+            if archive:
+                folder = Gtk.FileChooserDialog(title="Choose a session archive folder", transient_for=self,
+                                               action=Gtk.FileChooserAction.SELECT_FOLDER)
+                folder.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Choose folder", Gtk.ResponseType.OK)
+                selected = folder.get_filename() if folder.run() == Gtk.ResponseType.OK else None
+                folder.destroy()
+                if not selected:
+                    return
+                args.extend(["--session-archive", selected])
             if device_name:
                 args.extend(["--device", device_name])
             if parallel_screen:

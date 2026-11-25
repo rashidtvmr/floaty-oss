@@ -123,10 +123,21 @@ To explicitly export an authorized Moonshine session's text from the CLI, use
 a new private file outside the repository. The stream contains finalized speech,
 questions and streamed answers, and can also include screen/provider context
 if those features are enabled. Get consent from everyone being transcribed.
-Raw audio is not included; the desktop app does not save these files by default.
+Raw audio is not included in this text-only export.
 
 ```sh
 (umask 077; set -C; ./socket_stream audio-live --authorized --source microphone --export-transcript > "$HOME/socketstream-session.jsonl")
+```
+
+For audio as well, opt in to **Save audio, transcript and answers locally** in
+the macOS/Linux listening dialog, or use `audio-live --stt moonshine --authorized
+--session-archive /absolute/folder`. Each session creates a private subfolder
+with `conversation.jsonl` and `audio.s16le`. Pauses are excluded. The archive
+stops at two hours of audio or 32 MiB of conversation and remains until deleted.
+Treat these files as sensitive. To make a playable WAV, run:
+
+```sh
+ffmpeg -f s16le -ar 16000 -ac 1 -i audio.s16le session.wav
 ```
 See [build instructions and tested platform limits](docs/MOONSHINE.md).
 

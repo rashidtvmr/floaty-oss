@@ -1659,15 +1659,27 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let alert = NSAlert()
         alert.messageText = "Listen with built-in Moonshine?"
-        alert.informativeText = "English speech is transcribed locally and finalized phrases are sent to your selected AI provider for answers. No recording is saved. Pause/Stop end capture. Choose a source; macOS permission is required."
+        alert.informativeText = "English speech is transcribed locally and finalized phrases are sent to your selected AI provider. By default nothing is saved. Only save a local archive if everyone being recorded consents. Pause/Stop end capture."
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Save audio, transcript and answers locally"
         alert.addButton(withTitle: "Microphone")
         alert.addButton(withTitle: "System audio")
         alert.addButton(withTitle: "Cancel")
         let choice = alert.runModal()
         guard choice == .alertFirstButtonReturn || choice == .alertSecondButtonReturn else { return }
         let source = choice == .alertFirstButtonReturn ? "microphone" : "system"
-        startLive(["audio-live", "--authorized", "--stt", "moonshine", "--source", source,
-                   "--provider", providerName])
+        var args = ["audio-live", "--authorized", "--stt", "moonshine", "--source", source,
+                    "--provider", providerName]
+        if alert.suppressionButton?.state == .on {
+            let folder = NSOpenPanel()
+            folder.canChooseFiles = false
+            folder.canChooseDirectories = true
+            folder.canCreateDirectories = true
+            folder.message = "Choose where to create a private session archive."
+            guard folder.runModal() == .OK, let path = folder.url?.path else { return }
+            args += ["--session-archive", path]
+        }
+        startLive(args)
     }
 
     func startLive(_ arguments: [String]) {
@@ -1760,6 +1772,10 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let data = trimmed.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             append("[observe] \(trimmed)\n")
+            return
+        }
+        if object["type"] as? String == "session_archive", let path = object["text"] as? String {
+            append("[observe] Saving a local session archive: \(path)\n")
             return
         }
         let previous = liveState.view

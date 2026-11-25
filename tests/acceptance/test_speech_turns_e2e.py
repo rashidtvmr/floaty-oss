@@ -35,19 +35,23 @@ class SpeechTurnsE2E(unittest.TestCase):
 import json, pathlib, time
 commands = pathlib.Path({str(self.commands)!r})
 print(json.dumps({{"type": "ready", "text": ""}}), flush=True)
-seen = 0
+cursor = commands.with_suffix('.cursor')
+seen = int(cursor.read_text()) if cursor.exists() else 0
 while True:
     lines = commands.read_text().splitlines()
     for line in lines[seen:]:
+        seen += 1
+        cursor.write_text(str(seen))
         print(line, flush=True)
-    seen = len(lines)
     time.sleep(0.02)
 ''')
         worker.chmod(0o700)
         # Never execute the platform capture tools: override the exact capture
         # entry points. The fake speech worker emits test-controlled final text.
         for capture in (helpers / "socket_stream_audio_stream", self.fake_bin / "ffmpeg"):
-            capture.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(60)\n")
+            capture.write_text(f"#!{sys.executable}\nimport sys, time\n"
+                               "sys.stdout.buffer.write(b'\\x01\\x00' * 1600)\n"
+                               "sys.stdout.flush()\ntime.sleep(60)\n")
             capture.chmod(0o700)
 
     def launch(self, role, *extra):
@@ -172,6 +176,34 @@ while True:
         self.assertTrue(any(e["type"] == "question_detected" and e["text"].startswith("Refining") for e in events))
         self.assertTrue(any(e["type"] == "transcript_final" for e in events))
         self.stop()
+
+    def test_opt_in_session_archive_keeps_audio_and_conversation(self):
+        self.launch("interviewer", "--session-archive", str(self.root))
+        self.speech("Implement binary search in Rust.")
+        self.until("answer_completed")
+        self.command("pause")
+        self.until("session_paused")
+        folder, = self.root.glob("socketstream-session-*")
+        self.assertEqual((folder / "audio.s16le").read_bytes(), b"\x01\x00" * 1600)
+        self.command("resume")
+        self.until("session_resumed")
+        self.speech("What is a sorted slice?")
+        self.until("answer_completed")
+        self.stop()
+        self.assertEqual((folder / "audio.s16le").read_bytes(), b"\x01\x00" * 3200)
+        events = [json.loads(line) for line in (folder / "conversation.jsonl").read_text().splitlines()]
+        kinds = [e["type"] for e in events]
+        for kind in ("transcript_final", "question_detected", "answer_completed"):
+            self.assertEqual(kinds.count(kind), 2)
+        for question in (e for e in events if e["type"] == "question_detected"):
+            answer = "".join(e["text"] for e in events if e["type"] == "answer_delta"
+                             and e["request_id"] == question["request_id"])
+            self.assertIn(question["text"], answer)
+        self.assertEqual(kinds[-1], "session_stopped")
+        self.assertNotIn("api_request", kinds)
+        self.assertEqual(folder.stat().st_mode & 0o077, 0)
+        for member in folder.iterdir():
+            self.assertEqual(member.stat().st_mode & 0o077, 0)
 
     def test_interviewer_questions_answered_statements_suppressed_and_role_switch_safe(self):
         self.launch("interviewer")

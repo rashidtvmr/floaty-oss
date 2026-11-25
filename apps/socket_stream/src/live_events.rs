@@ -37,6 +37,7 @@ fn utc_timestamp() -> String {
 pub struct Emitter {
     pub session_id: String,
     sequence: u64,
+    archive: Option<(io::BufWriter<std::fs::File>, usize)>,
 }
 
 impl Emitter {
@@ -47,7 +48,12 @@ impl Emitter {
         Self {
             session_id: format!("practice-{}", now.as_nanos()),
             sequence: 0,
+            archive: None,
         }
+    }
+
+    pub fn archive_to(&mut self, file: std::fs::File) {
+        self.archive = Some((io::BufWriter::new(file), 0));
     }
 
     pub fn send(
@@ -137,7 +143,36 @@ impl Emitter {
         self.write(&event)
     }
 
-    fn write(&self, event: &Value) -> Result<(), String> {
+    fn write(&mut self, event: &Value) -> Result<(), String> {
+        if let Some((file, written)) = &mut self.archive
+            && matches!(
+                event["type"].as_str(),
+                Some(
+                    "session_started"
+                        | "session_stopped"
+                        | "session_paused"
+                        | "session_resumed"
+                        | "transcript_final"
+                        | "question_detected"
+                        | "answer_started"
+                        | "answer_delta"
+                        | "answer_completed"
+                )
+            )
+        {
+            let data =
+                serde_json::to_vec(event).map_err(|_| "Cannot serialize session archive.")?;
+            if *written + data.len() + 1 > 32 * 1024 * 1024 {
+                return Err(
+                    "Session archive reached its text size limit; start a new session.".into(),
+                );
+            }
+            file.write_all(&data)
+                .and_then(|_| file.write_all(b"\n"))
+                .and_then(|_| file.flush())
+                .map_err(|_| "Cannot write session archive.")?;
+            *written += data.len() + 1;
+        }
         let mut stdout = io::stdout().lock();
         serde_json::to_writer(&mut stdout, event).map_err(|_| "cannot serialize live event")?;
         stdout

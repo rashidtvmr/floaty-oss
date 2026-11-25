@@ -15,7 +15,7 @@ use socket_stream_core::ai::{
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -29,6 +29,39 @@ const MAX_CONTROL_LINE: usize = 9_000;
 const MAX_MANUAL_QUESTION: usize = 8_000;
 const SPEECH_IDLE: Duration = Duration::from_millis(900);
 const SPEECH_MAX_WAIT: Duration = Duration::from_secs(8);
+const MAX_ARCHIVE_AUDIO_BYTES: u64 = 16_000 * 2 * 60 * 60 * 2;
+
+fn create_archive(parent: &Path) -> Result<(std::fs::File, std::fs::File, PathBuf), String> {
+    if !parent.is_absolute() || !parent.is_dir() {
+        return Err("Choose an existing absolute folder for the session archive.".into());
+    }
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("socketstream-session-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let dir = builder
+        .tempdir_in(parent)
+        .map_err(|_| "Cannot create a private session archive folder.")?;
+    let audio = dir.path().join("audio.s16le");
+    let events = dir.path().join("conversation.jsonl");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let audio = options
+        .open(&audio)
+        .map_err(|_| "Cannot create session audio file.")?;
+    let log = options
+        .open(events)
+        .map_err(|_| "Cannot create session conversation file.")?;
+    Ok((log, audio, dir.keep()))
+}
 
 fn speech_due(first: Instant, now: Instant) -> Instant {
     (now + SPEECH_IDLE).min(first + SPEECH_MAX_WAIT)
@@ -253,6 +286,7 @@ impl SpeechSession {
         device: &str,
         generation: u64,
         tx: mpsc::Sender<(u64, Result<SpeechEvent, String>)>,
+        archive_audio: Option<&std::fs::File>,
     ) -> Result<Self, String> {
         let executable = root.join(
             "target/native-helpers/moonshine/socket_stream_moonshine/socket_stream_moonshine",
@@ -285,6 +319,11 @@ impl SpeechSession {
             return Err("Moonshine did not initialize correctly.".into());
         }
         // No device is opened until the local model is ready.
+        let archive = archive_audio
+            .map(std::fs::File::try_clone)
+            .transpose()
+            .map_err(|_| "Cannot access session audio file.")?
+            .map(tokio::fs::File::from_std);
         let mut cmd = capture_command(root, source, device).await?;
         let mut capture = child(cmd.stdin(Stdio::null()).stdout(Stdio::piped()))?;
         let mut audio = capture.stdout.take().ok_or("Missing audio pipe.")?;
@@ -297,14 +336,20 @@ impl SpeechSession {
         let pump_tx = tx.clone();
         session.tasks.push(tokio::spawn(async move {
             // Tokio copy uses a fixed buffer; OS pipes provide backpressure.
-            let _ = tokio::io::copy(&mut audio, &mut input).await;
+            let reason = match archive {
+                Some(mut file) => {
+                    match archive_audio_stream(&mut audio, &mut input, &mut file).await {
+                        Ok(()) => "Audio input stopped; check the device and OS permission.",
+                        Err(reason) => reason,
+                    }
+                }
+                None => {
+                    let _ = tokio::io::copy(&mut audio, &mut input).await;
+                    "Audio input stopped; check the device and OS permission."
+                }
+            };
             drop(input);
-            let _ = pump_tx
-                .send((
-                    generation,
-                    Err("Audio input stopped; check the device and OS permission.".into()),
-                ))
-                .await;
+            let _ = pump_tx.send((generation, Err(reason.into()))).await;
         }));
         session.tasks.push(tokio::spawn(async move {
             loop {
@@ -329,6 +374,42 @@ impl SpeechSession {
         for task in self.tasks.drain(..) {
             let _ = task.await;
         }
+    }
+}
+
+async fn archive_audio_stream(
+    audio: &mut (impl tokio::io::AsyncRead + Unpin),
+    input: &mut (impl tokio::io::AsyncWrite + Unpin),
+    file: &mut tokio::fs::File,
+) -> Result<(), &'static str> {
+    let mut written = file
+        .metadata()
+        .await
+        .map_err(|_| "Cannot read session audio size.")?
+        .len();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let count = audio
+            .read(&mut buffer)
+            .await
+            .map_err(|_| "Cannot read capture stream.")?;
+        if count == 0 {
+            return Ok(());
+        }
+        written += count as u64;
+        if written > MAX_ARCHIVE_AUDIO_BYTES {
+            return Err("Session archive reached its audio size limit; start a new session.");
+        }
+        file.write_all(&buffer[..count])
+            .await
+            .map_err(|_| "Cannot write session audio.")?;
+        file.flush()
+            .await
+            .map_err(|_| "Cannot flush session audio.")?;
+        input
+            .write_all(&buffer[..count])
+            .await
+            .map_err(|_| "Cannot send audio to speech worker.")?;
     }
 }
 
@@ -672,7 +753,14 @@ async fn run_session(
     let device = option(args, "--device").unwrap_or_else(|| "default".into());
     // Explicit CLI export only: the caller owns the stdout destination. Keep
     // individual recognizer segments (including ones the turn gate suppresses).
-    let export_segments = has(args, "--export-transcript");
+    let archive_parent = option(args, "--session-archive");
+    if has(args, "--session-archive")
+        && archive_parent
+            .as_deref()
+            .is_none_or(|p| p.starts_with("--"))
+    {
+        return Err("--session-archive requires a folder.".into());
+    }
     let role =
         SpeechRole::parse(&option(args, "--speaker-role").unwrap_or_else(|| "practice".into()))?;
     let mut turn_gate = TurnGate::new(role);
@@ -692,6 +780,23 @@ async fn run_session(
         a11y_options(args)?;
     }
     let root = socket_stream_core::paths::project_root();
+    let archive = archive_parent
+        .as_deref()
+        .map(|parent| create_archive(Path::new(parent)))
+        .transpose()?;
+    let archive_audio = if let Some((events, audio, folder)) = archive {
+        emitter.archive_to(events);
+        emitter.send(
+            "session_archive",
+            "system",
+            None,
+            Some(&folder.to_string_lossy()),
+        )?;
+        Some(audio)
+    } else {
+        None
+    };
+    let export_segments = has(args, "--export-transcript") || archive_audio.is_some();
     let mut control = controls();
     let (tx, mut events) = mpsc::channel(32);
     let (mut screen_updates, reader_signals) = if read_screen {
@@ -759,7 +864,15 @@ async fn run_session(
         // Startup remains cancellable: no capture survives a cancelled future.
         let startup = async {
             if starting {
-                SpeechSession::start(&root, &source, &device, generation, tx.clone()).await
+                SpeechSession::start(
+                    &root,
+                    &source,
+                    &device,
+                    generation,
+                    tx.clone(),
+                    archive_audio.as_ref(),
+                )
+                .await
             } else {
                 std::future::pending().await
             }

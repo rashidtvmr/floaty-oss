@@ -38,6 +38,9 @@ fn usage() {
         "    --export-transcript adds individual finalized Moonshine segments to stdout; no raw audio."
     );
     eprintln!(
+        "    --session-archive FOLDER explicitly saves Moonshine audio and conversation locally."
+    );
+    eprintln!(
         "    Moonshine: --speaker-role practice|interviewer|interviewee|unknown; stdin speaker ROLE"
     );
     eprintln!(
