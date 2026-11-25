@@ -1660,8 +1660,11 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let alert = NSAlert()
         alert.messageText = "Listen with built-in Moonshine?"
         alert.informativeText = "English speech is transcribed locally and finalized phrases are sent to your selected AI provider. By default nothing is saved. Only save a local archive if everyone being recorded consents. Pause/Stop end capture."
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Save audio, transcript and answers locally"
+        let saveArchive = NSButton(checkboxWithTitle: "Save audio, transcript and answers locally",
+                                   target: nil, action: nil)
+        saveArchive.state = .off
+        saveArchive.sizeToFit()
+        alert.accessoryView = saveArchive
         alert.addButton(withTitle: "Microphone")
         alert.addButton(withTitle: "System audio")
         alert.addButton(withTitle: "Cancel")
@@ -1670,12 +1673,12 @@ final class MainWindow: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let source = choice == .alertFirstButtonReturn ? "microphone" : "system"
         var args = ["audio-live", "--authorized", "--stt", "moonshine", "--source", source,
                     "--provider", providerName]
-        if alert.suppressionButton?.state == .on {
+        if saveArchive.state == .on {
             let folder = NSOpenPanel()
             folder.canChooseFiles = false
             folder.canChooseDirectories = true
             folder.canCreateDirectories = true
-            folder.message = "Choose where to create a private session archive."
+            folder.message = "Choose a private local folder. Recordings remain there until you delete them."
             guard folder.runModal() == .OK, let path = folder.url?.path else { return }
             args += ["--session-archive", path]
         }

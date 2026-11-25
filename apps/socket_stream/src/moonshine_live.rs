@@ -1098,6 +1098,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn archive_requires_an_existing_absolute_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(create_archive(Path::new("relative")).is_err());
+        assert!(create_archive(&dir.path().join("missing")).is_err());
+        assert_eq!(dir.path().read_dir().unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn archive_audio_at_limit_rejects_new_pcm() {
+        let file = tempfile::tempfile().unwrap();
+        file.set_len(MAX_ARCHIVE_AUDIO_BYTES).unwrap();
+        let mut file = tokio::fs::File::from_std(file);
+        let mut bytes = &b"\x01\x00"[..];
+        let mut forwarded = Vec::new();
+        let error = archive_audio_stream(&mut bytes, &mut forwarded, &mut file)
+            .await
+            .unwrap_err();
+        assert!(error.contains("audio size limit"));
+        assert!(forwarded.is_empty());
+        assert_eq!(
+            file.metadata().await.unwrap().len(),
+            MAX_ARCHIVE_AUDIO_BYTES
+        );
+    }
+
+    #[test]
     fn continuous_updates_cannot_extend_the_first_final_deadline() {
         let first = Instant::now();
         assert_eq!(speech_due(first, first), first + SPEECH_IDLE);

@@ -145,6 +145,17 @@ while True:
         self.command("question Type vs interface in TypeScript?")
         self.until("answer_completed")
         self.stop()
+        self.assertEqual(list(self.root.glob("socketstream-session-*")), [])
+
+    def test_whisper_rejects_archive_flags_before_capture(self):
+        for flags in (("--session-archive", str(self.root)), ("--export-transcript",)):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    [str(self.binary), "audio-live", "--authorized", "--stt", "whisper",
+                     "--provider", "mock", *flags], capture_output=True, text=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("requires the built-in Moonshine engine", result.stdout + result.stderr)
+        self.assertEqual(list(self.root.glob("socketstream-session-*")), [])
 
     def test_first_coding_request_includes_setup_from_prior_segments(self):
         self.launch("interviewer")

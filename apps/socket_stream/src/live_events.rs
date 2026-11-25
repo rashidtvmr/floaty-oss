@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_EVENT_BYTES: usize = 128 * 1024;
 const MAX_REPLAY_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_ARCHIVE_TEXT_BYTES: usize = 32 * 1024 * 1024;
 
 fn utc_timestamp() -> String {
     // Gregorian calendar conversion; no external process or clock libraries.
@@ -162,7 +163,7 @@ impl Emitter {
         {
             let data =
                 serde_json::to_vec(event).map_err(|_| "Cannot serialize session archive.")?;
-            if *written + data.len() + 1 > 32 * 1024 * 1024 {
+            if data.len() >= MAX_ARCHIVE_TEXT_BYTES.saturating_sub(*written) {
                 return Err(
                     "Session archive reached its text size limit; start a new session.".into(),
                 );
@@ -317,6 +318,26 @@ pub fn replay(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archive_text_limit_rejects_an_event_before_writing_it() {
+        let mut emitter = Emitter::new();
+        emitter.archive_to(tempfile::tempfile().unwrap());
+        emitter.archive.as_mut().unwrap().1 = MAX_ARCHIVE_TEXT_BYTES - 1;
+        let error = emitter.send("transcript_final", "microphone", None, Some("test"));
+        assert!(error.unwrap_err().contains("text size limit"));
+        assert_eq!(
+            emitter
+                .archive
+                .unwrap()
+                .0
+                .get_ref()
+                .metadata()
+                .unwrap()
+                .len(),
+            0
+        );
+    }
     #[test]
     fn timestamp_is_rfc3339_utc_compatible() {
         let timestamp = utc_timestamp();

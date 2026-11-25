@@ -13,6 +13,14 @@ Before marking any task done:
 9. Performance and OCR accuracy require measured baselines, not assumptions.
 10. Independent review must record any incompleteness explicitly.
 
+Session archive review: the macOS opt-in now uses a dedicated, unchecked
+control, and Whisper rejects unsupported archive flags. Tests cover the audio
+and text limits, invalid destination folders, and opt-in/pause behavior. Hitting
+a limit stops the session rather than leaving it running without an archive.
+An attempted start can leave an empty archive if audio startup fails; removable
+or network storage can stall writes. Use a private local folder. Hardware
+recording and native Linux desktop verification remain outstanding.
+
 Verified: Rust core and CLI compile, Mac native helpers build, synthetic Vision OCR, local Ollama answer and synthetic Whisper transcription pass, Rust and Python tests/format/Clippy pass. Outstanding: Linux GTK/AT-SPI/Wayland portal runtime, Mac screen/audio permission test, interactive GUI QA, multi-hour soak, real-time STT/VAD/diarization, signed installers, accessibility-tree rendering and region OCR on a real Linux and macOS desktop, in-app and out-of-focus global shortcuts on X11/Wayland/macOS, and native Codex device sign-in with a real account plus independent security review.
 
 Linux packaging update (2026-11-03): the x86_64 Linux-musl CLI archive was cross-built on macOS and its SHA-256 verified. The packaged ELF cannot be executed on this macOS host; packaged provider E2E and desktop runtime checks remain pending on Linux. The source-tree Python acceptance suite passes locally.

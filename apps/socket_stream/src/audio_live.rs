@@ -111,6 +111,11 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
     if option(args, "--speaker-role").is_some() {
         return Err("--speaker-role requires the built-in Moonshine engine; legacy Whisper has no turn-role support".into());
     }
+    for flag in ["--session-archive", "--export-transcript"] {
+        if args.iter().any(|arg| arg == flag) {
+            return Err(format!("{flag} requires the built-in Moonshine engine."));
+        }
+    }
     if !args.iter().any(|arg| arg == "--authorized") {
         return Err("explicit --authorized is required for audio listening".into());
     }

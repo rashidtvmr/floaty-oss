@@ -132,9 +132,10 @@ Raw audio is not included in this text-only export.
 For audio as well, opt in to **Save audio, transcript and answers locally** in
 the macOS/Linux listening dialog, or use `audio-live --stt moonshine --authorized
 --session-archive /absolute/folder`. Each session creates a private subfolder
-with `conversation.jsonl` and `audio.s16le`. Pauses are excluded. The archive
-stops at two hours of audio or 32 MiB of conversation and remains until deleted.
-Treat these files as sensitive. To make a playable WAV, run:
+with `conversation.jsonl` and `audio.s16le`. Pauses are excluded. Listening
+ends if the archive reaches its two-hour audio or 32 MiB conversation limit.
+The files remain until deleted. Choose a private local folder, not a synced or
+network folder. To make a playable WAV, run:
 
 ```sh
 ffmpeg -f s16le -ar 16000 -ac 1 -i audio.s16le session.wav
