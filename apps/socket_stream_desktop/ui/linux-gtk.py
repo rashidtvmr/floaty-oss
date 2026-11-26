@@ -459,7 +459,7 @@ def create_window():
                     self.write(f"Shortcut for {action} could not be registered.\n")
                     continue
                 group.connect(
-                    keyval, gtk_modifier_mask(Gdk, accelerator),
+                    keyval, Gdk.ModifierType(gtk_modifier_mask(Gdk, accelerator)),
                     Gtk.AccelFlags.VISIBLE,
                     lambda *_args, name=action: self._run_shortcut(name),
                 )

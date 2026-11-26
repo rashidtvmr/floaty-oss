@@ -38,7 +38,7 @@ jobs:
           sha256sum --check socket_stream_linux-x86_64-*.sha256
           tar -xzf socket_stream_linux-x86_64-*.tar.gz
           cd socket_stream_linux-x86_64-*/
-          ./socket_stream --help
+          ./socket_stream doctor
           export XDG_CONFIG_HOME="$(mktemp -d)"
           status=0
           timeout 10s xvfb-run -a ./socket_stream || status=$?
