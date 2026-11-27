@@ -77,3 +77,25 @@ inventory exposed 5 playback monitors and 3 microphone inputs without recording.
 The official Codex default-model CLI independently retried transport and timed out;
 login/catalog success remains explicitly insufficient proof of inference access.
 See `PANEL-SESSION-PROFILES.md` for workflow and remaining hardware/platform limits.
+
+
+Ubuntu accessibility/session update (2026-11-27): foreground selection now
+excludes GNOME/Mutter mirrors consistently, native AT-SPI identities survive
+reads, explicit GI calls and bounded deadlines handle backend failures, and
+launcher/preflight use distro Python. Keyed snapshot/patch context is connected
+to observe-live and screen-assisted Moonshine, with successful-only commits,
+bounded dialogue checkpoints, focused-scope preservation and generation-tagged
+pause/resume reads. Rust fmt/Clippy and 259 Rust tests pass. Python unit tests
+ran 697 cases (691 passed, 6 skipped), and acceptance ran 45 (38 passed, 7
+skipped). Changed production runtime line coverage is 95.67%; the five feature
+modules each exceed 98%. Coverage excludes inline Rust test bodies and reports
+whole-workspace figures separately. See INCREMENTAL-SCREEN-CONTEXT.md and
+SCREEN-READING-COVERAGE.json for exact scope and denominators.
+
+A private native Weston/AT-SPI fixture was added but explicitly skipped here:
+the executor rejects AF_UNIX sockets with EPERM, so D-Bus and Wayland cannot
+start. Actual Ubuntu 26/GNOME/browser behavior, graphical portal prompts and
+hardware remain unverified in this change. Native GI identity/interface
+declarations were checked without reading a desktop. Independent reviews
+approved the capture boundaries, generation fence, transactional context and
+the explicit settings-depth preservation fix.

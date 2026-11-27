@@ -25,6 +25,21 @@ remain pending.
 
 No vision LLM is required for the OCR path; it works by sending extracted text.
 
+### Incremental screen sessions on Linux
+
+`observe-live` and `audio-live --read-screen` now keep session context and send
+keyed accessibility updates: one initial snapshot, then changed/added/moved/
+removed nodes. Successful model responses acknowledge updates; failed or
+cancelled requests retain the previous baseline. Bounded checkpoints preserve
+the current screen and recent dialogue. Compatible chat APIs replay the required
+history alongside the latest patch.
+
+Ubuntu/Wayland foreground selection, AT-SPI interface calls, native object
+identities, distro Python selection and startup diagnostics are hardened. See
+[the protocol, Ubuntu setup and coverage gate](docs/INCREMENTAL-SCREEN-CONTEXT.md).
+Actual Ubuntu/GNOME desktop validation remains pending; the isolated native
+fixture cannot run in an executor that blocks Unix sockets.
+
 ## Try it
 
 - Install Rust stable. macOS OCR uses Apple's built-in Vision framework; no Tesseract needed. Linux OCR uses distro Tesseract plus AT-SPI2/GTK Python bindings.

@@ -31,11 +31,13 @@ Both helpers accept `--mode tree|text` (default `tree`) and `--max-nodes N`, `--
   "source": "atspi",
   "app": "Firefox",
   "pid": 4321,
+  "window_id": "[\":1.42\",\"/org/a11y/atspi/accessible/1\"]",
   "truncated": false,
   "node_count": 42,
   "nodes": [
     {
       "id": 3,
+      "stable_id": "[\":1.42\",\"/org/a11y/atspi/accessible/3\"]",
       "parent": 1,
       "role": "paragraph",
       "name": "",
@@ -54,11 +56,16 @@ Rules:
 - `schema` is `1`. `source` is `atspi` (Linux) or `ax` (macOS).
 - `nodes` is a flat, pre-order list. `parent` is the `id` of the parent node or `null` for the
   application root. `id` is a stable integer within one response only.
+- Optional `window_id` and node `stable_id` identify native AT-SPI objects across
+  reads by unique bus name/object path. Missing or `null` identities retain the
+  legacy contract and use conservative replacement snapshots. See
+  [incremental session context](INCREMENTAL-SCREEN-CONTEXT.md).
 - `text` is the node's accessible text (may be empty). `name` is the accessible name/label.
 - `focused` marks the focused node. At most the focused node and its ancestors are `true`.
 - `bounds` is `[x, y, width, height]` in screen pixels, or `null` when unavailable.
 - `image` is `true` for image, canvas, graphic, icon, chart or drawing roles.
-- `protected` is `true` for password/secure fields. Protected nodes MUST NOT carry `text`.
+- `protected` is `true` for password/secure fields. Protected nodes MUST NOT carry
+  `name` or `text`, and their descendants must not be traversed.
 - Output is bounded by `--max-nodes`, `--max-depth`, `--max-chars`; `truncated` is `true` when
   any bound was hit.
 - Exit codes are unchanged: `0` ok, `2` backend unavailable, `3` read failure, `4` own window.
@@ -74,6 +81,8 @@ pub const A11Y_SCHEMA: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct A11yNode {
     pub id: u64,
+    #[serde(default)]
+    pub stable_id: Option<String>,
     pub parent: Option<u64>,
     pub role: String,
     #[serde(default)]
@@ -98,6 +107,8 @@ pub struct A11yTree {
     pub app: String,
     #[serde(default)]
     pub pid: Option<u32>,
+    #[serde(default)]
+    pub window_id: Option<String>,
     #[serde(default)]
     pub truncated: bool,
     #[serde(default)]

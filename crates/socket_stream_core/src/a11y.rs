@@ -17,6 +17,10 @@ const DEDUP_CAPACITY: usize = 512;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct A11yNode {
     pub id: u64,
+    /// Native object identity, stable across helper invocations when available.
+    /// Numeric `id` remains the per-read traversal identifier for schema 1.
+    #[serde(default)]
+    pub stable_id: Option<String>,
     pub parent: Option<u64>,
     pub role: String,
     #[serde(default)]
@@ -37,6 +41,9 @@ pub struct A11yNode {
 pub struct A11yTree {
     pub schema: u32,
     pub source: String,
+    /// Native selected-window identity; titles are not stable window keys.
+    #[serde(default)]
+    pub window_id: Option<String>,
     #[serde(default)]
     pub app: String,
     #[serde(default)]
@@ -217,7 +224,7 @@ impl A11yTree {
     /// keeping document order, code whitespace, examples and answer choices.
     /// Unknown layouts remain intact: text length or English keywords never
     /// decide which question paragraphs survive.
-    pub fn render_question(&self, mode: ReadMode, budget: TokenBudget) -> A11yReading {
+    pub fn question_tree(&self) -> Self {
         let index = self.node_index();
         let is_chrome = |role: &str| {
             matches!(
@@ -253,7 +260,41 @@ impl A11yTree {
                 node.text.clear();
             }
         }
-        scoped.render(mode, budget)
+        scoped
+    }
+
+    /// Apply the same reading scope to structured model updates, display text
+    /// and region OCR. Focused reads contain the focus target, its ancestors
+    /// and direct children; they never expand to unrelated sibling content.
+    pub fn question_tree_for_mode(&self, mode: ReadMode) -> Self {
+        let mut scoped = self.question_tree();
+        let narrow = match mode {
+            ReadMode::Focused => true,
+            ReadMode::Auto => scoped
+                .nodes
+                .iter()
+                .rposition(|node| node.focused)
+                .is_some_and(|index| {
+                    !matches!(
+                        scoped.nodes[index].role.as_str(),
+                        "window" | "frame" | "application"
+                    )
+                }),
+            ReadMode::Tree | ReadMode::Text => false,
+        };
+        if narrow && let Some(indices) = scoped.focused_indices(&scoped.node_index()) {
+            let included: HashSet<u64> = indices
+                .into_iter()
+                .map(|index| scoped.nodes[index].id)
+                .collect();
+            scoped.nodes.retain(|node| included.contains(&node.id));
+        }
+        scoped
+    }
+
+    /// Render the same scoped tree used by incremental screen updates.
+    pub fn render_question(&self, mode: ReadMode, budget: TokenBudget) -> A11yReading {
+        self.question_tree_for_mode(mode).render(mode, budget)
     }
 
     /// Render under a budget. Pure, deterministic, no I/O.
@@ -400,13 +441,10 @@ impl A11yTree {
         (out.join("\n"), renderer.truncated || self.truncated)
     }
 
-    fn render_focused(&self, budget: TokenBudget) -> (String, bool) {
-        let index = self.node_index();
+    fn focused_indices(&self, index: &HashMap<u64, usize>) -> Option<Vec<usize>> {
         // Pre-order traversal marks ancestors before descendants; the last
         // focused node is the actual focus target.
-        let Some(focus_idx) = self.nodes.iter().rposition(|node| node.focused) else {
-            return self.render_tree(budget);
-        };
+        let focus_idx = self.nodes.iter().rposition(|node| node.focused)?;
         // Ancestor chain, root first.
         let mut chain = Vec::new();
         let mut guard = HashSet::new();
@@ -429,10 +467,18 @@ impl A11yTree {
             .enumerate()
             .filter(|(_, node)| node.parent == Some(focused_id))
             .map(|(idx, _)| idx);
+        chain.extend(children);
+        Some(chain)
+    }
 
+    fn render_focused(&self, budget: TokenBudget) -> (String, bool) {
+        let index = self.node_index();
+        let Some(indices) = self.focused_indices(&index) else {
+            return self.render_tree(budget);
+        };
         let mut renderer = Renderer::new(budget);
         let mut out = Vec::new();
-        for idx in chain.into_iter().chain(children) {
+        for idx in indices {
             let node = &self.nodes[idx];
             if node.protected {
                 continue;

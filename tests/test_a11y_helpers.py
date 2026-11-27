@@ -8,6 +8,8 @@ the macOS helper's source contract (and typecheck it when ``swiftc`` exists).
 import importlib.util
 import contextlib
 import io
+import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -36,6 +38,7 @@ class FakeAtspi:
         FOCUSED = "FOCUSED"
         ACTIVE = "ACTIVE"
         PROTECTED = "PROTECTED"
+        DEFUNCT = "DEFUNCT"
 
     class CoordType:
         SCREEN = 0
@@ -187,7 +190,7 @@ class TreeShapeTests(unittest.TestCase):
         payload = helper.extract_tree(desktop, FakeAtspi, helper.parse_args([]))
         self.assertEqual(
             set(payload),
-            {"schema", "source", "app", "pid", "truncated", "node_count", "nodes"},
+            {"schema", "source", "app", "pid", "window_id", "truncated", "node_count", "nodes"},
         )
         self.assertEqual(payload["schema"], 1)
         self.assertEqual(payload["source"], "atspi")
@@ -204,7 +207,7 @@ class TreeShapeTests(unittest.TestCase):
         for node in nodes:
             self.assertEqual(
                 set(node),
-                {"id", "parent", "role", "name", "text", "focused", "bounds", "image", "protected"},
+                {"id", "stable_id", "parent", "role", "name", "text", "focused", "bounds", "image", "protected"},
             )
 
     def test_image_flag_and_bounds(self):
@@ -420,6 +423,332 @@ class LegacyTextModeTests(unittest.TestCase):
     def test_text_mode_without_foreground_is_empty(self):
         desktop = FakeNode("desktop", children=[])
         self.assertEqual(helper.extract(desktop, FakeAtspi), "")
+
+
+def native_node(role, path, bus=":1.42", **kwargs):
+    node = FakeNode(role, **kwargs)
+    node.app = types.SimpleNamespace(bus_name=bus)
+    node.path = path
+    return node
+
+
+class StableIdentityTests(unittest.TestCase):
+    def test_keys_survive_new_wrappers_insertions_and_reordering(self):
+        first = native_node("frame", "/window/1", children=[
+            native_node("label", "/label/a", text="One"),
+            native_node("entry", "/entry/b", text="Two"),
+        ])
+        second = native_node("frame", "/window/1", children=[
+            native_node("button", "/button/new", name="New"),
+            native_node("entry", "/entry/b", text="Edited"),
+            native_node("label", "/label/a", text="One"),
+        ])
+        old = helper.build_tree(first, FakeAtspi, 20, 5, 1000)
+        new = helper.build_tree(second, FakeAtspi, 20, 5, 1000)
+        self.assertEqual(old["window_id"], new["window_id"])
+        self.assertEqual(json.loads(old["window_id"]), [":1.42", "/window/1"])
+        self.assertEqual(old["nodes"][1]["stable_id"], new["nodes"][3]["stable_id"])
+        self.assertNotEqual(old["nodes"][1]["id"], new["nodes"][3]["id"])
+        self.assertEqual(old["nodes"][2]["stable_id"], new["nodes"][2]["stable_id"])
+
+    def test_identical_paths_from_different_app_connections_do_not_alias(self):
+        left = native_node("frame", "/window/1", bus=":1.42")
+        right = native_node("frame", "/window/1", bus=":1.43")
+        self.assertNotEqual(helper.window_identity(left), helper.window_identity(right))
+
+    def test_missing_identity_is_explicit_and_fallback_retains_wrapper(self):
+        node = FakeNode("label", text="Fallback")
+        visited = {}
+        self.assertTrue(helper.remember_node(node, visited))
+        self.assertFalse(helper.remember_node(node, visited))
+        self.assertIs(next(iter(visited.values())), node)
+        tree = helper.build_tree(node, FakeAtspi, 10, 5, 1000)
+        self.assertIsNone(tree["window_id"])
+        self.assertIsNone(tree["nodes"][0]["stable_id"])
+
+    def test_native_duplicates_and_proxy_cycles_are_bounded(self):
+        left = native_node("label", "/label/a", text="Only once")
+        duplicate = native_node("label", "/label/a", text="Only once")
+        frame = native_node("frame", "/window/1", states=("ACTIVE",), children=[left, duplicate])
+        proxy = native_node("frame", "/window/1", children=[frame])
+        frame.children.append(proxy)
+        tree = helper.build_tree(frame, FakeAtspi, 100, 20, 1000)
+        self.assertEqual(tree["node_count"], 2)
+        self.assertFalse(tree["truncated"])
+        self.assertIsNone(helper.focused_descendant(frame, FakeAtspi))
+        desktop = FakeNode("desktop", children=[FakeNode("application", children=[frame])])
+        self.assertEqual(helper.extract(desktop, FakeAtspi), "Only once")
+
+    def test_invalid_or_unavailable_native_identity_never_uses_title(self):
+        for bus, path in (("app.name", "/window/1"), (":1.42", "not/a/path"),
+                          (None, "/window/1"), (":1.42", None),
+                          (":" + "1" * 256, "/x"), (":1.42", "/" + "a" * 2048)):
+            self.assertIsNone(helper.window_identity(native_node("frame", path, bus=bus, name="Same title")))
+
+        class BrokenProxy:
+            @property
+            def app(self):
+                raise RuntimeError("defunct native wrapper")
+
+        self.assertIsNone(helper.window_identity(BrokenProxy()))
+
+
+class WaylandForegroundTests(unittest.TestCase):
+    def test_gnome_decoration_mirrors_do_not_shadow_the_application_tree(self):
+        for mirror in helper.COMPOSITOR_APPLICATIONS:
+            with self.subTest(mirror=mirror):
+                decoration = FakeNode("application", name=mirror, children=[
+                    FakeNode("frame", name="Browser", states=("ACTIVE",))])
+                frame = FakeNode("frame", name="Browser", states=("ACTIVE",),
+                                 children=[FakeNode("paragraph", text="Native Wayland question")])
+                desktop = FakeNode("desktop", children=[decoration, FakeNode("application", children=[frame])])
+                with mock.patch.dict(os.environ, {"XDG_SESSION_TYPE": "wayland", "WAYLAND_DISPLAY": "wayland-0"}, clear=True):
+                    self.assertIs(helper.select_foreground(desktop, FakeAtspi), frame)
+                    self.assertEqual(helper.extract(desktop, FakeAtspi), "Native Wayland question")
+
+    def test_defunct_active_frame_and_application_are_ignored(self):
+        gone = FakeNode("frame", states=("ACTIVE", "DEFUNCT"), text="stale")
+        active = FakeNode("frame", states=("ACTIVE",), text="current")
+        gone_app = FakeNode("application", states=("ACTIVE", "DEFUNCT"), children=[gone])
+        desktop = FakeNode("desktop", children=[gone_app, FakeNode("application", children=[gone, active])])
+        self.assertIs(helper.select_foreground(desktop, FakeAtspi), active)
+
+    def test_wayland_focus_fallback_stays_inside_one_window(self):
+        unrelated = FakeNode("frame", text="Background private text")
+        focus = FakeNode("entry", text="Current field", states=("FOCUSED",))
+        foreground = FakeNode("frame", children=[focus])
+        app = FakeNode("application", children=[unrelated, foreground])
+        self.assertIs(helper.select_foreground(FakeNode("desktop", children=[app]), FakeAtspi), foreground)
+
+    def test_explicit_target_does_not_match_a_compositor_mirror(self):
+        mirror = native_node("frame", "/window/1", states=("ACTIVE",))
+        app = FakeNode("application", name="gnome-shell", children=[mirror])
+        with mock.patch.dict(os.environ, {"SOCKET_STREAM_ATSPI_TARGET": helper.window_identity(mirror)}):
+            with self.assertRaisesRegex(RuntimeError, "Selected question window is unavailable"):
+                helper.select_foreground(FakeNode("desktop", children=[app]), FakeAtspi)
+
+    def test_own_window_remains_excluded_when_gnome_mirror_is_active(self):
+        own = FakeNode("frame", name="SocketStream — Practice Answer", states=("ACTIVE",))
+        mirror = FakeNode("application", name="gnome-shell", children=[FakeNode("frame", states=("ACTIVE",))])
+        desktop = FakeNode("desktop", children=[mirror, FakeNode("application", name="python3", children=[own])])
+        with self.assertRaises(helper.OwnWindowError):
+            helper.select_foreground(desktop, FakeAtspi)
+
+    def test_active_application_with_one_window_does_not_require_widget_focus(self):
+        frame = FakeNode("frame", text="Application content")
+        app = FakeNode("application", states=("ACTIVE",), children=[frame])
+        app.get_name = mock.Mock(side_effect=RuntimeError("no application label"))
+        app.get_process_id = mock.Mock(side_effect=RuntimeError("no process metadata"))
+        self.assertIs(helper.select_foreground(FakeNode("desktop", children=[app]), FakeAtspi), frame)
+
+
+class WindowInventoryBoundaryTests(unittest.TestCase):
+    def test_inventory_rejects_unaddressable_protected_defunct_and_own_windows(self):
+        invalid_nodes = [
+            FakeNode("frame", name="No native identity"),
+            native_node("label", "/label/not_a_window"),
+            native_node("frame", "/window/protected", states=("PROTECTED",)),
+            native_node("frame", "/window/defunct", states=("DEFUNCT",)),
+            native_node("frame", "/window/own", name="SocketStream — Practice"),
+        ]
+        visible = native_node("frame", "/window/visible")
+        app = FakeNode("application", name="Fixture", children=[*invalid_nodes, visible])
+        output = helper.list_windows(FakeNode("desktop", children=[app]), FakeAtspi)
+        self.assertEqual(output, [{"id": helper.window_identity(visible), "title": "Untitled window", "application": "Fixture"}])
+        for name, pid in (("SocketStream", None), ("python3", os.getpid()), ("python3", 54321)):
+            with self.subTest(name=name, pid=pid), mock.patch.dict(os.environ, {"SOCKET_STREAM_GUI_PID": "54321"}):
+                own = FakeNode("application", name=name, pid=pid, children=[visible])
+                self.assertEqual(helper.list_windows(FakeNode("desktop", children=[own]), FakeAtspi), [])
+
+
+class ProtectedAndUnavailableNodeTests(unittest.TestCase):
+    def test_protected_subtree_is_an_opaque_leaf_in_tree_and_text_modes(self):
+        child = FakeNode("entry", text="must never be read", states=("FOCUSED",))
+        protected = FakeNode("password text", name="mirrored secret", children=[child])
+        protected.get_name = lambda: self.fail("protected name was read")
+        protected.get_text_iface = lambda: self.fail("protected text was read")
+        protected.get_child_count = lambda: self.fail("protected descendants were read")
+        tree = helper.build_tree(protected, FakeAtspi, 20, 5, 1000)
+        self.assertEqual(tree["node_count"], 1)
+        self.assertEqual((tree["app"], tree["nodes"][0]["name"], tree["nodes"][0]["text"]), ("", "", ""))
+        self.assertIsNone(helper.focused_descendant(protected, FakeAtspi))
+        frame = FakeNode("frame", states=("ACTIVE",), children=[protected])
+        self.assertEqual(helper.extract(FakeNode("desktop", children=[frame]), FakeAtspi), "")
+
+    def test_defunct_subtree_is_not_read(self):
+        defunct = FakeNode("panel", states=("DEFUNCT",), children=[FakeNode("entry", text="stale")])
+        defunct.get_text_iface = lambda: self.fail("defunct text was read")
+        frame = FakeNode("frame", states=("ACTIVE",), children=[defunct])
+        self.assertEqual(helper.build_tree(frame, FakeAtspi, 20, 5, 1000)["node_count"], 1)
+        self.assertIsNone(helper.focused_descendant(defunct, FakeAtspi))
+
+    def test_gi_state_error_does_not_abort_other_accessible_widgets(self):
+        node = FakeNode("label", text="Readable")
+        node.get_state_set = mock.Mock(side_effect=Exception("org.a11y.Error.Defunct"))
+        self.assertFalse(helper.has_state(node, "ACTIVE", FakeAtspi))
+        frame = FakeNode("frame", states=("ACTIVE",), children=[node])
+        self.assertEqual(helper.build_tree(frame, FakeAtspi, 20, 5, 1000)["nodes"][1]["text"], "Readable")
+
+    def test_transient_child_failure_preserves_other_children_and_marks_partial(self):
+        child = FakeNode("label", text="Surviving child")
+        frame = FakeNode("frame", children=[None, child, None])
+        frame.get_child_at_index = mock.Mock(side_effect=[RuntimeError("closed child"), child, None])
+        tree = helper.build_tree(frame, FakeAtspi, 20, 5, 1000)
+        self.assertTrue(tree["truncated"])
+        self.assertEqual(tree["nodes"][1]["text"], "Surviving child")
+        frame.get_child_count = mock.Mock(side_effect=RuntimeError("disconnected application"))
+        self.assertTrue(helper.build_tree(frame, FakeAtspi, 20, 5, 1000)["truncated"])
+        self.assertEqual(list(helper.children(frame)), [])
+
+    def test_children_tolerate_missing_broken_and_null_proxies(self):
+        child = FakeNode("label", name="Visible")
+        parent = FakeNode("panel", children=[None, None, child])
+        parent.get_child_at_index = mock.Mock(side_effect=[RuntimeError("gone"), None, child])
+        self.assertEqual(list(helper.children(parent)), [child])
+        self.assertEqual(helper.build_tree(None, FakeAtspi, 10, 5, 1000)["nodes"], [])
+
+    def test_read_errors_mark_partial_instead_of_claiming_complete_text(self):
+        node = FakeNode("entry", text="Unavailable")
+        for operation in ("get_text_iface",):
+            with self.subTest(operation=operation):
+                setattr(node, operation, mock.Mock(side_effect=RuntimeError("disconnected")))
+                state = {"truncated": False}
+                self.assertEqual(helper.safe_text(node, FakeAtspi, 100, state), "")
+                self.assertTrue(state["truncated"])
+        node.get_text_iface = lambda: types.SimpleNamespace(get_character_count=lambda: 20,
+                                                           get_text=mock.Mock(side_effect=RuntimeError("closed")))
+        state = {"truncated": False}
+        self.assertEqual(helper.safe_text(node, FakeAtspi, 100, state), "")
+        self.assertTrue(state["truncated"])
+        self.assertEqual(helper.safe_text(node, FakeAtspi), "")
+        node.get_text_iface = mock.Mock(side_effect=RuntimeError("disconnected"))
+        self.assertEqual(helper.safe_text(node, FakeAtspi), "")
+
+    def test_accessor_failures_return_bounded_empty_metadata(self):
+        node = FakeNode("entry")
+        for method in ("get_role_name", "get_name", "get_process_id", "get_extents"):
+            setattr(node, method, mock.Mock(side_effect=RuntimeError("closed")))
+        self.assertEqual(helper.safe_role(node), "")
+        self.assertEqual(helper.safe_name(node), "")
+        self.assertIsNone(helper.safe_pid(node))
+        self.assertIsNone(helper.safe_extents(node, FakeAtspi))
+        self.assertIsNone(helper.normalize_bounds((1,)))
+        self.assertIsNone(helper.normalize_bounds((-2 ** 31, -2 ** 31, 300, 200)))
+
+    def test_budget_and_focus_limits_are_enforced_on_nested_tree(self):
+        leaf = FakeNode("entry", states=("FOCUSED",))
+        branch = FakeNode("panel", children=[leaf])
+        self.assertIsNone(helper.focused_descendant(branch, FakeAtspi, max_depth=0))
+        self.assertIsNone(helper.focused_descendant(branch, FakeAtspi, max_nodes=0))
+        self.assertIsNone(helper.focused_descendant(None, FakeAtspi))
+        self.assertTrue(helper.build_tree(branch, FakeAtspi, 0, 5, 1000)["truncated"])
+
+    def test_combined_name_and_text_budget_preserves_preorder_prefix(self):
+        node = FakeNode("entry", name="Label", text="0123456789")
+        tree = helper.build_tree(node, FakeAtspi, 10, 5, 8)
+        self.assertEqual((tree["nodes"][0]["name"], tree["nodes"][0]["text"]), ("Label", "012"))
+        self.assertTrue(tree["truncated"])
+
+    def test_legacy_read_continues_after_disconnected_node_and_honours_budget(self):
+        broken = FakeNode("entry", name=None)
+        broken.get_text_iface = mock.Mock(side_effect=RuntimeError("disconnected"))
+        empty = FakeNode("entry", text="")
+        valid = FakeNode("paragraph", text="1234567890")
+        frame = FakeNode("frame", states=("ACTIVE",), children=[broken, empty, valid, valid])
+        desktop = FakeNode("desktop", children=[FakeNode("application", children=[frame])])
+        with mock.patch.object(helper, "MAX_CHARS", 5):
+            self.assertEqual(helper.extract(desktop, FakeAtspi), "12345")
+
+    def test_focus_ancestry_tolerates_an_omitted_parent(self):
+        nodes = [{"id": 2, "parent": 99, "focused": True}]
+        helper.mark_focused_ancestors(nodes)
+        self.assertTrue(nodes[0]["focused"])
+
+
+class GiInterfaceDispatchTests(unittest.TestCase):
+    def test_text_methods_dispatch_through_the_text_interface(self):
+        iface = types.SimpleNamespace(get_text=lambda: self.fail("Accessible.get_text collision"),
+                                      get_character_count=lambda: self.fail("wrong character-count dispatch"))
+        node = FakeNode("entry")
+        node.get_text_iface = lambda: iface
+        atspi = types.SimpleNamespace(Text=types.SimpleNamespace(
+            get_text=mock.Mock(return_value="Native browser text"),
+            get_character_count=mock.Mock(return_value=19)))
+        self.assertEqual(helper.safe_text(node, atspi), "Native browser text")
+        atspi.Text.get_text.assert_called_once_with(iface, 0, 19)
+
+    def test_component_methods_dispatch_through_component_interface(self):
+        iface = types.SimpleNamespace(get_extents=lambda *_: self.fail("wrong Component dispatch"))
+        node = FakeNode("image")
+        node.get_component_iface = lambda: iface
+        atspi = types.SimpleNamespace(CoordType=FakeAtspi.CoordType, Component=types.SimpleNamespace(
+            get_extents=mock.Mock(return_value=(10, 20, 30, 40))))
+        self.assertEqual(helper.safe_extents(node, atspi), (10, 20, 30, 40))
+        atspi.Component.get_extents.assert_called_once_with(iface, FakeAtspi.CoordType.SCREEN)
+        node.get_component_iface = lambda: None
+        self.assertIsNone(helper.safe_extents(node, atspi))
+
+
+class RuntimeInitializationTests(unittest.TestCase):
+    def run_helper(self, argv, desktop=None, init=0, read_error=None):
+        gi = types.ModuleType("gi")
+        gi.require_version = mock.Mock()
+        repository = types.ModuleType("gi.repository")
+        atspi = types.SimpleNamespace(
+            StateType=FakeAtspi.StateType, CoordType=FakeAtspi.CoordType,
+            init=mock.Mock(return_value=init), set_timeout=mock.Mock(),
+            get_desktop=mock.Mock(return_value=desktop, side_effect=read_error))
+        repository.Atspi = atspi
+        gi.repository = repository
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.dict(sys.modules, {"gi": gi, "gi.repository": repository}), \
+                mock.patch.object(helper.signal, "signal", return_value="old-handler") as signal_handler, \
+                mock.patch.object(helper.signal, "setitimer") as timer, \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = helper.main(argv)
+        self.assertEqual(timer.call_args_list[-1], mock.call(helper.signal.ITIMER_REAL, 0))
+        self.assertEqual(signal_handler.call_args_list[-1], mock.call(helper.signal.SIGALRM, "old-handler"))
+        return code, stdout.getvalue(), stderr.getvalue(), atspi, signal_handler
+
+    def test_init_success_and_already_initialized_are_accepted(self):
+        for status in (0, 1):
+            code, output, error, atspi, _ = self.run_helper([], FakeNode("desktop"), init=status)
+            self.assertEqual((code, error), (0, ""))
+            self.assertEqual(json.loads(output)["nodes"], [])
+            atspi.set_timeout.assert_called_once_with(800, 1500)
+
+    def test_failed_bus_initialization_never_attempts_a_desktop_read(self):
+        code, output, error, atspi, _ = self.run_helper([], init=2)
+        self.assertEqual((code, output), (3, ""))
+        self.assertIn("D-Bus session", error)
+        atspi.get_desktop.assert_not_called()
+
+    def test_missing_desktop_is_a_backend_error_not_a_successful_empty_read(self):
+        code, output, error, _, _ = self.run_helper([])
+        self.assertEqual((code, output), (3, ""))
+        self.assertIn("AT-SPI desktop is unavailable", error)
+
+    def test_deadline_cannot_be_swallowed_by_best_effort_node_read(self):
+        node = FakeNode("entry")
+        node.get_text_iface = mock.Mock(side_effect=helper.ReadDeadline("read timed out"))
+        with self.assertRaises(helper.ReadDeadline):
+            helper.safe_text(node, FakeAtspi)
+        code, output, error, _, handler = self.run_helper([], read_error=helper.ReadDeadline("read timed out"))
+        self.assertEqual((code, output), (3, ""))
+        self.assertIn("timed out", error)
+        installed = handler.call_args_list[0].args[1]
+        with self.assertRaises(helper.ReadDeadline):
+            installed(None, None)
+
+    def test_text_and_inventory_modes_keep_their_wire_contracts(self):
+        frame = native_node("frame", "/window/1", name="Native fixture", states=("ACTIVE",),
+                            children=[FakeNode("paragraph", text="Visible text")])
+        desktop = FakeNode("desktop", children=[FakeNode("application", children=[frame])])
+        code, output, _, _, _ = self.run_helper(["--mode", "text"], desktop)
+        self.assertEqual((code, output), (0, "Visible text\n"))
+        code, output, _, _, _ = self.run_helper(["--mode", "windows"], desktop)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output)[0]["id"], helper.window_identity(frame))
 
 
 @unittest.skipUnless(MACOS_HELPER.is_file(), "macOS helper is not part of this package")

@@ -5,15 +5,16 @@
 //! OpenAI-compatible providers, a screenshot for model vision) so spoken and
 //! manually typed questions are answered with on-screen context. New stable
 //! screen questions also dispatch independently, without interrupting answers.
+use crate::live_context::{LiveContext, LiveTurn, SCREEN_QUESTION, ScreenInput};
 use crate::live_events::Emitter;
-use crate::live_observe::{
-    ScreenReader, a11y_options, bound_context, compose_prompt, plausible_question,
-};
+use crate::live_observe::{ScreenReader, a11y_options, bound_context, plausible_question};
 use crate::turn_gate::{SpeechRole, TurnGate};
+use socket_stream_core::a11y::{A11yTree, TokenBudget};
 use socket_stream_core::ai::{
-    ApiEvent, MAX_IMAGE_BYTES, Provider, TokenUsage, stream_answer_with_meta_vision,
+    ApiEvent, MAX_IMAGE_BYTES, Provider, TokenUsage, stream_answer_with_history,
 };
 use socket_stream_core::context::Deduplicator;
+use socket_stream_core::conversation::ConversationMessage;
 use std::collections::VecDeque;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -61,10 +62,12 @@ fn bounded_u64(
 
 /// One parallel screen-reading outcome delivered to the session loop.
 struct ScreenUpdate {
+    generation: u64,
     /// Role-free panel rendering (bounded).
     display: String,
     /// Bounded model context text.
     context: String,
+    tree: Option<A11yTree>,
     source: &'static str,
     /// "ok" or "unavailable".
     status: &'static str,
@@ -79,7 +82,7 @@ struct ScreenUpdate {
 enum ReaderSignal {
     Read,
     Pause,
-    Resume,
+    Resume(u64),
     Stop,
 }
 
@@ -392,14 +395,16 @@ fn start_answer(
     provider: Provider,
     prompt: String,
     image: Option<Vec<u8>>,
+    history: Vec<ConversationMessage>,
 ) -> (AnswerTask, watch::Receiver<AnswerView>) {
     let (tx, rx) = watch::channel(AnswerView::default());
     let task = tokio::spawn(async move {
         let (deltas, mut incoming) = mpsc::channel::<String>(32);
         let (meta, mut metadata) = mpsc::channel::<ApiEvent>(8);
-        let inference = stream_answer_with_meta_vision(
+        let inference = stream_answer_with_history(
             &provider,
             &prompt,
+            &history,
             image.as_deref(),
             &deltas,
             Some(&meta),
@@ -481,17 +486,21 @@ fn deliver_read(
     reader: &mut ScreenReader,
     updates: &tokio::sync::mpsc::UnboundedSender<ScreenUpdate>,
     manual: bool,
+    generation: u64,
 ) {
     use crate::live_observe::Reading;
     let reading = reader.read_once();
     let frame = reader.last_frame().map(Path::to_path_buf);
+    let tree = reader.last_tree().cloned();
     let update = match reading {
         Reading::Question(text, display, source) => {
             let context = bound_context(&text);
             let empty = context.trim().is_empty();
             ScreenUpdate {
+                generation,
                 display,
                 context,
+                tree,
                 source,
                 status: if empty { "unavailable" } else { "ok" },
                 frame,
@@ -499,36 +508,44 @@ fn deliver_read(
             }
         }
         Reading::Nothing => ScreenUpdate {
+            generation,
             display: "No focused readable question window. Focus the question window; enable accessibility or opt-in OCR if needed.".into(),
             context: String::new(),
+            tree: None,
             source: "system",
             status: "unavailable",
             frame,
             manual,
         },
         Reading::Insufficient => ScreenUpdate {
+            generation,
             display: "No readable content on the focused window. Enable local OCR fallback for screenshots.".into(),
             context: String::new(),
+            tree: None,
             source: "system",
             status: "unavailable",
             frame,
             manual,
         },
         Reading::AccessibilityUnavailable(reason) => ScreenUpdate {
+            generation,
             display: if reason.is_empty() {
                 "Accessibility unavailable; enable local OCR fallback for screenshots.".into()
             } else {
                 format!("Accessibility unavailable: {reason}")
             },
             context: String::new(),
+            tree: None,
             source: "system",
             status: "unavailable",
             frame,
             manual,
         },
         Reading::OcrFailed(reason) => ScreenUpdate {
+            generation,
             display: format!("Screenshot read failed: {reason}"),
             context: String::new(),
+            tree: None,
             source: "system",
             status: "unavailable",
             frame,
@@ -575,8 +592,10 @@ fn start_screen_reader(
             Some(reader) => reader,
             None => {
                 let _ = updates_tx.send(ScreenUpdate {
+                    generation: 1,
                     display: options_error.unwrap_or_default(),
                     context: String::new(),
+                    tree: None,
                     source: "system",
                     status: "unavailable",
                     frame: None,
@@ -586,18 +605,23 @@ fn start_screen_reader(
             }
         };
         // One immediate read so context exists before the first interval.
-        deliver_read(&mut reader, &updates_tx, false);
+        let mut generation = 1;
+        deliver_read(&mut reader, &updates_tx, false, generation);
         loop {
             match signals_rx.recv_timeout(Duration::from_secs(interval)) {
                 Ok(ReaderSignal::Stop) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     break;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    deliver_read(&mut reader, &updates_tx, false);
+                    deliver_read(&mut reader, &updates_tx, false, generation);
                 }
-                Ok(ReaderSignal::Read) => deliver_read(&mut reader, &updates_tx, true),
+                Ok(ReaderSignal::Read) => deliver_read(&mut reader, &updates_tx, true, generation),
                 Ok(ReaderSignal::Pause) => reader.pause(),
-                Ok(ReaderSignal::Resume) => reader.resume(),
+                Ok(ReaderSignal::Resume(epoch)) => {
+                    generation = epoch;
+                    reader.resume();
+                    deliver_read(&mut reader, &updates_tx, false, generation);
+                }
             }
         }
         reader.stop();
@@ -666,11 +690,12 @@ async fn run_session(
         "microphone"
     };
     let read_screen = has(args, "--read-screen");
+    let mut context_budget = TokenBudget::default();
     if read_screen {
         // Validate reader options up front so a bad flag fails fast instead
         // of surfacing later as an unavailable screen read.
         bounded_u64(args, "--read-interval", 5, 2, 3600)?;
-        a11y_options(args)?;
+        context_budget = a11y_options(args)?.budget;
     }
     let root = socket_stream_core::paths::project_root();
     let mut control = controls();
@@ -685,6 +710,10 @@ async fn run_session(
         (updates_rx, signals_tx)
     };
     let mut screen_context = String::new();
+    let mut screen_tree: Option<A11yTree> = None;
+    let mut model_context = LiveContext::default();
+    let mut pending_context: Option<LiveTurn> = None;
+    let mut pending_screen_signature = None;
     let mut screen_frame: Option<PathBuf> = None;
     let mut manual_pending: Option<String> = None;
     let mut manual_number = 0_u64;
@@ -729,15 +758,32 @@ async fn run_session(
             answer_id = format!("manual-{manual_number}");
             emitter.send("question_detected", $source, Some(&answer_id), Some(&$text))?;
             emitter.send("answer_started", $source, Some(&answer_id), None)?;
-            let question_prompt = turn_gate.manual(&$text);
-            let prompt = if $with_context {
-                compose_prompt(&question_prompt, Some(&screen_context))
+            let question_prompt = if $with_context {
+                turn_gate.manual(&$text)
             } else {
-                question_prompt
+                // Track the actual detected question for speech refinement,
+                // while the model receives its structured screen update only.
+                // Reusing a generic gate key would label every changed screen
+                // as a clarification and duplicate the previous tree/answer.
+                let _ = turn_gate.manual(&$text);
+                SCREEN_QUESTION.to_owned()
             };
+            let input = if !read_screen {
+                ScreenInput::None
+            } else if let Some(tree) = &screen_tree {
+                ScreenInput::Tree(tree)
+            } else if !screen_context.is_empty() {
+                ScreenInput::Text(&screen_context)
+            } else {
+                ScreenInput::Unavailable
+            };
+            let turn = model_context.prepare(&question_prompt, input, context_budget)?;
+            let prompt = turn.prompt().to_owned();
+            let history = turn.history().to_vec();
             let image = vision_frame(&provider, screen_frame.as_deref());
             emitter.send("ai_input", $source, Some(&answer_id), Some(&prompt))?;
-            let (task, rx) = start_answer(provider.clone(), prompt, image);
+            let (task, rx) = start_answer(provider.clone(), prompt, image, history);
+            pending_context = Some(turn);
             answer_task = Some(task);
             answer_rx = rx;
             answer_sent = 0;
@@ -771,6 +817,11 @@ async fn run_session(
                         generation += 1;
                         if let Some(mut old) = session.take() { old.stop().await; }
                         answer_task = None;
+                        pending_context = None;
+                        pending_screen_signature = None;
+                        screen_tree = None;
+                        screen_context.clear();
+                        screen_frame = None;
                         transcript.pending.clear();
                         manual_pending = None;
                         due = None;
@@ -781,7 +832,7 @@ async fn run_session(
                         paused = false;
                         starting = true;
                         transcript.last_final = None;
-                        let _ = reader_signals.send(ReaderSignal::Resume);
+                        let _ = reader_signals.send(ReaderSignal::Resume(generation));
                         emitter.send("session_resumed", label, None, None)?;
                     }
                     Some("read-screen") => {
@@ -791,6 +842,8 @@ async fn run_session(
                         if answer_task.take().is_some() {
                             emitter.send("answer_cancelled", label, Some(&answer_id), None)?;
                         }
+                        pending_context = None;
+                        pending_screen_signature = None;
                         if let Some(text) = manual_pending.take() {
                             start_manual!(text, "manual", true);
                         } else if !transcript.pending.is_empty() {
@@ -832,7 +885,9 @@ async fn run_session(
                 }
             }
             Some(update) = screen_updates.recv(), if read_screen => {
-                let ScreenUpdate { display, context, source, status, frame, manual } = update;
+                let ScreenUpdate { generation: screen_generation, display, context, tree, source, status, frame, manual } = update;
+                if paused || screen_generation != generation { continue; }
+                screen_tree = tree;
                 if status == "ok" && !context.trim().is_empty() {
                     screen_context = context;
                     warned_screen = false;
@@ -857,7 +912,7 @@ async fn run_session(
                 if !manual && status == "ok" && plausible_question(&screen_context) {
                     let (signature, stable) = screen_dedup.observe(&screen_context);
                     if stable && screen_dedup.is_new(signature) && answer_task.is_none() && !paused {
-                        screen_dedup.remember(signature);
+                        pending_screen_signature = Some(signature);
                         let text = screen_context.clone();
                         start_manual!(text, source, false);
                     }
@@ -869,7 +924,7 @@ async fn run_session(
                         let text = screen_context.clone();
                         start_manual!(text, source, false);
                     } else {
-                        manual_pending = Some(screen_context.clone());
+                        manual_pending = Some(SCREEN_QUESTION.to_owned());
                     }
                 }
             }
@@ -916,10 +971,23 @@ async fn run_session(
                 answer_id = format!("spoken-{request}");
                 emitter.send("question_detected", label, Some(&answer_id), Some(&prompt))?;
                 emitter.send("answer_started", label, Some(&answer_id), None)?;
-                let context_prompt = compose_prompt(&permitted_prompt, Some(&screen_context));
+                let input = if !read_screen {
+                    ScreenInput::None
+                } else if let Some(tree) = &screen_tree {
+                    ScreenInput::Tree(tree)
+                } else if !screen_context.is_empty() {
+                    ScreenInput::Text(&screen_context)
+                } else {
+                    ScreenInput::Unavailable
+                };
+                let turn = model_context.prepare(&permitted_prompt, input, context_budget)?;
+                let context_prompt = turn.prompt().to_owned();
+                let history = turn.history().to_vec();
                 let image = vision_frame(&provider, screen_frame.as_deref());
                 emitter.send("ai_input", label, Some(&answer_id), Some(&context_prompt))?;
-                let (task, rx) = start_answer(provider.clone(), context_prompt, image);
+                let (task, rx) = start_answer(provider.clone(), context_prompt, image, history);
+                pending_context = Some(turn);
+                pending_screen_signature = None;
                 answer_task = Some(task);
                 answer_rx = rx;
                 answer_sent = 0;
@@ -936,7 +1004,16 @@ async fn run_session(
                         emitter.send("token_usage", "provider", Some(&answer_id), Some(&usage.summary()))?;
                     }
                     if !view.failed {
+                        if let Some(turn) = pending_context.take() {
+                            model_context.commit(turn, &view.text)?;
+                        }
+                        if let Some(signature) = pending_screen_signature.take() {
+                            screen_dedup.remember(signature);
+                        }
                         turn_gate.completed(&view.text);
+                    } else {
+                        pending_context = None;
+                        pending_screen_signature = None;
                     }
                     if view.failed { emitter.send("error", "provider", Some(&answer_id), Some(view.error.as_deref().unwrap_or("AI provider failed; check endpoint, credentials and model.")))?; }
                     else { emitter.send("answer_completed", label, Some(&answer_id), None)?; }
@@ -1006,7 +1083,12 @@ mod tests {
 
     #[tokio::test]
     async fn mock_answer_stream_completes_in_bounded_view() {
-        let (_task, mut rx) = start_answer(Provider::Mock, "Explain binary search".into(), None);
+        let (_task, mut rx) = start_answer(
+            Provider::Mock,
+            "Explain binary search".into(),
+            None,
+            Vec::new(),
+        );
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 rx.changed().await.unwrap();

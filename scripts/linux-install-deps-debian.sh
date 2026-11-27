@@ -8,7 +8,7 @@ if [ "$#" -eq 0 ] || [ "$1" != "--yes" ]; then
 fi
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 $SUDO apt-get update
-$SUDO apt-get install -y python3 python3-gi python3-dbus gir1.2-gtk-3.0 gir1.2-atspi-2.0 \
+$SUDO apt-get install -y python3 python3-gi python3-dbus gir1.2-gtk-3.0 gir1.2-atspi-2.0 at-spi2-core libglib2.0-bin \
   gir1.2-gstreamer-1.0 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
   gstreamer1.0-pipewire xdg-desktop-portal pipewire tesseract-ocr ffmpeg pulseaudio-utils \
   imagemagick git cmake make g++
