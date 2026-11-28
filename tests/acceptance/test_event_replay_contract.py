@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CLI = ROOT / "target/debug/socket_stream"
+CLI = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")) / "debug/socket_stream"
 FIXTURE = ROOT / "tests/fixtures/live_practice/events.jsonl"
 
 

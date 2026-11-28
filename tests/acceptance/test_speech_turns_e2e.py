@@ -159,8 +159,13 @@ while True:
         self.speech("So you mean the input needs to be sorted?")
         events = self.until("answer_completed")
         text = "".join(event.get("text", "") for event in events if event["type"] == "answer_delta")
-        self.assertIn("Previous question: How does binary search work?", text)
+        # The mock receives acknowledged history separately from the latest
+        # clarification; the previous question need not be duplicated in it.
+        self.assertIn("How does binary search work?", text)
         self.assertIn("Latest explicit clarification:", text)
+        current = next(event["text"] for event in events if event["type"] == "ai_input")
+        self.assertNotIn("How does binary search work?", current)
+        self.assertIn("So you mean the input needs to be sorted?", current)
         self.stop()
 
     def test_unknown_mixed_speech_is_manual_only(self):

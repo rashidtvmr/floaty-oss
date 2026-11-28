@@ -119,6 +119,17 @@ impl Conversation {
                 .checked_add(prompt.trim().len())
                 .and_then(|bytes| bytes.checked_add(self.max_response_bytes))
                 .is_none_or(|bytes| bytes > self.max_context_bytes)
+            // CLI providers replay previous roles as JSON. Escaped quotes,
+            // backslashes and control characters can make valid raw history
+            // exceed the transport limit before the raw-memory bound does.
+            // Check the actual replay representation rather than pessimistically
+            // multiplying every ordinary-text request by a worst-case factor.
+            || (!self.messages.is_empty()
+                && serde_json::to_string(&self.messages)
+                    .expect("conversation messages are serializable")
+                    .len()
+                    .checked_add(prompt.trim().len())
+                    .is_none_or(|bytes| bytes > self.max_context_bytes))
     }
 
     pub fn prepare(&self, prompt: &str) -> Result<PendingTurn, ConversationError> {
@@ -164,6 +175,9 @@ impl Conversation {
             content: answer,
         });
         self.revision = self.revision.wrapping_add(1);
+        // Two clones may acknowledge different turns and reach equal numeric
+        // revisions. Rotate the baseline identity to reject cross-branch turns.
+        self.session = std::sync::Arc::new(());
         Ok(())
     }
 
@@ -171,6 +185,7 @@ impl Conversation {
         self.messages.clear();
         self.bytes = 0;
         self.revision = self.revision.wrapping_add(1);
+        self.session = std::sync::Arc::new(());
     }
 }
 
@@ -349,5 +364,69 @@ mod tests {
             Err(ConversationError::StaleTurn)
         );
         assert!(b.is_empty());
+    }
+
+    #[test]
+    fn equally_numbered_divergent_clones_cannot_cross_commit() {
+        let mut left = Conversation::default();
+        let mut right = left.clone();
+        let turn = left.prepare("Snapshot A").unwrap();
+        left.commit(turn, "Answer A").unwrap();
+        let turn = right.prepare("Snapshot B").unwrap();
+        right.commit(turn, "Answer B").unwrap();
+        let before = left.messages().to_vec();
+        let foreign = right.prepare("Patch for B").unwrap();
+        assert_eq!(
+            left.commit(foreign, "Wrong baseline"),
+            Err(ConversationError::StaleTurn)
+        );
+        assert_eq!(left.messages(), before);
+
+        let mut reset_branch = left.clone();
+        left.reset();
+        reset_branch.reset();
+        let foreign = reset_branch.prepare("Independent reset snapshot").unwrap();
+        assert_eq!(
+            left.commit(foreign, "Wrong session"),
+            Err(ConversationError::StaleTurn)
+        );
+        assert!(left.is_empty());
+    }
+
+    #[test]
+    fn escaped_history_requires_checkpoint_before_transport_replay_overflows() {
+        let mut conversation = Conversation::with_limits(300, 10, 10);
+        let prompt = "\"\\\u{0001}é".repeat(15);
+        let first = conversation.prepare(&prompt).unwrap();
+        conversation.commit(first, "Answer").unwrap();
+        assert!(
+            conversation.byte_len() + prompt.len() + 10 < 300,
+            "raw history alone would incorrectly permit this request"
+        );
+        let serialized = serde_json::to_string(conversation.messages()).unwrap();
+        assert!(serialized.len() + prompt.len() > 300);
+        assert!(conversation.needs_checkpoint(&prompt));
+        assert_eq!(
+            conversation.prepare(&prompt).unwrap_err(),
+            ConversationError::NeedsCheckpoint
+        );
+        conversation.reset();
+        assert!(conversation.prepare(&prompt).is_ok());
+    }
+
+    #[test]
+    fn ordinary_text_does_not_checkpoint_early_and_maximum_first_prompt_still_fits() {
+        let mut conversation = Conversation::default();
+        for _ in 0..DEFAULT_MAX_TURNS {
+            assert!(!conversation.needs_checkpoint("Explain binary search"));
+            let turn = conversation.prepare("Explain binary search").unwrap();
+            conversation
+                .commit(turn, "It repeatedly halves a sorted search range.")
+                .unwrap();
+        }
+        assert!(conversation.needs_checkpoint("Follow-up"));
+        conversation.reset();
+        let maximum = "x".repeat(DEFAULT_CONTEXT_BYTES - DEFAULT_RESPONSE_BYTES);
+        assert!(conversation.prepare(&maximum).is_ok());
     }
 }

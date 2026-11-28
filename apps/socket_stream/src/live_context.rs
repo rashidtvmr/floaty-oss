@@ -206,6 +206,9 @@ impl LiveContext {
             staged.dialogue.pop_front();
         }
         staged.revision = self.revision.wrapping_add(1);
+        // Staged clones share their starting baseline. Once acknowledged,
+        // their lineage must diverge even when numeric revisions are equal.
+        staged.session = Arc::new(());
         *self = staged;
         Ok(())
     }
@@ -382,6 +385,63 @@ mod tests {
         first.commit(current, "Answer").unwrap();
         assert!(first.commit(stale, "Late answer").is_err());
         assert_eq!(first.conversation.messages().len(), 2);
+    }
+
+    #[test]
+    fn divergent_staged_clones_cannot_commit_equal_revision_turns_to_each_other() {
+        let mut first = LiveContext::default();
+        let mut second = first.clone();
+        let first_turn = prepare(&first, &tree("Question A"));
+        first.commit(first_turn, "Answer A").unwrap();
+        let second_turn = prepare(&second, &tree("Question B"));
+        second.commit(second_turn, "Answer B").unwrap();
+        let cross_branch = prepare(&second, &tree("Question C"));
+        assert!(first.commit(cross_branch, "Answer C").is_err());
+        assert!(
+            first.conversation.messages()[0]
+                .content
+                .contains("Question A")
+        );
+        let next = prepare(&first, &tree("Question A"));
+        assert_eq!(
+            next.prompt(),
+            SCREEN_QUESTION,
+            "the acknowledged tree must remain A"
+        );
+    }
+
+    #[tokio::test]
+    async fn serialized_history_checkpoints_before_local_provider_budget_failure() {
+        use socket_stream_core::ai::{Provider, stream_answer_with_history};
+        let mut context = LiveContext::default();
+        let question = format!("Explain {}", "\"x\"".repeat(3_300));
+        let mut saw_checkpoint = false;
+        for index in 0..6 {
+            let turn = context
+                .prepare(&question, ScreenInput::None, TokenBudget::default())
+                .unwrap();
+            if index > 0 && turn.history().is_empty() {
+                saw_checkpoint = true;
+                assert!(turn.prompt().contains("Earlier conversation checkpoint"));
+            }
+            let replay_bytes =
+                serde_json::to_string(turn.history()).unwrap().len() + turn.prompt().len();
+            assert!(replay_bytes <= DEFAULT_CONTEXT_BYTES);
+            let (output, mut received) = tokio::sync::mpsc::channel(4);
+            stream_answer_with_history(
+                &Provider::Mock,
+                turn.prompt(),
+                turn.history(),
+                None,
+                &output,
+                None,
+            )
+            .await
+            .expect("a prepared checkpoint must fit the provider replay budget");
+            assert!(!received.try_recv().unwrap().is_empty());
+            context.commit(turn, "Concise answer.").unwrap();
+        }
+        assert!(saw_checkpoint);
     }
 
     #[test]

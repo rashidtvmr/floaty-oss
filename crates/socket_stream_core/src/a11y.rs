@@ -288,8 +288,46 @@ impl A11yTree {
                 .map(|index| scoped.nodes[index].id)
                 .collect();
             scoped.nodes.retain(|node| included.contains(&node.id));
+            // Explicit focus projections preserve even empty direct children:
+            // their roles are part of the focused renderer's existing scope.
+            return scoped;
         }
+        scoped.prune_empty_structural_branches();
         scoped
+    }
+
+    /// Empty layout-only branches carry no readable content, but serializing
+    /// hundreds of them can exhaust the model budget before the question.
+    /// Keep every meaningful node and all its ancestors, so this projection
+    /// never reparents nodes or changes the order of surviving siblings.
+    fn prune_empty_structural_branches(&mut self) {
+        let parents: HashMap<u64, Option<u64>> = self
+            .nodes
+            .iter()
+            .map(|node| (node.id, node.parent))
+            .collect();
+        let mut retained: HashSet<u64> = self
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.parent.is_none()
+                    || !is_structural(&node.role)
+                    || !node.name.is_empty()
+                    || !node.text.is_empty()
+                    || node.focused
+                    || node.image
+            })
+            .map(|node| node.id)
+            .collect();
+        let mut pending: Vec<u64> = retained.iter().copied().collect();
+        while let Some(id) = pending.pop() {
+            if let Some(Some(parent)) = parents.get(&id)
+                && retained.insert(*parent)
+            {
+                pending.push(*parent);
+            }
+        }
+        self.nodes.retain(|node| retained.contains(&node.id));
     }
 
     /// Render the same scoped tree used by incremental screen updates.

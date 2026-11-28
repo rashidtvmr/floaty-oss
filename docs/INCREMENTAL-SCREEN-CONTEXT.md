@@ -57,6 +57,9 @@ observations produce a `patch` with:
 
 An unchanged tree contributes no new screen payload. Navigation chrome and
 protected subtrees are filtered before allocating the model's screen budget.
+Full-tree modes also discard empty structural branches, retaining meaningful
+nodes and their complete ancestry so layout-only nodes cannot exhaust the
+budget before readable content. This does not reparent retained nodes.
 Focused reading modes retain their configured scope; ordinary tree mode keeps
 the filtered question window. The UI still receives readable question text.
 
@@ -81,8 +84,9 @@ commits them together. Provider failure, cancellation, an empty answer, an
 incomplete SSE response, or a stale reply leaves the earlier baseline intact.
 Retries therefore include everything the model has not acknowledged.
 
-Each session has its own identity and generation. A turn from another session or
-an older generation is refused. Pause revokes capture and drops pending work;
+Each acknowledged baseline has its own identity token. A turn from another
+session, an older baseline, or a divergent clone at the same revision is refused.
+Pause revokes capture and drops pending work;
 Resume retains acknowledged conversation. Speech-reader updates carry capture
 generations, so a read started before Pause cannot become current after Resume.
 Stop drops the in-memory session. No screen transcript is persisted by this
@@ -95,6 +99,12 @@ history. This is not a claim of server-held delta sessions or guaranteed token
 caching. Codex/local fallback providers receive a bounded textual replay. A
 failed fallback candidate cannot leak a partial answer before a different
 provider succeeds.
+
+Speech turn detection is staged with the same request, so a failed or cancelled
+question cannot suppress an identical retry or replace clarification context.
+Clarifications reference acknowledged history without repeating old screen text
+or answers in the latest message. Queued manual questions resume with historical
+context while current-screen availability is stated explicitly.
 
 Context is bounded rather than unlimited:
 
@@ -168,6 +178,10 @@ The script runs formatting, Clippy, all Rust tests, Python unit tests and CLI
 acceptance tests. CLI subprocesses use the instrumented Rust binary, so the
 HTTP session tests contribute actual runtime coverage. It writes raw reports
 and `summary.json` to `target/screen-coverage/`.
+Instrumented builds use `target/screen-coverage/build`, separate from ordinary
+development artifacts. The coverage environment is established before cleaning
+workspace artifacts, so cached uninstrumented test executables cannot silently
+replace the instrumented tests.
 
 The 95% gate applies separately to the Linux helper, readiness checks, tree
 reconciler, conversation module and session coordinator, and to changed
@@ -195,23 +209,32 @@ Primary platform references:
 - [Ubuntu accessibility stack](https://ubuntu.com/desktop/docs/en/26.04/explanation/accessibility-stack/)
 - [AT-SPI native object identity fields](https://gnome.pages.gitlab.gnome.org/at-spi2-core/libatspi/class.Object.html)
 
-## Verification record — 2026-11-27
+## Verification record — 2026-11-28
 
-`bash scripts/verify-screen-coverage.sh origin/main` passed against base
+`bash scripts/verify-screen-coverage.sh 886ab92147542c65a057fb3ba81f40520e763c96`
+passed against base
 `886ab92147542c65a057fb3ba81f40520e763c96`. The run used Rust 1.100.0 and
-Python 3.12.14 in a Debian 13 x86_64 executor.
+Python 3.12.14 in a Debian 13 x86_64 executor, with cargo-llvm-cov 0.9.2 and
+coverage.py 7.17.5. This isolated instrumented run supersedes the earlier
+coverage record.
+
+Formatting and Clippy passed. The Rust workspace passed 281 tests, Python unit
+tests passed 710 with 6 skipped, and acceptance passed 49 with 7 skipped:
+1,040 passing tests in total. Shell syntax and `git diff --check` also passed.
 
 | Production scope | Covered executable lines | Line coverage |
 | --- | ---: | ---: |
-| `scripts/linux-accessibility.py` | 391 / 392 | 99.74% |
+| `scripts/linux-accessibility.py` | 409 / 411 | 99.51% |
 | `apps/socket_stream_desktop/ui/source_preflight.py` | 87 / 87 | 100.00% |
-| `crates/socket_stream_core/src/a11y_diff.rs` | 290 / 292 | 99.32% |
-| `crates/socket_stream_core/src/conversation.rs` | 102 / 102 | 100.00% |
-| `apps/socket_stream/src/live_context.rs` | 159 / 161 | 98.76% |
-| All changed executable runtime code | 861 / 900 | **95.67%** |
+| `crates/socket_stream_core/src/a11y_diff.rs` | 288 / 290 | 99.31% |
+| `crates/socket_stream_core/src/conversation.rs` | 110 / 110 | 100.00% |
+| `apps/socket_stream/src/live_context.rs` | 160 / 162 | 98.77% |
+| All changed executable runtime code against main | 1,008 / 1,050 | **96.00%** |
+| Hardening changes against the published implementation | 162 / 167 | **97.01%** |
 
-The complete measured Rust workspace is 71.39% and the
-complete measured Python workspace is 49.33%. Those broader
+The hardening-only baseline is `5ffa8cb4c615e628d6668befb9d7fd82333d8fc1`.
+The complete measured Rust workspace is 71.98% and the
+complete measured Python workspace is 49.41%. Those broader
 figures include existing unrelated code and are reported separately from the
 95% feature/change gate. Inline Rust test bodies do not contribute to these
 production percentages. Raw branch data is retained in the generated Python
@@ -220,3 +243,7 @@ coverage JSON; the enforced cross-language gate is line coverage.
 The checked-in [machine-readable coverage record](SCREEN-READING-COVERAGE.json)
 contains denominators, per-file changes, missing lines and scope definitions.
 It contains synthetic-test measurements only.
+
+The subsequent [adversarial review](ADVERSARIAL-SCREEN-REVIEW.md) records
+reproduced counterexamples, the evaluator/fix cycle, measured content
+preservation, and remaining native-validation limits.

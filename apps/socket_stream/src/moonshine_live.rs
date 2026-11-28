@@ -713,6 +713,7 @@ async fn run_session(
     let mut screen_tree: Option<A11yTree> = None;
     let mut model_context = LiveContext::default();
     let mut pending_context: Option<LiveTurn> = None;
+    let mut pending_gate: Option<TurnGate> = None;
     let mut pending_screen_signature = None;
     let mut screen_frame: Option<PathBuf> = None;
     let mut manual_pending: Option<String> = None;
@@ -758,14 +759,15 @@ async fn run_session(
             answer_id = format!("manual-{manual_number}");
             emitter.send("question_detected", $source, Some(&answer_id), Some(&$text))?;
             emitter.send("answer_started", $source, Some(&answer_id), None)?;
+            let mut staged_gate = turn_gate.clone();
             let question_prompt = if $with_context {
-                turn_gate.manual(&$text)
+                staged_gate.manual(&$text)
             } else {
                 // Track the actual detected question for speech refinement,
                 // while the model receives its structured screen update only.
                 // Reusing a generic gate key would label every changed screen
                 // as a clarification and duplicate the previous tree/answer.
-                let _ = turn_gate.manual(&$text);
+                let _ = staged_gate.manual(&$text);
                 SCREEN_QUESTION.to_owned()
             };
             let input = if !read_screen {
@@ -777,13 +779,22 @@ async fn run_session(
             } else {
                 ScreenInput::Unavailable
             };
-            let turn = model_context.prepare(&question_prompt, input, context_budget)?;
+            let turn = match model_context.prepare(&question_prompt, input, context_budget) {
+                Ok(turn) => turn,
+                Err(message) => {
+                    pending_screen_signature = None;
+                    transcript.last_final = None;
+                    emitter.send("error", "system", Some(&answer_id), Some(&message))?;
+                    continue;
+                }
+            };
             let prompt = turn.prompt().to_owned();
             let history = turn.history().to_vec();
             let image = vision_frame(&provider, screen_frame.as_deref());
             emitter.send("ai_input", $source, Some(&answer_id), Some(&prompt))?;
             let (task, rx) = start_answer(provider.clone(), prompt, image, history);
             pending_context = Some(turn);
+            pending_gate = Some(staged_gate);
             answer_task = Some(task);
             answer_rx = rx;
             answer_sent = 0;
@@ -818,6 +829,7 @@ async fn run_session(
                         if let Some(mut old) = session.take() { old.stop().await; }
                         answer_task = None;
                         pending_context = None;
+                        pending_gate = None;
                         pending_screen_signature = None;
                         screen_tree = None;
                         screen_context.clear();
@@ -834,6 +846,9 @@ async fn run_session(
                         transcript.last_final = None;
                         let _ = reader_signals.send(ReaderSignal::Resume(generation));
                         emitter.send("session_resumed", label, None, None)?;
+                        if let Some(text) = manual_pending.take() {
+                            start_manual!(text, "manual", true);
+                        }
                     }
                     Some("read-screen") => {
                         let _ = reader_signals.send(ReaderSignal::Read);
@@ -843,7 +858,9 @@ async fn run_session(
                             emitter.send("answer_cancelled", label, Some(&answer_id), None)?;
                         }
                         pending_context = None;
+                        pending_gate = None;
                         pending_screen_signature = None;
+                        transcript.last_final = None;
                         if let Some(text) = manual_pending.take() {
                             start_manual!(text, "manual", true);
                         } else if !transcript.pending.is_empty() {
@@ -958,7 +975,8 @@ async fn run_session(
                     emitter.send("speech_status", label, None, Some("Not sent · speech too short"))?;
                     continue;
                 }
-                let Some(permitted_prompt) = turn_gate.speech(&prompt) else {
+                let mut staged_gate = turn_gate.clone();
+                let Some(permitted_prompt) = staged_gate.speech(&prompt) else {
                     let reason = match turn_gate.role {
                         SpeechRole::Interviewee => "Not sent · My answers mode; choose Solo practice to answer your speech",
                         SpeechRole::Unknown => "Not sent · Mixed/unknown mode; use manual Send",
@@ -980,13 +998,21 @@ async fn run_session(
                 } else {
                     ScreenInput::Unavailable
                 };
-                let turn = model_context.prepare(&permitted_prompt, input, context_budget)?;
+                let turn = match model_context.prepare(&permitted_prompt, input, context_budget) {
+                    Ok(turn) => turn,
+                    Err(message) => {
+                        transcript.last_final = None;
+                        emitter.send("error", "system", Some(&answer_id), Some(&message))?;
+                        continue;
+                    }
+                };
                 let context_prompt = turn.prompt().to_owned();
                 let history = turn.history().to_vec();
                 let image = vision_frame(&provider, screen_frame.as_deref());
                 emitter.send("ai_input", label, Some(&answer_id), Some(&context_prompt))?;
                 let (task, rx) = start_answer(provider.clone(), context_prompt, image, history);
                 pending_context = Some(turn);
+                pending_gate = Some(staged_gate);
                 pending_screen_signature = None;
                 answer_task = Some(task);
                 answer_rx = rx;
@@ -1010,10 +1036,17 @@ async fn run_session(
                         if let Some(signature) = pending_screen_signature.take() {
                             screen_dedup.remember(signature);
                         }
-                        turn_gate.completed(&view.text);
+                        if let Some(mut accepted_gate) = pending_gate.take() {
+                            // Speaker changes are immediate user choices;
+                            // completing an older request cannot undo them.
+                            accepted_gate.role = turn_gate.role;
+                            turn_gate = accepted_gate;
+                        }
                     } else {
                         pending_context = None;
+                        pending_gate = None;
                         pending_screen_signature = None;
+                        transcript.last_final = None;
                     }
                     if view.failed { emitter.send("error", "provider", Some(&answer_id), Some(view.error.as_deref().unwrap_or("AI provider failed; check endpoint, credentials and model.")))?; }
                     else { emitter.send("answer_completed", label, Some(&answer_id), None)?; }

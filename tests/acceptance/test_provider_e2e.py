@@ -17,6 +17,8 @@ CLI_CANDIDATES = (
     ROOT / "target/debug/bin/socket_stream",
     ROOT / "bin/socket_stream",
 )
+if os.environ.get("CARGO_TARGET_DIR"):
+    CLI_CANDIDATES = (Path(os.environ["CARGO_TARGET_DIR"]) / "debug/socket_stream",)
 QUESTION = ROOT / "tests/fixtures/mock_provider/questions.txt"
 
 

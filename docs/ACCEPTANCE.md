@@ -99,3 +99,30 @@ hardware remain unverified in this change. Native GI identity/interface
 declarations were checked without reading a desktop. Independent reviews
 approved the capture boundaries, generation fence, transactional context and
 the explicit settings-depth preservation fix.
+
+Adversarial screen/session hardening (2026-11-28): separate Linux capture,
+tree-reconciliation and provider/session reviewers reproduced counterexamples,
+then cross-reviewed corrections. Empty layout branches can no longer exhaust
+the model's node budget before a readable question. Active compositor and
+own-window evidence prevents stale background focus from being captured;
+unavailable native role/name metadata remains partial and protected. Malformed
+or incomplete provider responses do not acknowledge screen or dialogue state.
+Speech detection now commits with successful context, preserving retries after
+failure/cancellation, current speaker choices, queued questions after Resume,
+and long Unicode clarification sessions. Serialized replay budgets and divergent
+cloned baselines have explicit regressions.
+
+The final isolated instrumentation gate passed Rust formatting, Clippy and 281
+Rust tests. Python unit tests ran 716 cases (710 passed, 6 skipped); acceptance
+ran 56 (49 passed, 7 skipped), including 11 new CLI/HTTP integration regressions.
+Changed production line coverage against main is 96.00% (1,008 / 1,050); this
+hardening pass alone is 97.01% (162 / 167). Each of the five feature-module gates
+exceeds 98%. Coverage builds are isolated from ordinary development artifacts;
+the environment is established before cleaning, and all acceptance fixtures use
+the instrumented CLI. See ADVERSARIAL-SCREEN-REVIEW.md and the latest
+SCREEN-READING-COVERAGE.json for exact scope, reproduced failures and evidence.
+
+The private Wayland fixture was attempted again and still skipped because this
+executor rejects AF_UNIX sockets. Actual Ubuntu 26/GNOME/browser behavior,
+graphical portal permissions and hardware remain unverified by this hardening
+pass. Test coverage does not establish a 100% reliability guarantee.

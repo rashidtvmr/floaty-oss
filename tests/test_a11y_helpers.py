@@ -506,6 +506,113 @@ class WaylandForegroundTests(unittest.TestCase):
                     self.assertIs(helper.select_foreground(desktop, FakeAtspi), frame)
                     self.assertEqual(helper.extract(desktop, FakeAtspi), "Native Wayland question")
 
+    def test_active_mirror_does_not_promote_stale_background_focus(self):
+        for mirror_name in helper.COMPOSITOR_APPLICATIONS:
+            for active_level in ("application", "frame"):
+                for mode in ("text", "tree"):
+                    with self.subTest(mirror=mirror_name, active_level=active_level, mode=mode):
+                        stale = FakeNode("entry", text="SYNTHETIC_BACKGROUND_PRIVATE", states=("FOCUSED",))
+                        stale.get_text_iface = mock.Mock(wraps=stale.get_text_iface)
+                        background = FakeNode("frame", name="Background", children=[stale])
+                        mirror_frame = FakeNode("frame", states=("ACTIVE",) if active_level == "frame" else ())
+                        mirror = FakeNode("application", name=mirror_name, children=[mirror_frame],
+                                          states=("ACTIVE",) if active_level == "application" else ())
+                        desktop = FakeNode("desktop", children=[
+                            mirror, FakeNode("application", name="Background app", children=[background])])
+                        with mock.patch.dict(os.environ, {
+                            "XDG_SESSION_TYPE": "wayland", "WAYLAND_DISPLAY": "wayland-0"
+                        }, clear=True):
+                            with self.assertRaisesRegex(RuntimeError, "Choose question window"):
+                                if mode == "text":
+                                    helper.extract(desktop, FakeAtspi)
+                                else:
+                                    helper.extract_tree(desktop, FakeAtspi, helper.parse_args([]))
+                        stale.get_text_iface.assert_not_called()
+
+    def test_active_mirror_preserves_independent_active_application(self):
+        current = FakeNode("frame", text="Current application content")
+        active_app = FakeNode("application", states=("ACTIVE",), children=[current])
+        mirror = FakeNode("application", name="gnome-shell", states=("ACTIVE",))
+        background = FakeNode("application", children=[
+            FakeNode("frame", children=[FakeNode("entry", states=("FOCUSED",), text="Background content")])])
+        with mock.patch.dict(os.environ, {}, clear=True):
+            desktop = FakeNode("desktop", children=[mirror, background, active_app])
+            self.assertIs(helper.select_foreground(desktop, FakeAtspi), current)
+            self.assertEqual(helper.extract(desktop, FakeAtspi), "Current application content")
+
+    def test_active_mirror_with_failed_role_lookup_still_blocks_background_focus(self):
+        mirror_frame = FakeNode("frame", states=("ACTIVE",))
+        mirror_frame.get_role_name = mock.Mock(side_effect=RuntimeError("mirror role unavailable"))
+        mirror = FakeNode("application", name="gnome-shell", children=[mirror_frame])
+        stale = FakeNode("entry", states=("FOCUSED",), text="SYNTHETIC_BACKGROUND_PRIVATE")
+        stale.get_text_iface = mock.Mock(wraps=stale.get_text_iface)
+        desktop = FakeNode("desktop", children=[mirror, FakeNode("application", children=[FakeNode("frame", children=[stale])])])
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "Choose question window"):
+                helper.extract(desktop, FakeAtspi)
+        stale.get_text_iface.assert_not_called()
+
+    def test_active_mirror_preserves_explicit_unfocused_target(self):
+        target = native_node("frame", "/window/selected", text="Explicitly selected question")
+        mirror = FakeNode("application", name="gnome-shell", children=[FakeNode("frame", states=("ACTIVE",))])
+        desktop = FakeNode("desktop", children=[mirror, FakeNode("application", children=[target])])
+        with mock.patch.dict(os.environ, {"SOCKET_STREAM_ATSPI_TARGET": helper.window_identity(target)}, clear=True):
+            self.assertIs(helper.select_foreground(desktop, FakeAtspi), target)
+            self.assertEqual(helper.extract(desktop, FakeAtspi), "Explicitly selected question")
+
+    def test_unreadable_active_window_role_blocks_stale_background_focus(self):
+        for mode in ("text", "tree"):
+            for background_states in ((), ("ACTIVE",)):
+                with self.subTest(mode=mode, background_states=background_states):
+                    unavailable = FakeNode("frame", name="Unreadable active window", states=("ACTIVE",))
+                    unavailable.get_role_name = mock.Mock(side_effect=RuntimeError("native role unavailable"))
+                    unavailable.get_name = mock.Mock(wraps=unavailable.get_name)
+                    stale = FakeNode("entry", text="SYNTHETIC_BACKGROUND_PRIVATE", states=("FOCUSED",))
+                    stale.get_text_iface = mock.Mock(wraps=stale.get_text_iface)
+                    background = FakeNode("frame", states=background_states, children=[stale])
+                    desktop = FakeNode("desktop", children=[FakeNode("application", children=[unavailable]),
+                                                           FakeNode("application", children=[background])])
+                    with mock.patch.dict(os.environ, {}, clear=True):
+                        with self.assertRaisesRegex(RuntimeError, "Choose question window"):
+                            if mode == "text":
+                                helper.extract(desktop, FakeAtspi)
+                            else:
+                                helper.extract_tree(desktop, FakeAtspi, helper.parse_args([]))
+                    unavailable.get_name.assert_not_called()
+                    stale.get_text_iface.assert_not_called()
+
+    def test_unreadable_active_window_role_preserves_explicit_other_target(self):
+        unavailable = FakeNode("frame", states=("ACTIVE",))
+        unavailable.get_role_name = mock.Mock(side_effect=RuntimeError("native role unavailable"))
+        target = native_node("frame", "/window/selected", text="Explicit question")
+        desktop = FakeNode("desktop", children=[FakeNode("application", children=[unavailable]),
+                                               FakeNode("application", children=[target])])
+        with mock.patch.dict(os.environ, {"SOCKET_STREAM_ATSPI_TARGET": helper.window_identity(target)}, clear=True):
+            self.assertEqual(helper.extract(desktop, FakeAtspi), "Explicit question")
+
+    def test_unreadable_inactive_or_defunct_window_does_not_block_focus_fallback(self):
+        for states in ((), ("ACTIVE", "DEFUNCT")):
+            with self.subTest(states=states):
+                unavailable = FakeNode("frame", states=states)
+                unavailable.get_role_name = mock.Mock(side_effect=RuntimeError("native role unavailable"))
+                target = FakeNode("frame", children=[FakeNode("entry", states=("FOCUSED",), text="Current question")])
+                desktop = FakeNode("desktop", children=[FakeNode("application", children=[unavailable]),
+                                                       FakeNode("application", children=[target])])
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    self.assertEqual(helper.extract(desktop, FakeAtspi), "Current question")
+
+    def test_inactive_or_defunct_mirrors_preserve_normal_focus_fallback(self):
+        for app_states, frame_states in (((), ()), (("ACTIVE", "DEFUNCT"), ("ACTIVE",)),
+                                         ((), ("ACTIVE", "DEFUNCT"))):
+            with self.subTest(app_states=app_states, frame_states=frame_states):
+                target = FakeNode("frame", children=[FakeNode("entry", states=("FOCUSED",), text="Current field")])
+                mirror = FakeNode("application", name="gnome-shell", states=app_states,
+                                  children=[FakeNode("frame", states=frame_states)])
+                desktop = FakeNode("desktop", children=[mirror, FakeNode("application", children=[target])])
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    self.assertIs(helper.select_foreground(desktop, FakeAtspi), target)
+                    self.assertEqual(helper.extract(desktop, FakeAtspi), "Current field")
+
     def test_defunct_active_frame_and_application_are_ignored(self):
         gone = FakeNode("frame", states=("ACTIVE", "DEFUNCT"), text="stale")
         active = FakeNode("frame", states=("ACTIVE",), text="current")
@@ -533,6 +640,45 @@ class WaylandForegroundTests(unittest.TestCase):
         desktop = FakeNode("desktop", children=[mirror, FakeNode("application", name="python3", children=[own])])
         with self.assertRaises(helper.OwnWindowError):
             helper.select_foreground(desktop, FakeAtspi)
+
+    def test_own_active_window_blocks_stale_active_background_focus(self):
+        for identification in ("title", "application", "pid"):
+            for active_level in ("application", "frame"):
+                for mode in ("text", "tree"):
+                    with self.subTest(identification=identification, active_level=active_level, mode=mode):
+                        own_frame = FakeNode("frame", name="SocketStream — Practice Answer" if identification == "title" else "Answer",
+                                             states=("ACTIVE",) if active_level == "frame" else ())
+                        own_app = FakeNode("application", name="SocketStream" if identification == "application" else "python3",
+                                           pid=4242 if identification == "pid" else 10, children=[own_frame],
+                                           states=("ACTIVE",) if active_level == "application" else ())
+                        stale = FakeNode("entry", text="SYNTHETIC_BACKGROUND_PRIVATE", states=("FOCUSED",))
+                        stale.get_text_iface = mock.Mock(wraps=stale.get_text_iface)
+                        background = FakeNode("frame", states=("ACTIVE",), children=[stale])
+                        desktop = FakeNode("desktop", children=[own_app, FakeNode("application", children=[background])])
+                        with mock.patch.dict(os.environ, {"SOCKET_STREAM_GUI_PID": "4242"}, clear=True):
+                            with self.assertRaises(helper.OwnWindowError):
+                                if mode == "text":
+                                    helper.extract(desktop, FakeAtspi)
+                                else:
+                                    helper.extract_tree(desktop, FakeAtspi, helper.parse_args([]))
+                        stale.get_text_iface.assert_not_called()
+
+    def test_own_active_window_preserves_explicit_other_target(self):
+        own = FakeNode("frame", name="SocketStream — Practice Answer", states=("ACTIVE",))
+        target = native_node("frame", "/window/selected", text="Selected question")
+        desktop = FakeNode("desktop", children=[FakeNode("application", name="python3", children=[own]),
+                                               FakeNode("application", children=[target])])
+        with mock.patch.dict(os.environ, {"SOCKET_STREAM_ATSPI_TARGET": helper.window_identity(target)}, clear=True):
+            self.assertIs(helper.select_foreground(desktop, FakeAtspi), target)
+            self.assertEqual(helper.extract(desktop, FakeAtspi), "Selected question")
+
+    def test_inactive_own_window_does_not_block_active_question(self):
+        own = FakeNode("frame", name="SocketStream — Practice Answer")
+        target = FakeNode("frame", states=("ACTIVE",), text="Current question")
+        desktop = FakeNode("desktop", children=[FakeNode("application", name="python3", children=[own]),
+                                               FakeNode("application", children=[target])])
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(helper.extract(desktop, FakeAtspi), "Current question")
 
     def test_active_application_with_one_window_does_not_require_widget_focus(self):
         frame = FakeNode("frame", text="Application content")
@@ -562,6 +708,99 @@ class WindowInventoryBoundaryTests(unittest.TestCase):
 
 
 class ProtectedAndUnavailableNodeTests(unittest.TestCase):
+    def test_empty_native_role_is_unavailable_but_empty_accessible_name_is_valid(self):
+        for role in (None, "", " "):
+            with self.subTest(role=role):
+                node = FakeNode(role, name="SYNTHETIC_UNREADABLE", text="SYNTHETIC_UNREADABLE")
+                node.get_name = mock.Mock(wraps=node.get_name)
+                node.get_text_iface = mock.Mock(wraps=node.get_text_iface)
+                tree = helper.build_tree(node, FakeAtspi, 20, 5, 1000)
+                self.assertTrue(tree["truncated"])
+                self.assertEqual(tree["nodes"], [])
+                node.get_name.assert_not_called()
+                node.get_text_iface.assert_not_called()
+        tree = helper.build_tree(FakeNode("paragraph", name="", text="Unlabelled text"), FakeAtspi, 20, 5, 1000)
+        self.assertFalse(tree["truncated"])
+        self.assertEqual(tree["nodes"][0]["text"], "Unlabelled text")
+
+    def test_failed_role_or_name_omits_subtree_until_metadata_recovers(self):
+        for method in ("get_role_name", "get_name"):
+            with self.subTest(method=method):
+                child = native_node("label", "/inaccessible/child", text="SYNTHETIC_UNREADABLE_CHILD")
+                unavailable = native_node("panel", "/inaccessible", name="Retained label", children=[child])
+                sibling = native_node("paragraph", "/valid", text="Valid sibling")
+                frame = native_node("frame", "/window", name="Selected window", children=[unavailable, sibling])
+                original_read = getattr(unavailable, method)
+                child.get_text_iface = mock.Mock(wraps=child.get_text_iface)
+                unavailable.get_text_iface = mock.Mock(wraps=unavailable.get_text_iface)
+                unavailable.get_child_count = mock.Mock(wraps=unavailable.get_child_count)
+                setattr(unavailable, method, mock.Mock(side_effect=RuntimeError("native metadata unavailable")))
+                partial = helper.build_tree(frame, FakeAtspi, 20, 5, 1000)
+                self.assertTrue(partial["truncated"])
+                self.assertEqual([node["stable_id"] for node in partial["nodes"]],
+                                 [helper.window_identity(frame), helper.window_identity(sibling)])
+                self.assertEqual([node["parent"] for node in partial["nodes"]], [None, 1])
+                self.assertNotIn("SYNTHETIC_UNREADABLE_CHILD", json.dumps(partial))
+                unavailable.get_text_iface.assert_not_called()
+                unavailable.get_child_count.assert_not_called()
+                child.get_text_iface.assert_not_called()
+
+                setattr(unavailable, method, original_read)
+                complete = helper.build_tree(frame, FakeAtspi, 20, 5, 1000)
+                self.assertFalse(complete["truncated"])
+                self.assertEqual([node["parent"] for node in complete["nodes"]], [None, 1, 2, 1])
+                self.assertEqual(complete["nodes"][1]["stable_id"], helper.window_identity(unavailable))
+                self.assertEqual(complete["nodes"][1]["name"], "Retained label")
+                self.assertEqual(complete["nodes"][2]["text"], "SYNTHETIC_UNREADABLE_CHILD")
+
+    def test_failed_root_metadata_is_not_read_again_for_application_label(self):
+        for method in ("get_role_name", "get_name"):
+            with self.subTest(method=method):
+                root = native_node("frame", "/window", name="SYNTHETIC_UNREADABLE_ROOT",
+                                   children=[FakeNode("paragraph", text="SYNTHETIC_UNREADABLE_CHILD")])
+                original_read = getattr(root, method)
+                failed_read = mock.Mock(side_effect=[RuntimeError("metadata unavailable"), original_read()])
+                setattr(root, method, failed_read)
+                tree = helper.build_tree(root, FakeAtspi, 20, 5, 1000)
+                self.assertTrue(tree["truncated"])
+                self.assertEqual(tree["nodes"], [])
+                self.assertEqual(tree["app"], "")
+                self.assertNotIn("SYNTHETIC_UNREADABLE", json.dumps(tree))
+                failed_read.assert_called_once_with()
+
+    def test_failed_protected_role_is_opaque_without_a_protected_state_enum(self):
+        native_states = types.SimpleNamespace(FOCUSED="FOCUSED", ACTIVE="ACTIVE", DEFUNCT="DEFUNCT")
+        native_atspi = types.SimpleNamespace(StateType=native_states, CoordType=FakeAtspi.CoordType)
+        protected = FakeNode("password text", name="SYNTHETIC_SECRET_NAME",
+                             text="SYNTHETIC_SECRET_TEXT", children=[FakeNode("entry", text="SYNTHETIC_SECRET_CHILD")])
+        protected.get_role_name = mock.Mock(side_effect=RuntimeError("native role unavailable"))
+        protected.get_name = mock.Mock(wraps=protected.get_name)
+        protected.get_text_iface = mock.Mock(wraps=protected.get_text_iface)
+        protected.get_child_count = mock.Mock(wraps=protected.get_child_count)
+        tree = helper.build_tree(protected, native_atspi, 20, 5, 1000)
+        self.assertTrue(tree["truncated"])
+        self.assertEqual(tree["nodes"], [])
+        self.assertNotIn("SYNTHETIC_SECRET", json.dumps(tree))
+        self.assertIsNone(helper.focused_descendant(protected, native_atspi))
+        protected.get_name.assert_not_called()
+        protected.get_text_iface.assert_not_called()
+        protected.get_child_count.assert_not_called()
+
+    def test_legacy_metadata_failure_does_not_read_descendants(self):
+        for method in ("get_role_name", "get_name"):
+            with self.subTest(method=method):
+                child = FakeNode("entry", text="SYNTHETIC_UNREADABLE_CHILD")
+                unreadable = FakeNode("panel", children=[child])
+                setattr(unreadable, method, mock.Mock(side_effect=RuntimeError("native metadata unavailable")))
+                unreadable.get_text_iface = mock.Mock(wraps=unreadable.get_text_iface)
+                child.get_text_iface = mock.Mock(wraps=child.get_text_iface)
+                frame = FakeNode("frame", states=("ACTIVE",), children=[unreadable, FakeNode("label", text="Valid sibling")])
+                desktop = FakeNode("desktop", children=[FakeNode("application", children=[frame])])
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    self.assertEqual(helper.extract(desktop, FakeAtspi), "Valid sibling")
+                unreadable.get_text_iface.assert_not_called()
+                child.get_text_iface.assert_not_called()
+
     def test_protected_subtree_is_an_opaque_leaf_in_tree_and_text_modes(self):
         child = FakeNode("entry", text="must never be read", states=("FOCUSED",))
         protected = FakeNode("password text", name="mirrored secret", children=[child])
@@ -709,6 +948,52 @@ class RuntimeInitializationTests(unittest.TestCase):
         self.assertEqual(timer.call_args_list[-1], mock.call(helper.signal.ITIMER_REAL, 0))
         self.assertEqual(signal_handler.call_args_list[-1], mock.call(helper.signal.SIGALRM, "old-handler"))
         return code, stdout.getvalue(), stderr.getvalue(), atspi, signal_handler
+
+    def test_own_active_role_failure_keeps_exit_four_without_reading_node_name(self):
+        for identification in ("pid", "application"):
+            for mode in ("text", "tree"):
+                with self.subTest(identification=identification, mode=mode):
+                    own = FakeNode("frame", name="SYNTHETIC_UNREADABLE_OWN_NAME", states=("ACTIVE",))
+                    own.get_role_name = mock.Mock(side_effect=RuntimeError("native role unavailable"))
+                    own.get_name = mock.Mock(wraps=own.get_name)
+                    own.get_text_iface = mock.Mock(wraps=own.get_text_iface)
+                    app = FakeNode("application", name="SocketStream" if identification == "application" else "python3",
+                                   pid=4242 if identification == "pid" else 10, children=[own])
+                    stale = FakeNode("entry", text="SYNTHETIC_BACKGROUND_PRIVATE", states=("FOCUSED",))
+                    stale.get_text_iface = mock.Mock(wraps=stale.get_text_iface)
+                    desktop = FakeNode("desktop", children=[app, FakeNode("application", children=[
+                        FakeNode("frame", states=("ACTIVE",), children=[stale])])])
+                    with mock.patch.dict(os.environ, {"SOCKET_STREAM_GUI_PID": "4242"}, clear=True):
+                        code, output, error, _, _ = self.run_helper(["--mode", mode], desktop)
+                    self.assertEqual((code, output, error), (4, "", ""))
+                    own.get_name.assert_not_called()
+                    own.get_text_iface.assert_not_called()
+                    stale.get_text_iface.assert_not_called()
+
+    def test_known_own_active_keeps_exit_four_before_unrelated_role_failure(self):
+        own = FakeNode("frame", name="SocketStream — Practice Answer", states=("ACTIVE",))
+        unavailable = FakeNode("frame", states=("ACTIVE",))
+        unavailable.get_role_name = mock.Mock(side_effect=RuntimeError("native role unavailable"))
+        unavailable.get_name = mock.Mock(wraps=unavailable.get_name)
+        desktop = FakeNode("desktop", children=[FakeNode("application", children=[own]),
+                                               FakeNode("application", children=[unavailable])])
+        with mock.patch.dict(os.environ, {}, clear=True):
+            code, output, error, _, _ = self.run_helper([], desktop)
+        self.assertEqual((code, output, error), (4, "", ""))
+        unavailable.get_name.assert_not_called()
+
+    def test_unreadable_own_active_role_preserves_explicit_different_target(self):
+        own = FakeNode("frame", states=("ACTIVE",))
+        own.get_role_name = mock.Mock(side_effect=RuntimeError("native role unavailable"))
+        own.get_name = mock.Mock(wraps=own.get_name)
+        target = native_node("frame", "/window/selected", children=[FakeNode("paragraph", text="Pinned question")])
+        desktop = FakeNode("desktop", children=[FakeNode("application", name="python3", pid=4242, children=[own]),
+                                               FakeNode("application", children=[target])])
+        with mock.patch.dict(os.environ, {"SOCKET_STREAM_GUI_PID": "4242",
+                                         "SOCKET_STREAM_ATSPI_TARGET": helper.window_identity(target)}, clear=True):
+            code, output, error, _, _ = self.run_helper(["--mode", "text"], desktop)
+        self.assertEqual((code, output, error), (0, "Pinned question\n", ""))
+        own.get_name.assert_not_called()
 
     def test_init_success_and_already_initialized_are_accepted(self):
         for status in (0, 1):

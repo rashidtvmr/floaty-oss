@@ -147,8 +147,7 @@ impl StoredSnapshot {
 
 #[derive(Debug, Clone)]
 pub struct PreparedScreenUpdate {
-    identity: Arc<()>,
-    generation: u64,
+    lineage: Arc<()>,
     payload: Option<ScreenUpdate>,
     next: StoredSnapshot,
 }
@@ -180,8 +179,10 @@ impl PreparedScreenUpdate {
 /// The last screen state acknowledged by the model, not the last capture.
 #[derive(Debug, Clone, Default)]
 pub struct ScreenTreeSession {
-    identity: Arc<()>,
-    generation: u64,
+    // Clones share a baseline until one commits or resets. Unlike a counter,
+    // this token also distinguishes branches that advance the same number of
+    // turns but acknowledge different model states.
+    lineage: Arc<()>,
     baseline: Option<StoredSnapshot>,
 }
 
@@ -227,8 +228,7 @@ impl ScreenTreeSession {
             }
         };
         Ok(PreparedScreenUpdate {
-            identity: self.identity.clone(),
-            generation: self.generation,
+            lineage: self.lineage.clone(),
             payload,
             next,
         })
@@ -237,20 +237,18 @@ impl ScreenTreeSession {
     /// Commit only after the corresponding model turn succeeds. Rejects
     /// duplicate, out-of-order and pre-reset acknowledgements.
     pub fn commit(&mut self, prepared: PreparedScreenUpdate) -> bool {
-        if !Arc::ptr_eq(&prepared.identity, &self.identity)
-            || prepared.generation != self.generation
-        {
+        if !Arc::ptr_eq(&prepared.lineage, &self.lineage) {
             return false;
         }
         self.baseline = Some(prepared.next);
-        self.generation = self.generation.wrapping_add(1);
+        self.lineage = Arc::new(());
         true
     }
 
     /// New session or conversation checkpoint: the next update is a snapshot.
     pub fn reset(&mut self) {
         self.baseline = None;
-        self.generation = self.generation.wrapping_add(1);
+        self.lineage = Arc::new(());
     }
 }
 
@@ -954,6 +952,30 @@ mod tests {
     }
 
     #[test]
+    fn divergent_clones_cannot_acknowledge_each_others_screen_baseline() {
+        let original = sample();
+        let mut other = original.clone();
+        other.nodes[1].text = "Different branch question".into();
+        let mut first = ScreenTreeSession::default();
+        let mut second = first.clone();
+        assert!(first.commit(prepare(&first, &original)));
+        assert!(second.commit(prepare(&second, &other)));
+        // Both branches have acknowledged one turn, but their model states
+        // differ. A session ID plus a numeric revision cannot distinguish them.
+        other.nodes[1].text = "Edited on the second branch".into();
+        let foreign = prepare(&second, &other);
+        assert!(!first.commit(foreign));
+        assert!(prepare(&first, &original).payload().is_none());
+
+        // Resetting divergent clones together must not reunify their lineage.
+        first.reset();
+        second.reset();
+        assert!(!first.commit(prepare(&second, &other)));
+        let staged = first.clone();
+        assert!(first.commit(prepare(&staged, &original)));
+    }
+
+    #[test]
     fn node_depth_and_zero_node_budgets_are_explicitly_incomplete() {
         let tree = sample();
         for (nodes, depth, expected) in [(0, 20, 0), (1, 20, 1), (800, 0, 1)] {
@@ -1456,5 +1478,78 @@ mod tests {
                 .any(|node| node.text == "Selected direct child")
         );
         assert!(!model.values().any(|node| node.text.contains("Unrelated")));
+    }
+
+    #[test]
+    fn structural_pruning_keeps_content_ancestors_actionable_focus_and_image_nodes() {
+        let mut tree = sample();
+        tree.nodes = vec![
+            node(1, None, "root", ""),
+            node(2, Some(1), "question-parent", ""),
+            node(3, Some(2), "question-wrapper", ""),
+            node(4, Some(3), "question", "Meaningful question"),
+            node(5, Some(1), "empty-parent", ""),
+            node(6, Some(5), "empty-child", ""),
+            node(7, Some(6), "empty-leaf", ""),
+            node(8, Some(1), "action", ""),
+            node(9, Some(1), "graphic", ""),
+            node(10, Some(1), "focus", ""),
+            node(11, Some(1), "named-panel", ""),
+            node(12, Some(1), "text-panel", "Readable panel content"),
+            node(13, Some(1), "empty-scroll", ""),
+        ];
+        for node in &mut tree.nodes {
+            node.role = "panel".into();
+        }
+        tree.nodes[3].role = "paragraph".into();
+        tree.nodes[5].role = "filler".into();
+        tree.nodes[6].role = "separator".into();
+        tree.nodes[7].role = "button".into();
+        tree.nodes[8].image = true;
+        tree.nodes[8].bounds = Some([10, 20, 200, 300]);
+        tree.nodes[9].focused = true;
+        tree.nodes[10].name = "Accessible group label".into();
+        tree.nodes[12].role = "scroll pane".into();
+        let original = tree.clone();
+        for mode in [ReadMode::Tree, ReadMode::Text] {
+            let scoped = tree.question_tree_for_mode(mode);
+            assert_eq!(
+                scoped.nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
+                [1, 2, 3, 4, 8, 9, 10, 11, 12]
+            );
+            assert!(!scoped.truncated);
+            for node in &scoped.nodes {
+                assert_eq!(
+                    node,
+                    original
+                        .nodes
+                        .iter()
+                        .find(|source| source.id == node.id)
+                        .unwrap()
+                );
+            }
+            let prepared = prepare(&ScreenTreeSession::default(), &scoped);
+            assert!(prepared.is_complete());
+            assert!(prepared.to_json().unwrap().contains("Meaningful question"));
+        }
+        assert_eq!(tree, original, "projecting a tree cannot mutate its source");
+        tree.truncated = true;
+        assert!(tree.question_tree_for_mode(ReadMode::Tree).truncated);
+    }
+
+    #[test]
+    fn focused_scope_keeps_empty_direct_children_after_structural_pruning() {
+        let mut tree = sample();
+        tree.nodes[1].focused = true;
+        tree.nodes[2].parent = Some(2);
+        tree.nodes[2].role = "panel".into();
+        tree.nodes[2].text.clear();
+        for mode in [ReadMode::Focused, ReadMode::Auto] {
+            let scoped = tree.question_tree_for_mode(mode);
+            assert_eq!(scoped.nodes.len(), 3);
+            assert_eq!(scoped.nodes[2].stable_id, tree.nodes[2].stable_id);
+            assert_eq!(scoped.nodes[2].parent, Some(2));
+        }
+        assert_eq!(tree.question_tree_for_mode(ReadMode::Tree).nodes.len(), 2);
     }
 }

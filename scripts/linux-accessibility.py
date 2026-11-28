@@ -69,7 +69,8 @@ def focused_descendant(node, atspi, depth=0, visited=None, max_depth=MAX_DEPTH, 
         return None
     if not remember_node(node, visited):
         return None
-    if has_state(node, "DEFUNCT", atspi) or role_is_protected(safe_role(node), has_state(node, "PROTECTED", atspi)):
+    role = safe_role(node, fallback=None)
+    if role is None or has_state(node, "DEFUNCT", atspi) or role_is_protected(role, has_state(node, "PROTECTED", atspi)):
         return None
     if has_state(node, "FOCUSED", atspi):
         return node
@@ -128,18 +129,18 @@ def normalize_bounds(extents):
 # --- Node accessors ---------------------------------------------------------
 
 
-def safe_role(node):
+def safe_role(node, fallback=""):
     try:
-        return (node.get_role_name() or "").lower()
+        return (node.get_role_name() or "").strip().lower() or fallback
     except Exception:
-        return ""
+        return fallback
 
 
-def safe_name(node):
+def safe_name(node, fallback=""):
     try:
         return str(node.get_name() or "").strip()
     except Exception:
-        return ""
+        return fallback
 
 
 def text_content(text_iface, count, atspi=None):
@@ -197,6 +198,15 @@ def safe_pid(node):
         return None
 
 
+def is_own_window(app, window):
+    """Identify the capture GUI without reading any descendant content."""
+    gui_pid = os.environ.get("SOCKET_STREAM_GUI_PID", "")
+    app_name = safe_name(app).lower()
+    return ((gui_pid.isdecimal() and safe_pid(app) == int(gui_pid))
+            or "socket_stream" in app_name or "socketstream" in app_name
+            or safe_name(window).lower().startswith(("socketstream", "socket_stream")))
+
+
 def select_foreground(desktop, atspi):
     """Return the active/focused application, or ``None``.
 
@@ -205,10 +215,19 @@ def select_foreground(desktop, atspi):
     # GNOME exposes frame mirrors for its decorations. They are not the
     # application's content tree and can share its ACTIVE state. Apply the
     # same exclusion as the explicit-window picker, on both XWayland and
-    # native Wayland. No X11 active-window query is needed.
-    applications = [app for app in children(desktop)
-                    if safe_name(app).lower() not in COMPOSITOR_APPLICATIONS
-                    and not has_state(app, "DEFUNCT", atspi)]
+    # native Wayland. Keep excluded mirrors as foreground evidence: when an
+    # app's bridge is unavailable, its active mirror must not promote a
+    # background application's stale FOCUSED widget to the capture target.
+    # No X11 active-window query is needed.
+    applications = []
+    compositor_applications = []
+    for app in children(desktop):
+        if has_state(app, "DEFUNCT", atspi):
+            continue
+        if safe_name(app).lower() in COMPOSITOR_APPLICATIONS:
+            compositor_applications.append(app)
+        else:
+            applications.append(app)
 
     def focused(node):
         return focused_descendant(node, atspi, max_depth=DEFAULT_TREE_DEPTH, max_nodes=DEFAULT_TREE_NODES) is not None
@@ -216,11 +235,36 @@ def select_foreground(desktop, atspi):
     # AT-SPI commonly puts ACTIVE on the top-level frame, not its application.
     # Prefer that frame over stale FOCUSED widgets in background applications,
     # and read only that window, never all of an application's open windows.
-    frames = [(app, frame) for app in applications for frame in children(app)
-              if safe_role(frame) in ("frame", "window", "dialog")
-              and not has_state(frame, "DEFUNCT", atspi)]
+    top_level = [(app, node, safe_role(node, fallback=None)) for app in applications for node in children(app)
+                 if not has_state(node, "DEFUNCT", atspi)]
+    frames = [(app, node) for app, node, role in top_level if role in ("frame", "window", "dialog")]
     target = os.environ.get("SOCKET_STREAM_ATSPI_TARGET")
     active_frames = [(app, frame) for app, frame in frames if has_state(frame, "ACTIVE", atspi)]
+    active_applications = [app for app in applications if has_state(app, "ACTIVE", atspi)]
+    if target is None:
+        # Dropping an active window because its role lookup failed would
+        # again make a background widget's stale focus look authoritative.
+        # Its unreadable metadata also prevents safely resolving ambiguity
+        # against another ACTIVE window. Explicit pinned targets remain safe.
+        unavailable_active_apps = [app for app, node, role in top_level
+                                   if role is None and has_state(node, "ACTIVE", atspi)]
+        # The GUI can be active while another application retains stale
+        # ACTIVE/FOCUSED flags. Refuse before that focus can win a tie-break.
+        # A user-pinned different window intentionally bypasses this guard.
+        own_active = (any(is_own_window(app, frame) for app, frame in active_frames)
+                      or any(is_own_window(app, app) for app in active_applications)
+                      or any(is_own_window(app, frame) for app, frame in frames
+                             if app in active_applications)
+                      # Only application identity is safe to inspect when
+                      # the child's role is unavailable. Preserve exit 4's
+                      # no-OCR boundary without reading that child's name.
+                      or any(is_own_window(app, app) for app in unavailable_active_apps))
+        if own_active:
+            raise OwnWindowError("SocketStream is foreground")
+        if unavailable_active_apps:
+            raise RuntimeError("Active window accessibility metadata is unavailable. "
+                               "Stop and use Choose question window, then Start again; "
+                               "no other window was read.")
     if target is not None:
         candidates = [(app, frame) for app, frame in frames if window_identity(frame) == target]
         if len(candidates) != 1:
@@ -229,8 +273,16 @@ def select_foreground(desktop, atspi):
         with_focus = [(app, frame) for app, frame in active_frames if focused(frame)]
         candidates = with_focus or active_frames
     else:
-        eligible = [app for app in applications if has_state(app, "ACTIVE", atspi)]
+        eligible = active_applications
         if not eligible:
+            if any(has_state(app, "ACTIVE", atspi) or any(
+                not has_state(frame, "DEFUNCT", atspi)
+                and safe_role(frame, fallback=None) in (None, "frame", "window", "dialog")
+                and has_state(frame, "ACTIVE", atspi) for frame in children(app)
+            ) for app in compositor_applications):
+                raise RuntimeError("The active window has no readable application accessibility tree. "
+                                   "Stop and use Choose question window, then Start again; "
+                                   "no background window was read.")
             eligible = [app for app in applications if focused(app)]
         candidates = []
         for app in eligible:
@@ -255,18 +307,7 @@ def select_foreground(desktop, atspi):
 
     # The GUI passes its own PID to the capture child; avoid recursively
     # interpreting the assistant's own output as a user question.
-    gui_pid = os.environ.get("SOCKET_STREAM_GUI_PID", "")
-    try:
-        selected_pid = app.get_process_id()
-    except Exception:
-        selected_pid = None
-    try:
-        selected_name = (app.get_name() or "").lower()
-    except Exception:
-        selected_name = ""
-    if (gui_pid.isdecimal() and selected_pid == int(gui_pid)) or \
-            "socket_stream" in selected_name or "socketstream" in selected_name or \
-            safe_name(selected).lower().startswith(("socketstream", "socket_stream")):
+    if is_own_window(app, selected):
         raise OwnWindowError("SocketStream is foreground")
     return selected
 
@@ -391,11 +432,22 @@ def build_tree(selected, atspi, max_nodes, max_depth, max_chars):
         if not remember_node(node, visited) or has_state(node, "DEFUNCT", atspi):
             return
 
-        role = safe_role(node)
+        role = safe_role(node, fallback=None)
+        if role is None:
+            # Native AT-SPI has no PROTECTED state flag: the role is the
+            # essential password gate. Never read a node of unknown role.
+            state["truncated"] = True
+            return
         protected = role_is_protected(role, has_state(node, "PROTECTED", atspi))
         # Some toolkits mirror password content into accessible names or
         # descendants; a protected root is an opaque redacted leaf.
-        name = "" if protected else safe_name(node)
+        name = "" if protected else safe_name(node, fallback=None)
+        if name is None:
+            # Do not turn a transient lookup failure into an authoritative
+            # empty label. Omitting this subtree lets the partial patch
+            # retain the previous valid version until a later read recovers.
+            state["truncated"] = True
+            return
         text = "" if protected else safe_text(node, atspi, max(0, max_chars - state["chars"]), state)
         # The character budget covers both accessible labels and text. Keep
         # the pre-order allocation deterministic, with each node's name first.
@@ -433,10 +485,9 @@ def build_tree(selected, atspi, max_nodes, max_depth, max_chars):
 
     walk(selected, None, 0)
     mark_focused_ancestors(nodes)
-    app_name = ("" if role_is_protected(safe_role(selected), has_state(selected, "PROTECTED", atspi))
-                else safe_name(selected))
-    if len(app_name) > max_chars:
-        state["truncated"] = True
+    # Reuse the metadata validated by walk. A second native read can fail or
+    # recover independently and must not reveal an omitted/protected root.
+    app_name = nodes[0]["name"] if nodes else ""
     return {
         "schema": 1,
         "source": "atspi",
@@ -498,14 +549,15 @@ def extract(desktop, atspi):
             return
         if not remember_node(node, visited) or has_state(node, "DEFUNCT", atspi):
             return
+        role = safe_role(node, fallback=None)
+        if role is None or role_is_protected(role, has_state(node, "PROTECTED", atspi)):
+            return
+        name = safe_name(node, fallback=None)
+        if name is None:
+            return
         try:
-            role = (node.get_role_name() or "").lower()
-            if any(token in role for token in PROTECTED_ROLES):
-                return
-            if has_state(node, "PROTECTED", atspi):
-                return
             if role in ("text", "entry", "paragraph", "label", "heading"):
-                emit(node.get_name())
+                emit(name)
             text_iface = node.get_text_iface()
             if text_iface:
                 count = max(0, min(text_iface.get_character_count(), MAX_CHARS - size))
