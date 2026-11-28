@@ -47,7 +47,7 @@ fixture cannot run in an executor that blocks Unix sockets.
 - `cargo run -p socket_stream -- doctor`
 - `cargo run -p socket_stream -- analyze-file --file examples/sample-question.txt --provider mock`
 - macOS GUI: `./scripts/start-macos.sh` opens the installed `~/Applications/SocketStream.app` (the bundle has the stable TCC identity). Build or refresh it with `./scripts/build-macos-app.sh`; use `./scripts/start-macos.sh --dev` for the raw development GUI. See `docs/MACOS-TESTING.md`.
-- Linux GUI: `./scripts/start-linux.sh` (native GTK3; requires `python3-gi`, `gir1.2-gtk-3.0`).
+- Linux GUI: `./scripts/start-linux.sh` (native GTK3; requires `python3-gi`, `python3-cairo`, `python3-gi-cairo`, `gir1.2-gtk-3.0`).
 - `cargo run -p socket_stream -- observe --authorized --provider mock` (explicit on-screen session required).
 - `cargo run -p socket_stream -- observe --authorized --force-ocr --provider mock` to skip accessibility for canvas-based editors.
 - `cargo run -p socket_stream -- a11y --authorized` to inspect current foreground app accessible text (after OS authorization).
@@ -126,7 +126,7 @@ System audio requires a user-approved OS capture permission. Explicitly exported
 
 ## Linux Wayland dependencies
 
-On recent Ubuntu/Debian install `python3-dbus`, `python3-gi`, `gir1.2-atspi-2.0`, `gir1.2-gtk-3.0`, `gir1.2-gstreamer-1.0`, `gstreamer1.0-pipewire`, `gstreamer1.0-plugins-good`, `xdg-desktop-portal`, `tesseract-ocr`, `ffmpeg` and `imagemagick`. The `--portal` flag explicitly selects the XDG ScreenCast chooser for authorized OCR:
+On recent Ubuntu/Debian install `python3-dbus`, `python3-gi`, `python3-cairo`, `python3-gi-cairo`, `gir1.2-atspi-2.0`, `gir1.2-gtk-3.0`, `gir1.2-gstreamer-1.0`, `gstreamer1.0-pipewire`, `gstreamer1.0-plugins-good`, `xdg-desktop-portal`, `tesseract-ocr`, `ffmpeg` and `imagemagick`. The GTK answer panel needs the separate `python3-gi-cairo` bridge even when `import cairo` succeeds. `./scripts/linux-check-dependencies.sh` checks both. The `--portal` flag explicitly selects the XDG ScreenCast chooser for authorized OCR:
 
 ```bash
 cargo run -p socket_stream -- observe --authorized --portal --force-ocr --provider mock

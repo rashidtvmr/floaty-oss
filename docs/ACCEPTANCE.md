@@ -126,3 +126,34 @@ The private Wayland fixture was attempted again and still skipped because this
 executor rejects AF_UNIX sockets. Actual Ubuntu 26/GNOME/browser behavior,
 graphical portal permissions and hardware remain unverified by this hardening
 pass. Test coverage does not establish a 100% reliability guarantee.
+
+GTK responsiveness and HP verification (2026-11-28): compositor backend
+construction, status queries and share-state probes now run outside the GTK
+main loop, with coalesced reads and generation checks. Explicit setup/remove
+operations are serialized with reads; shutdown rejects late results. Explicit
+Show requests restore a previously mapped panel without requesting keyboard
+focus. The Debian installer and dependency checker now require the separate
+GI-Cairo bridge as well as Pycairo.
+
+On Ubuntu 26.04/GNOME with Wayland, the actual GTK controller and answer panel
+were tested on the existing display using generated events and isolated
+preferences. With system Pycairo but no GI-Cairo bridge, the window mapped and
+rendered its generated answer but recorded 14 callback TypeErrors. An unchanged
+rerun using a private, version-matched GI-Cairo package in a user-owned virtual
+environment passed with zero callback errors, 155.5 ms construction, 118
+heartbeat ticks, a 52.7 ms maximum gap on a 50 ms timer, and 15 heartbeats during
+a controlled 750 ms status delay. Real read-only status/share probes completed
+on workers, the rendered answer buffer matched, and owned GTK cleanup passed.
+The compositor ignored dock iconification, so native restoration from minimized
+state remains unsupported by that run; the source regression is covered by
+unit tests. The harness starts no capture or model request and takes no image.
+
+The UI changes passed independent review and 20 focused worker/controller
+regressions, five panel restoration regressions, and six actual-script dependency
+checks. Fresh Python instrumentation plus the unchanged Rust coverage record
+measures 96.09% changed production lines (1,156/1,203) against the main baseline;
+the UI delta alone is 96.73% (148/153), and the new background helper has 100%
+statement and branch coverage. System installation still requires administrator
+authentication on the HP host; the passing runtime is explicitly user-owned.
+This finite generated-data test does not establish portal permissions, real
+screen-share exclusion, hardware audio, or unlimited-session reliability.

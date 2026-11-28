@@ -10,6 +10,15 @@ done
 if [ -x /usr/bin/python3 ]; then
   if ! /usr/bin/python3 - <<'PY'
 import dbus, gi
+# Pycairo alone cannot marshal GTK draw contexts or input regions. Debian and
+# Ubuntu ship that GI bridge separately, so exercise it before reporting ready.
+try:
+    import cairo
+    gi.require_foreign("cairo")
+except ImportError:
+    print("[MISSING] GTK Cairo bridge; install python3-cairo and python3-gi-cairo.")
+    raise SystemExit(1)
+print("[OK] Pycairo and GTK Cairo bridge")
 gi.require_version("Gtk", "3.0")
 gi.require_version("Atspi", "2.0")
 gi.require_version("Gst", "1.0")

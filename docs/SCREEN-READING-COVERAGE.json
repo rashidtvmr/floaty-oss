@@ -44,9 +44,9 @@
     }
   },
   "changed_runtime_total": {
-    "covered": 1008,
-    "executable": 1050,
-    "line_percent": 96.0
+    "covered": 1156,
+    "executable": 1203,
+    "line_percent": 96.09
   },
   "changed_runtime_files": {
     "apps/socket_stream/src/live_context.rs": {
@@ -119,6 +119,30 @@
       "line_percent": 100.0,
       "missing_lines": []
     },
+    "apps/socket_stream_desktop/ui/background_refresh.py": {
+      "covered": 69,
+      "executable": 69,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "apps/socket_stream_desktop/ui/floating_overlay.py": {
+      "covered": 6,
+      "executable": 6,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "apps/socket_stream_desktop/ui/linux-gtk.py": {
+      "covered": 73,
+      "executable": 78,
+      "line_percent": 93.59,
+      "missing_lines": [
+        189,
+        904,
+        911,
+        930,
+        1028
+      ]
+    },
     "apps/socket_stream_desktop/ui/provider_settings.py": {
       "covered": 10,
       "executable": 10,
@@ -179,41 +203,11 @@
       "line_percent": 71.98
     },
     "python": {
-      "covered": 5494,
-      "executable": 11120,
-      "line_percent": 49.41
+      "covered": 5846,
+      "executable": 11250,
+      "line_percent": 51.96
     }
   },
   "passed": true,
-  "failures": [],
-  "validation_date": "2026-11-28",
-  "validation_timezone": "Asia/Kolkata",
-  "validation_environment": "Debian 13 x86_64 executor; Rust 1.100.0; cargo-llvm-cov 0.9.2; Python 3.12.14; coverage.py 7.17.5",
-  "native_wayland_validation": "Skipped: AF_UNIX socket creation is EPERM in this executor. Actual Ubuntu/GNOME/browser runtime remains unverified.",
-  "command": "bash scripts/verify-screen-coverage.sh 886ab92147542c65a057fb3ba81f40520e763c96",
-  "instrumented_build_directory": "target/screen-coverage/build",
-  "hardening_against_published_baseline": {
-    "base_commit": "5ffa8cb4c615e628d6668befb9d7fd82333d8fc1",
-    "changed_runtime_total": {
-      "covered": 162,
-      "executable": 167,
-      "line_percent": 97.01
-    },
-    "passed": true,
-    "command": "python3 scripts/check_screen_coverage.py --base-ref 5ffa8cb4c615e628d6668befb9d7fd82333d8fc1 --output target/screen-coverage/hardening-summary.json"
-  },
-  "test_results": {
-    "rust_workspace": {
-      "passed": 281,
-      "skipped": 0
-    },
-    "python_unit": {
-      "passed": 710,
-      "skipped": 6
-    },
-    "python_acceptance": {
-      "passed": 49,
-      "skipped": 7
-    }
-  }
+  "failures": []
 }

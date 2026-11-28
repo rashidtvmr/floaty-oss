@@ -1556,10 +1556,19 @@ class FloatingOverlay:
 
     def show(self):
         was_visible = self.is_visible()
+        was_shown = self._ever_shown
         self._user_hidden = False
         self._ever_shown = True
         if not self._should_hide():
             self._show_window()
+            if was_shown:
+                # A minimized GTK window can still have visible=True, so
+                # show_all() alone cannot restore an explicit Show request.
+                # Leave the first map and nonactivating focus policy intact.
+                try:
+                    self.window.deiconify()
+                except Exception:  # noqa: BLE001 - the compositor may refuse
+                    pass
             self._schedule_input_shape()
             if not was_visible and getattr(self, "_motion_enabled", False):
                 self._fade_in()

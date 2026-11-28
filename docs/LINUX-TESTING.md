@@ -44,8 +44,14 @@ On Ubuntu or Debian, review and deliberately run the optional installer:
     ./install-dependencies-debian.sh --yes
     ./check-dependencies.sh
 
-The installer uses apt and sudo. Fedora/Arch users should install the equivalent
-GTK3, AT-SPI2, DBus, GStreamer/PipeWire, Tesseract, ffmpeg, and PulseAudio tools.
+The installer uses apt and sudo. The GTK answer panel requires both Pycairo
+(`python3-cairo`) and its GObject Introspection bridge (`python3-gi-cairo`). A
+successful `import cairo` alone does not verify the GTK drawing bridge; the
+dependency check also calls `gi.require_foreign("cairo")` without opening a
+window. These packages follow the [PyGObject Ubuntu/Debian installation
+guidance](https://pygobject.gnome.org/getting_started.html#ubuntu-debian); this app
+uses GTK3. Fedora/Arch users should install the equivalent GTK3, Pycairo with its
+GI bridge, AT-SPI2, DBus, GStreamer/PipeWire, Tesseract, ffmpeg, and PulseAudio tools.
 
 ## Start with a no-cloud smoke test
 
