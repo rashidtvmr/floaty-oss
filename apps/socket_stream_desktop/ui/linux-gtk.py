@@ -252,6 +252,8 @@ def create_window():
             self.capture_exclusion = None
             self.capture_rules = initial_capture_status
             self._capture_status_pending = True
+            self._capture_request = None
+            self._question_window_request = None
             self._capture_lock = threading.Lock()
             self.capture_busy = False
             self.share_watcher = ScreenShareWatcher(interval=2.0)
@@ -1266,6 +1268,8 @@ def create_window():
             if self.proc is not None:
                 self.write("An operation is already running; select Stop first.\n")
                 return False
+            self._capture_request = None
+            self._question_window_request = None
             if not CLI.is_file():
                 self.write(f"CLI not installed: {CLI}\n")
                 return False
@@ -1490,23 +1494,46 @@ def create_window():
             if proc is not None:
                 self.write("Stop the active operation before running a standalone capture.\n")
                 return
-            explanation = (f"Read only the selected window: {self.question_window_title}? "
-                           "Accessibility text only; no screenshots or OCR. "
-                           if self.question_window_target is not None else
-                    "The app reads foreground accessibility text and, when no text "
-                    "is readable, takes a local screenshot for OCR and model vision. "
-                    )
-            if not self.confirmation("Read the screen once?", explanation +
-                    "Only capture applications where assistance is permitted."):
-                self.set_status("Permission declined")
+            if self._starting or self._exiting or self._capture_request is not None:
                 return
-            args = ["ask", "--read-screen", "--authorized", "--allow-ocr",
-                    "--provider", self.selected_provider()]
-            if self.question_window_target is not None:
-                args.remove("--allow-ocr")
-                args.append("--no-vision")
-            if self.run_cli(args):
-                self.show_answer_panel()
+            request = object()
+            self._capture_request = request
+            generation = self._process_generation
+            if self.question_window_target is None:
+                # The consent dialog can leave Floaty focused. Select an
+                # explicit native window before asking to read it; never
+                # guess which background application the user intended.
+                def selected(accepted):
+                    if self._capture_request is not request:
+                        return
+                    self._capture_request = None
+                    if (accepted and generation == self._process_generation and not self._exiting
+                            and not self._starting and self.proc is None and self.question_window_target is not None):
+                        self.manual_capture()
+
+                self.choose_question_window(on_selected=selected, require_selected=True)
+                return
+            target = self.question_window_target
+            try:
+                explanation = (f"Read only the selected window: {self.question_window_title}? "
+                               "Accessibility text only; no screenshots or OCR. "
+                               "Only capture applications where assistance is permitted.")
+                if not self.confirmation("Read the screen once?", explanation):
+                    self.set_status("Permission declined")
+                    return
+                if (self._capture_request is not request or generation != self._process_generation
+                        or self.question_window_target != target or self.proc is not None
+                        or self._starting or self._exiting):
+                    if not self._exiting:
+                        self.write("Screen read cancelled because the selected window or session changed.\n")
+                    return
+                args = ["ask", "--read-screen", "--authorized",
+                        "--provider", self.selected_provider(), "--no-vision"]
+                if self.run_cli(args):
+                    self.show_answer_panel()
+            finally:
+                if self._capture_request is request:
+                    self._capture_request = None
 
         def confirmation(self, title, explanation):
             dialog = Gtk.MessageDialog(
@@ -1523,6 +1550,8 @@ def create_window():
             if self.proc is not None or self._starting:
                 self.write("An operation is already running; select Stop first.\n")
                 return
+            self._capture_request = None
+            self._question_window_request = None
             audio = self.audio_check.get_active()
             screen = self.screen_check.get_active()
             try:
@@ -1599,12 +1628,31 @@ def create_window():
 
             threading.Thread(target=check, daemon=True).start()
 
-        def choose_question_window(self, _button=None):
-            if self.proc is not None or self._starting:
+        def choose_question_window(self, _button=None, *, on_selected=None, require_selected=False):
+            if self.proc is not None or self._starting or self._exiting:
                 self.feedback(self.session_message, "Stop before changing the question window.", error=True)
+                if on_selected is not None:
+                    on_selected(False)
                 return
+            if self._question_window_request is not None or (self._capture_request is not None and on_selected is None):
+                self.feedback(self.session_message, "Finish or cancel the current window selection or screen-read confirmation.")
+                if on_selected is not None:
+                    on_selected(False)
+                return
+            request = object()
+            self._question_window_request = request
             self.feedback(self.session_message, "Listing accessible window titles only; no question text is read.")
             generation = self._process_generation
+
+            def current():
+                return (self._question_window_request is request and not self._exiting
+                        and self.proc is None and not self._starting and generation == self._process_generation)
+
+            def finish(accepted=False):
+                if self._question_window_request is request:
+                    self._question_window_request = None
+                if on_selected is not None:
+                    on_selected(accepted)
 
             def load():
                 try:
@@ -1614,14 +1662,24 @@ def create_window():
                         ["/usr/bin/python3", str(ROOT / "scripts/linux-accessibility.py"), "--mode", "windows"],
                         env=env, capture_output=True, text=True, timeout=6)
                     windows = json.loads(result.stdout) if result.returncode == 0 else None
+                    if not isinstance(windows, list) or any(
+                            not isinstance(window, dict) or not all(isinstance(window.get(key), str) for key in ("id", "title"))
+                            or not isinstance(window.get("application", ""), str) for window in windows):
+                        windows = None
                 except (OSError, ValueError, subprocess.TimeoutExpired):
                     windows = None
 
                 def show():
-                    if self._exiting or self.proc is not None or self._starting or generation != self._process_generation:
+                    if not current():
+                        finish()
                         return False
                     if windows is None:
                         self.feedback(self.session_message, "Could not list accessible windows. Check Accessibility access and retry.", error=True)
+                        finish()
+                        return False
+                    if require_selected and not windows:
+                        self.feedback(self.session_message, "No accessible question window is available. Open your practice page and try Capture again.", error=True)
+                        finish()
                         return False
                     dialog = Gtk.Dialog(title="Choose question window", transient_for=self, flags=0)
                     dialog.set_modal(True)
@@ -1630,22 +1688,36 @@ def create_window():
                     explanation.set_line_wrap(True)
                     dialog.get_content_area().pack_start(explanation, False, False, 10)
                     choices = Gtk.ComboBoxText()
-                    choices.append("automatic", "Automatic foreground (no fixed window)")
+                    if not require_selected:
+                        choices.append("automatic", "Automatic foreground (no fixed window)")
                     for index, window in enumerate(windows):
                         label = (window.get("application", "") + " — " + window["title"]).lstrip(" —")
                         choices.append(str(index), label)
-                    choices.set_active(0)
+                    choices.set_active(-1 if require_selected else 0)
+                    if require_selected:
+                        dialog.set_response_sensitive(Gtk.ResponseType.OK, False)
+                        choices.connect("changed", lambda widget: dialog.set_response_sensitive(
+                            Gtk.ResponseType.OK, widget.get_active_id() is not None))
                     dialog.get_content_area().pack_start(choices, False, False, 10)
                     dialog.show_all()
                     accepted = dialog.run() == Gtk.ResponseType.OK
                     selected = choices.get_active_id()
                     dialog.destroy()
-                    if accepted and self.proc is None and not self._starting and not self._exiting:
+                    valid = (selected == "automatic" and not require_selected) or (
+                        isinstance(selected, str) and selected.isdecimal() and int(selected) < len(windows))
+                    if accepted and valid and current():
                         window = None if selected == "automatic" else windows[int(selected)]
                         self.question_window_target = window["id"] if window else None
                         self.question_window_title = window["title"] if window else ""
                         self.question_window_hint.set_text("Screen target: " + (self.question_window_title if window else "automatic foreground"))
-                        self.feedback(self.session_message, "Question window updated. Press Start to review consent; nothing is being captured.")
+                        self.feedback(self.session_message, "Question window selected. Review the screen-read confirmation next."
+                                      if on_selected is not None else
+                                      "Question window updated. Press Start to review consent; nothing is being captured.")
+                        finish(True)
+                    else:
+                        if current() and on_selected is not None:
+                            self.feedback(self.session_message, "Screen read cancelled. No window was captured.")
+                        finish()
                     return False
 
                 GLib.idle_add(show)
@@ -1653,6 +1725,8 @@ def create_window():
             threading.Thread(target=load, daemon=True).start()
 
         def stop(self, _button=None):
+            self._capture_request = None
+            self._question_window_request = None
             if self._starting:
                 self._starting = False
                 self._process_generation += 1

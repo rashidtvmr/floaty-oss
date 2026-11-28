@@ -1,5 +1,10 @@
 # Generated screen-reading lab
 
+For the later HP dependency repair, stopped-Capture correction, and the still
+pending ordinary-desktop real-answer test, see
+[`HP-RUNTIME-REPAIR.md`](HP-RUNTIME-REPAIR.md). The recorded generated and CLI
+checks below keep their original scope.
+
 This lab uses 20 generated HTML cases to exercise native screen extraction,
 stable accessibility identities, changed-node updates, and conversational
 context. It separates the page, the evaluation oracle, native extraction, and

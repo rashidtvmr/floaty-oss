@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "recorded_date_utc": "2026-11-28",
+  "status": "dependencies_repaired_on_hp_source_fix_tested_live_gui_acceptance_blocked",
+  "prior_published_source_commit": "b78c33a8355fc0b74de7d7b032c26c9fdd4d358a",
+  "desktop_accessibility": {
+    "previously_enabled": false,
+    "enabled_after_repair": true,
+    "org_a11y_status_enabled": true
+  },
+  "audio_clients": {
+    "phase": "private_audio_clients_installed",
+    "packages": [
+      {
+        "package": "libpulsedsp",
+        "version": "1:17.0+dfsg1-2ubuntu4",
+        "sha256": "52ada858dbecc739eb35cdc755af000d31775c0a989d9578ca71bb2a38216507"
+      },
+      {
+        "package": "pulseaudio-utils",
+        "version": "1:17.0+dfsg1-2ubuntu4",
+        "sha256": "87ce9e8fba592e5c63b235168fb07f9eb3d433a94d7ac18ef9f85f92224aaa9c"
+      }
+    ],
+    "pactl_available": true,
+    "pulse_compatible_server": "PipeWire",
+    "default_playback_monitor_available": true,
+    "audio_sources_count": 2,
+    "unresolved_libraries": false,
+    "audio_recorded": false,
+    "system_packages_changed": false,
+    "audio_services_restarted": false
+  },
+  "speech_runtime": {
+    "phase": "moonshine_offline_runtime_ready",
+    "passed": true,
+    "worker_sha256": "b3fb78e428bb8f974c1571e82ab4cd36a42b100ea3df1800bcb85a1550c38c90",
+    "platform": {
+      "system": "Linux",
+      "machine": "x86_64",
+      "moonshine_voice": "0.1.6",
+      "model": "English TINY_STREAMING",
+      "python": "3.14.4"
+    },
+    "ready_event": true,
+    "audio_recorded": false,
+    "system_packages_changed": false
+  },
+  "existing_ffmpeg": {
+    "ubuntu_package_version": "7:8.0.1-3ubuntu2",
+    "pulse_input_verified": true,
+    "installed_during_followup": false
+  },
+  "existing_private_ui_python": {
+    "gi_cairo_bridge_verified": true,
+    "global_gi_cairo_package_installed": false
+  },
+  "system_package_installation": false,
+  "system_audio_services_restarted": false,
+  "audio_recorded": false,
+  "current_normal_app_combined_preflight_after_install": "pending",
+  "updated_dependency_checker_on_hp": "pending",
+  "source_correction": {
+    "stopped_capture_requires_explicit_window": true,
+    "consent_bound_to_selected_native_identity": true,
+    "stale_or_cancelled_capture_does_not_launch": true,
+    "existing_live_capture_path_preserved": true,
+    "stopped_capture_pixel_fallback": false,
+    "stopped_send_wording_matches_text_only_behavior": true,
+    "independently_reviewed": true,
+    "deployed_to_hp": false,
+    "sha256": {
+      "apps/socket_stream_desktop/ui/linux-gtk.py": "e3ae190239cefbb57e01ec1cb3fe627fdd72dc74be2deeb0d6a59964939967ec",
+      "apps/socket_stream_desktop/ui/floating_overlay.py": "2398a01bed497e49f615df0e8fb7147e3d9273a615a14d326fbe2b38611420a8",
+      "scripts/linux-check-dependencies.sh": "90abbcc1de6ef84a6f0d6bd5b4ce78a57d0cf512d43dbaa03cf3f3d37f4d1e43",
+      "scripts/linux-install-deps-debian.sh": "99e413d1acb700072f48a9d4ed3c406d22935f9378218ca4726b9692d3e9cda6",
+      "tests/acceptance/native_gtk_screen_e2e.py": "81cd64f50f748a21ac0422bfb6b30807155fa3d49e79ff518924de8a8213a2bb",
+      "tests/acceptance/public_practice_relay.py": "cbdf5611ff340059b87bf251771fa832b830db0360f501900d06e5c6cc1475a2"
+    }
+  },
+  "local_verification": {
+    "fresh_python_unit": {
+      "passed": 772,
+      "skipped": 6,
+      "total": 778
+    },
+    "fresh_python_acceptance": {
+      "passed": 49,
+      "skipped": 7,
+      "total": 56
+    },
+    "previous_unchanged_rust": {
+      "passed": 281,
+      "rerun_in_followup": false
+    },
+    "total_passing_cases_with_unchanged_rust": 1102,
+    "changed_production_coverage": {
+      "covered": 1226,
+      "executable": 1281,
+      "line_percent": 95.71
+    },
+    "coverage_base_commit": "886ab92147542c65a057fb3ba81f40520e763c96",
+    "coverage_gate_passed": true,
+    "whole_measured_workspace_coverage": {
+      "rust": {
+        "covered": 4735,
+        "executable": 6578,
+        "line_percent": 71.98
+      },
+      "python": {
+        "covered": 5975,
+        "executable": 11310,
+        "line_percent": 52.83
+      }
+    },
+    "rust_coverage_reused_without_source_changes": true,
+    "new_capture_flow_regressions": 14,
+    "dependency_script_tests": 23,
+    "gtk_harness_local_guard_groups": 14,
+    "public_relay_offline_self_test_passed": true
+  },
+  "latest_public_question_attempt": {
+    "url": "https://leetcode.com/problems/two-sum/description/",
+    "mode": "zero_provider_native_inspection",
+    "task_exit_code": 1,
+    "inspection_logs_retrieved": false,
+    "failure_cause": "not_determined",
+    "hp_connection_status": "down",
+    "missed_heartbeat_at_utc": "2026-11-28T08:43:32Z",
+    "upstream_api_requests": 0,
+    "real_answer_rendered_in_gtk_verified": false,
+    "full_native_gtk_provider_harness_started": false,
+    "normal_app_provider_configuration_verified": false
+  },
+  "earlier_results_are_separate": {
+    "record": "HP-NATIVE-ACCEPTANCE.json",
+    "private_bus_native_cli_real_completions": 2,
+    "synthetic_tree_cli_real_completions": 2,
+    "earlier_gtk_check_used_generated_preview_events": true
+  },
+  "evidence_artifacts": [
+    {
+      "name": "hp-real-dependency-inventory.json",
+      "sha256": "abf466d315f38ca3a3f89af217ff25d3e68838130574c3e88e14abb6fe14d303"
+    },
+    {
+      "name": "hp-audio-accessibility-repair.json",
+      "sha256": "325a69d1db7832dda639318b5368d481181ec3b5687db5456f58b47523ca22ab"
+    },
+    {
+      "name": "hp-real-public-inspection-transport.json",
+      "sha256": "f2e38aa0362ef3f48365d47546efa474e552fdbda9cfcc50cbaeeb2388d49b31"
+    },
+    {
+      "name": "dependency-refresh-summary.json",
+      "sha256": "b393277a277416961329e917402dd6d1607b9bdfe9b6442257021952bc4df9f4"
+    },
+    {
+      "name": "dependency-refresh-inputs.json",
+      "sha256": "30add2e4e913c7ec00c0360d0522aaa9b00aef76c01a1507ebf419b5f835fb38"
+    },
+    {
+      "name": "dependency-refresh-unit.log",
+      "sha256": "dab1f0d94e02c1d8819a5d931e1f8b5ad166c8584dd983949f0ab99a6b647523"
+    },
+    {
+      "name": "dependency-refresh-acceptance.log",
+      "sha256": "4c6fcd8e928749d5af7e3d2fa6ace08ec11789a9fadbde135ea96e664dd04c81"
+    }
+  ],
+  "publication_scope": {
+    "credentials_included": false,
+    "private_identifiers_or_absolute_paths_included": false,
+    "raw_requests_or_responses_included": false
+  }
+}
