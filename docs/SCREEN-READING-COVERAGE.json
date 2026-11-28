@@ -44,9 +44,9 @@
     }
   },
   "changed_runtime_total": {
-    "covered": 1156,
-    "executable": 1203,
-    "line_percent": 96.09
+    "covered": 1226,
+    "executable": 1281,
+    "line_percent": 95.71
   },
   "changed_runtime_files": {
     "apps/socket_stream/src/live_context.rs": {
@@ -127,20 +127,29 @@
     },
     "apps/socket_stream_desktop/ui/floating_overlay.py": {
       "covered": 6,
-      "executable": 6,
-      "line_percent": 100.0,
-      "missing_lines": []
+      "executable": 8,
+      "line_percent": 75.0,
+      "missing_lines": [
+        704,
+        718
+      ]
     },
     "apps/socket_stream_desktop/ui/linux-gtk.py": {
-      "covered": 73,
-      "executable": 78,
-      "line_percent": 93.59,
+      "covered": 143,
+      "executable": 154,
+      "line_percent": 92.86,
       "missing_lines": [
         189,
-        904,
-        911,
-        930,
-        1028
+        906,
+        913,
+        932,
+        1030,
+        1634,
+        1635,
+        1638,
+        1639,
+        1640,
+        1641
       ]
     },
     "apps/socket_stream_desktop/ui/provider_settings.py": {
@@ -203,9 +212,9 @@
       "line_percent": 71.98
     },
     "python": {
-      "covered": 5846,
-      "executable": 11250,
-      "line_percent": 51.96
+      "covered": 5975,
+      "executable": 11310,
+      "line_percent": 52.83
     }
   },
   "passed": true,

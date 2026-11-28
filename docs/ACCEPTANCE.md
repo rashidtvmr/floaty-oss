@@ -157,3 +157,24 @@ statement and branch coverage. System installation still requires administrator
 authentication on the HP host; the passing runtime is explicitly user-owned.
 This finite generated-data test does not establish portal permissions, real
 screen-share exclusion, hardware audio, or unlimited-session reliability.
+
+## November 28 HP runtime followup
+
+The current coverage report is [SCREEN-READING-COVERAGE.json](SCREEN-READING-COVERAGE.json):
+**95.71% (1,226/1,281) changed production executable lines** against main.
+The fresh Python run passed 772 unit and 49 acceptance cases, with 13 skips.
+The 281 earlier Rust passes and Rust coverage are unchanged. Whole measured
+workspace coverage is Python 52.83% and Rust 71.98%.
+
+The later HP work enabled ordinary GNOME toolkit accessibility, installed
+working private Pulse client utilities, and built and checked the bundled
+Moonshine runtime. FFmpeg was already installed. The source also fixes stopped
+Capture's window selection and clarifies text-only stopped Send.
+
+The reviewed source update is **not deployed to HP yet**. Its public-practice
+native inspection exited unsuccessfully; the node then disconnected before
+logs could be retrieved. The cause is undetermined. No new real API call was
+made and the actual real-answer GTK rendering gate remains pending. See
+[HP-RUNTIME-REPAIR.md](HP-RUNTIME-REPAIR.md) for the precise installation,
+verification, and remaining deployment scopes. Earlier results above retain
+their recorded scope and do not establish this pending ordinary-desktop gate.
