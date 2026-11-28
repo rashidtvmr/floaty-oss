@@ -43,10 +43,12 @@ MARKERS = ("Two Sum", "nums = [2,7,11,15]", "target = 9", "indices",
            "You may not use the same element twice")
 SCHEMA = "floaty-native-gtk-public-screen-v1"
 PHASES = {"worker_start", "desktop_bus", "chrome_start", "page_navigation",
-          "page_ready", "native_window", "native_text", "gtk_create", "gtk_shown",
+          "page_ready", "native_window", "native_settle", "native_text", "gtk_create", "gtk_shown",
           "window_chooser", "start", "preflight", "cli_started", "answer_received",
           "answer_visible", "cleanup", "complete"}
 MAX_OUTPUT = 128 * 1024
+NATIVE_SETTLE_SECONDS = 10
+NATIVE_SETTLE_POLL_SECONDS = .25
 
 
 class CheckFailure(Exception):
@@ -297,14 +299,14 @@ def desktop_accessibility_bus():
         address, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
         None, None)
 
-    def owner(window_id):
+    def owner(window_id, *, timeout_ms=1500):
         identity = json.loads(window_id)
         require(isinstance(identity, list) and len(identity) == 2
                 and isinstance(identity[0], str) and re.fullmatch(r":[0-9]+\.[0-9]+", identity[0])
                 and isinstance(identity[1], str) and identity[1].startswith("/"), "native_window_identity_invalid")
         return connection.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
                                     "GetConnectionUnixProcessID", GLib.Variant("(s)", (identity[0],)),
-                                    GLib.VariantType.new("(u)"), Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
+                                    GLib.VariantType.new("(u)"), Gio.DBusCallFlags.NONE, timeout_ms, None).unpack()[0]
 
     return address, owner
 
@@ -381,6 +383,89 @@ def select_owned_window(child_env, owner, chrome_identity):
     raise CheckFailure("owned_browser_accessibility_window_unavailable")
 
 
+def read_native_tree(environment, *, timeout):
+    """Read the production native helper with the remaining settle budget."""
+    result = subprocess.run([browser.SYSTEM_PYTHON, str(browser.HELPER), "--mode", "tree"],
+                            env=environment, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            timeout=timeout)
+    require(result.returncode == 0, "native_helper_exit_" + str(result.returncode))
+    require(len(result.stdout) <= 1_048_576, "native_helper_output_too_large")
+    return json.loads(result.stdout)
+
+
+def settle_native_tree(environment, window_id, chrome_identity, owner, report, *,
+                       read=read_native_tree, clock=time.monotonic, sleep=time.sleep,
+                       timeout=NATIVE_SETTLE_SECONDS):
+    """Wait only for native content in the already selected owned window.
+
+    Chrome may expose its frame before its renderer tree is published. Reads
+    retain the same native target and owner; missing text alone permits another
+    read. No DOM content, new target, accessibility override or provider is used.
+    """
+    require(environment.get("SOCKET_STREAM_ATSPI_TARGET") == window_id,
+            "native_settle_target_mismatch")
+    require(0 < timeout <= NATIVE_SETTLE_SECONDS, "native_settle_budget_invalid")
+    started = clock()
+    deadline = started + timeout
+    stats = {"timeout_seconds": timeout, "poll_interval_ms": NATIVE_SETTLE_POLL_SECONDS * 1000,
+             "attempts": 0, "completed_reads": 0, "owner_checks": 0, "elapsed_ms": 0,
+             "max_read_ms": 0, "first_nodes": None, "first_marker_count": None,
+             "ready": False, "deadline_reached": False}
+    report["native_settle"] = stats
+    expected_pid = None
+
+    def remaining():
+        value = deadline - clock()
+        if value <= 0:
+            stats["deadline_reached"] = True
+            raise CheckFailure("native_practice_question_unreadable")
+        return value
+
+    try:
+        while True:
+            owner_timeout = max(1, min(1500, int(remaining() * 1000)))
+            stats["owner_checks"] += 1
+            pid = owner(window_id, timeout_ms=owner_timeout)
+            require(type(pid) is int and is_owned_descendant(pid, chrome_identity)
+                    and (expected_pid is None or pid == expected_pid), "native_capture_scope_mismatch")
+            expected_pid = pid
+            read_timeout = min(7, remaining())
+            stats["attempts"] += 1
+            read_started = clock()
+            try:
+                tree = read(environment, timeout=read_timeout)
+            except subprocess.TimeoutExpired:
+                stats["deadline_reached"] = clock() >= deadline
+                raise CheckFailure("native_practice_question_read_timeout") from None
+            finally:
+                stats["max_read_ms"] = max(stats["max_read_ms"], round((clock() - read_started) * 1000, 1))
+            stats["completed_reads"] += 1
+            require(isinstance(tree, dict) and tree.get("schema") == 1 and tree.get("source") == "atspi",
+                    "native_capture_invalid")
+            require(tree.get("window_id") == window_id and type(tree.get("pid")) is int
+                    and tree["pid"] == expected_pid and is_owned_descendant(tree["pid"], chrome_identity),
+                    "native_capture_scope_mismatch")
+            nodes = tree.get("nodes")
+            require(isinstance(nodes, list) and all(isinstance(node, dict) for node in nodes),
+                    "native_capture_invalid")
+            text = "\n".join(str(node.get(key, "")) for node in nodes for key in ("name", "text"))
+            normalized = compact(text)
+            marker_count = sum(compact(marker) in normalized for marker in MARKERS)
+            report["native_text"] = {"question_markers_present": has_markers(text), "nodes": len(nodes),
+                                     "truncated": bool(tree.get("truncated")), "text_sha256": sha(text),
+                                     "required_markers_present": marker_count,
+                                     "required_marker_count": len(MARKERS)}
+            if stats["first_nodes"] is None:
+                stats.update(first_nodes=len(nodes), first_marker_count=marker_count)
+            wait_budget = remaining()
+            if has_markers(text):
+                stats["ready"] = True
+                return tree
+            sleep(min(NATIVE_SETTLE_POLL_SECONDS, wait_budget))
+    finally:
+        stats["elapsed_ms"] = round((clock() - started) * 1000, 1)
+
+
 class LiveAudit:
     """Passive observation of real reader callbacks, never event injection."""
     def __init__(self):
@@ -429,8 +514,12 @@ def gtk_run(args, root, child_env, window, chooser_label, provider, report):
     import gi
     gi.require_version("Gdk", "3.0")
     gi.require_version("Gtk", "3.0")
-    from gi.repository import GLib, Gtk
+    from gi.repository import Gdk, GLib, Gtk
     require(Gtk.init_check()[0], "gtk_display_unavailable")
+    display = Gdk.Display.get_default()
+    display_type = display.__gtype__.name if display is not None else ""
+    report["gtk_backend"] = {"GdkX11Display": "x11", "GdkWaylandDisplay": "wayland"}.get(display_type, "unknown")
+    require(report["gtk_backend"] == args.backend, "gtk_backend_mismatch")
     sys.path.insert(0, str(UI))
     import source_preflight
     from answer_format import answer_parts, markdown_runs
@@ -670,6 +759,7 @@ def worker(args):
               "real_desktop_session_bus": True, "private_accessibility_bus": False,
               "owned_empty_chrome_profile": True, "chrome_sandbox_disabled": False,
               "forced_renderer_accessibility": args.force_renderer_accessibility,
+              "gtk_backend_requested": args.backend, "browser_backend": "wayland",
               "automatic_foreground_selection_tested": False, "selected_window_only": True,
               "audio_capture_started": False, "screenshots_taken": False,
               "provider_credentials_inherited": False, "user_settings_modified": False,
@@ -698,13 +788,8 @@ def worker(args):
         report["selected_window_owned_by_browser"] = True
         phase("native_window")
         capture_env = dict(child_env, SOCKET_STREAM_ATSPI_TARGET=window["id"])
-        tree = browser.read_helper(capture_env)
-        require(tree.get("window_id") == window["id"] and is_owned_descendant(tree.get("pid"), identity),
-                "native_capture_scope_mismatch")
-        text = "\n".join(str(node.get(key, "")) for node in tree.get("nodes", []) for key in ("name", "text"))
-        report["native_text"] = {"question_markers_present": has_markers(text), "nodes": len(tree.get("nodes", [])),
-                                 "truncated": bool(tree.get("truncated")), "text_sha256": sha(text)}
-        require(has_markers(text), "native_practice_question_unreadable")
+        phase("native_settle")
+        tree = settle_native_tree(capture_env, window["id"], identity, owner, report)
         phase("native_text")
         if not args.inspect_only:
             from public_practice_relay import PublicPracticeProvider
@@ -759,12 +844,130 @@ def worker(args):
     return 0 if report["passed"] else 1
 
 
+def self_test_native_settle():
+    """Deterministic publication, deadline and ownership regressions; no bus."""
+    from unittest import mock
+    uid = os.getuid()
+    records = {10: {"pid": 10, "uid": uid, "ppid": 1, "start": 20},
+               11: {"pid": 11, "uid": uid, "ppid": 10, "start": 21},
+               13: {"pid": 13, "uid": uid, "ppid": 10, "start": 23}}
+    window_id = '[":1.77","/owned/frame"]'
+    env = {"SOCKET_STREAM_ATSPI_TARGET": window_id, "PATH": "/usr/bin:/bin"}
+    frame = {"schema": 1, "source": "atspi", "window_id": window_id, "pid": 11,
+             "truncated": False, "nodes": [{"role": "frame", "name": TITLE}]}
+    complete = dict(frame, nodes=[*frame["nodes"], {"role": "paragraph", "text": "\n".join(MARKERS)}])
+    descendant = is_owned_descendant
+
+    def scenario(values, *, expected=None, owners=(11,), read_delay=.03, source_env=None):
+        now = [100.0]
+        report, reads, ownership = {}, [], []
+        actual = None
+
+        def clock():
+            return now[0]
+
+        def sleep(delay):
+            require(0 < delay <= NATIVE_SETTLE_POLL_SECONDS, "self_test_settle_sleep_budget")
+            now[0] += delay
+
+        def owner(selected, *, timeout_ms):
+            require(selected == window_id and 0 < timeout_ms <= 1000,
+                    "self_test_settle_owner_scope")
+            index = len(ownership)
+            ownership.append((selected, timeout_ms))
+            now[0] += .01
+            return owners[min(index, len(owners) - 1)]
+
+        def read(selected_env, *, timeout):
+            require(selected_env == env and 0 < timeout <= 101.0 - now[0],
+                    "self_test_settle_read_scope_or_budget")
+            index = len(reads)
+            reads.append(timeout)
+            now[0] += read_delay
+            value = values[min(index, len(values) - 1)]
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        with mock.patch(__name__ + ".is_owned_descendant",
+                        side_effect=lambda pid, ancestor: descendant(pid, ancestor, read=records.get)):
+            try:
+                actual = settle_native_tree(env if source_env is None else source_env,
+                    window_id, records[10], owner, report, read=read, clock=clock, sleep=sleep, timeout=1)
+            except CheckFailure as error:
+                require(expected == str(error), "self_test_settle_unexpected_failure")
+            else:
+                require(expected is None, "self_test_settle_rejection_missing")
+        require("/owned/frame" not in json.dumps(report) and "PRIVATE_DIAGNOSTIC" not in json.dumps(report),
+                "self_test_settle_report_redaction")
+        return actual, report, reads, ownership
+
+    actual, report, reads, ownership = scenario([frame, frame, complete])
+    stats = report["native_settle"]
+    require(actual is complete and stats["ready"] and not stats["deadline_reached"]
+            and stats["attempts"] == stats["completed_reads"] == stats["owner_checks"] == 3
+            and len(reads) == len(ownership) == 3 and stats["elapsed_ms"] == 620.0
+            and stats["max_read_ms"] == 30.0 and stats["first_nodes"] == 1
+            and stats["first_marker_count"] == 1 and report["native_text"]["required_markers_present"] == len(MARKERS),
+            "self_test_delayed_native_publication")
+
+    actual, report, reads, ownership = scenario([frame], expected="native_practice_question_unreadable")
+    require(actual is None and report["native_settle"]["deadline_reached"]
+            and not report["native_settle"]["ready"] and report["native_settle"]["elapsed_ms"] == 1000.0
+            and len(reads) == len(ownership) == 4 and report["native_text"]["nodes"] == 1
+            and not report["native_text"]["question_markers_present"], "self_test_persistent_native_frame")
+
+    for changed, failure in ((dict(complete, window_id='[":1.77","/different/frame"]'), "native_capture_scope_mismatch"),
+                             (dict(complete, pid=13), "native_capture_scope_mismatch"),
+                             (dict(complete, source="dom"), "native_capture_invalid")):
+        _actual, report, reads, _ownership = scenario([frame, changed, complete], expected=failure)
+        require(len(reads) == 2 and not report["native_settle"]["ready"], "self_test_native_scope_drift")
+
+    for owners in ((11, 13), (11, 99)):
+        _actual, report, reads, ownership = scenario([frame, complete], owners=owners,
+                                                    expected="native_capture_scope_mismatch")
+        require(len(reads) == 1 and len(ownership) == 2 and not report["native_settle"]["ready"],
+                "self_test_native_owner_change")
+
+    _actual, report, reads, _ownership = scenario([complete], read_delay=1.1,
+                                                  expected="native_practice_question_unreadable")
+    require(len(reads) == 1 and report["native_text"]["question_markers_present"]
+            and report["native_settle"]["deadline_reached"] and not report["native_settle"]["ready"],
+            "self_test_late_native_answer_rejected")
+
+    for failure, code in ((subprocess.TimeoutExpired(["PRIVATE_DIAGNOSTIC"], .5), "native_practice_question_read_timeout"),
+                          (CheckFailure("native_helper_exit_1"), "native_helper_exit_1")):
+        _actual, report, reads, _ownership = scenario([failure, complete], expected=code)
+        require(len(reads) == 1 and report["native_settle"]["completed_reads"] == 0
+                and not report["native_settle"]["ready"], "self_test_native_helper_failure_not_retried")
+
+    _actual, _report, reads, ownership = scenario([complete], source_env={}, expected="native_settle_target_mismatch")
+    require(not reads and not ownership, "self_test_unpinned_native_read")
+
+    completed = subprocess.CompletedProcess([], 0, json.dumps(complete).encode())
+    with mock.patch("subprocess.run", return_value=completed) as run:
+        require(read_native_tree(env, timeout=.125) == complete, "self_test_native_helper_result")
+        run.assert_called_once_with([browser.SYSTEM_PYTHON, str(browser.HELPER), "--mode", "tree"],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=.125)
+    for completed, expected in ((subprocess.CompletedProcess([], 2, b"PRIVATE_DIAGNOSTIC"), "native_helper_exit_2"),
+                                (subprocess.CompletedProcess([], 0, b"x" * 1_048_577), "native_helper_output_too_large")):
+        with mock.patch("subprocess.run", return_value=completed):
+            try:
+                read_native_tree(env, timeout=.125)
+            except CheckFailure as error:
+                require(str(error) == expected, "self_test_native_helper_guard_failure")
+            else:
+                raise CheckFailure("self_test_native_helper_guard_missing")
+    return 9
+
+
 def self_test():
     from unittest import mock
     from types import SimpleNamespace
     require(has_markers("1. Two Sum\nnums = [2, 7, 11, 15], target = 9; return indices. "
                         "You may not use the same element twice."), "marker_spacing_regression")
     require(not has_markers("Two Sum target=9"), "marker_missing_input_guard")
+    settle_guard_groups = self_test_native_settle()
     uid = os.getuid()
     records = {10: {"pid": 10, "uid": uid, "ppid": 1, "start": 20},
                11: {"pid": 11, "uid": uid, "ppid": 10, "start": 21},
@@ -859,7 +1062,8 @@ def self_test():
             leader.stdout.close()
         cleanup_children()
         set_subreaper(previous)
-    emit({"schema": SCHEMA, "self_test": True, "passed": True, "guard_groups": 14,
+    emit({"schema": SCHEMA, "self_test": True, "passed": True, "guard_groups": 14 + settle_guard_groups,
+          "native_settle_guard_groups": settle_guard_groups,
           "native_validation": False, "external_inference": False})
 
 

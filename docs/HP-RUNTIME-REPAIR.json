@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "recorded_date_utc": "2026-11-28",
-  "status": "dependencies_repaired_on_hp_source_fix_tested_live_gui_acceptance_blocked",
+  "status": "source_and_native_settle_harness_ready_hp_agent_to_deploy_and_test",
   "prior_published_source_commit": "b78c33a8355fc0b74de7d7b032c26c9fdd4d358a",
   "desktop_accessibility": {
     "previously_enabled": false,
@@ -74,7 +74,7 @@
       "apps/socket_stream_desktop/ui/floating_overlay.py": "2398a01bed497e49f615df0e8fb7147e3d9273a615a14d326fbe2b38611420a8",
       "scripts/linux-check-dependencies.sh": "90abbcc1de6ef84a6f0d6bd5b4ce78a57d0cf512d43dbaa03cf3f3d37f4d1e43",
       "scripts/linux-install-deps-debian.sh": "99e413d1acb700072f48a9d4ed3c406d22935f9378218ca4726b9692d3e9cda6",
-      "tests/acceptance/native_gtk_screen_e2e.py": "81cd64f50f748a21ac0422bfb6b30807155fa3d49e79ff518924de8a8213a2bb",
+      "tests/acceptance/native_gtk_screen_e2e.py": "28406d4e0bbef91d45d290bac1b4d3ac9cd6746c18613217b3d76a36d9b3b1bd",
       "tests/acceptance/public_practice_relay.py": "cbdf5611ff340059b87bf251771fa832b830db0360f501900d06e5c6cc1475a2"
     }
   },
@@ -116,21 +116,37 @@
     "rust_coverage_reused_without_source_changes": true,
     "new_capture_flow_regressions": 14,
     "dependency_script_tests": 23,
-    "gtk_harness_local_guard_groups": 14,
-    "public_relay_offline_self_test_passed": true
+    "gtk_harness_local_guard_groups": 23,
+    "public_relay_offline_self_test_passed": true,
+    "native_settle_guard_groups": 9,
+    "native_settle_independently_reviewed": true
   },
   "latest_public_question_attempt": {
     "url": "https://leetcode.com/problems/two-sum/description/",
     "mode": "zero_provider_native_inspection",
     "task_exit_code": 1,
-    "inspection_logs_retrieved": false,
-    "failure_cause": "not_determined",
-    "hp_connection_status": "down",
+    "inspection_logs_retrieved": true,
+    "failure_cause": "native_practice_question_unreadable",
+    "hp_connection_status": "intermittent_logs_recovered_further_testing_handed_off",
     "missed_heartbeat_at_utc": "2026-11-28T08:43:32Z",
     "upstream_api_requests": 0,
     "real_answer_rendered_in_gtk_verified": false,
     "full_native_gtk_provider_harness_started": false,
-    "normal_app_provider_configuration_verified": false
+    "normal_app_provider_configuration_verified": false,
+    "underlying_cause": "not_determined",
+    "browser_version": "150.0.7871.186",
+    "correct_public_url_and_title": true,
+    "document_ready_state": "complete",
+    "dom_required_markers_present": 5,
+    "dom_required_marker_count": 5,
+    "selected_window_owned_by_browser": true,
+    "real_desktop_session_bus": true,
+    "private_accessibility_bus": false,
+    "forced_renderer_accessibility": false,
+    "native_nodes": 1,
+    "native_tree_truncated": false,
+    "native_question_markers_present": false,
+    "parent_descendant_cleanup_completed": true
   },
   "earlier_results_are_separate": {
     "record": "HP-NATIVE-ACCEPTANCE.json",
@@ -172,5 +188,14 @@
     "credentials_included": false,
     "private_identifiers_or_absolute_paths_included": false,
     "raw_requests_or_responses_included": false
+  },
+  "hp_agent_handoff": {
+    "recommended_branch": "fix/ubuntu-wayland-a11y-session",
+    "resume_branch": "fix/hp-runtime-resume",
+    "native_settle_timeout_seconds": 10,
+    "native_settle_tested_on_hp": false,
+    "actual_gtk_provider_acceptance": "pending",
+    "normal_app_provider_configuration": "pending",
+    "remote_runtime_work_stopped_at_user_request": true
   }
 }

@@ -171,9 +171,14 @@ working private Pulse client utilities, and built and checked the bundled
 Moonshine runtime. FFmpeg was already installed. The source also fixes stopped
 Capture's window selection and clarifies text-only stopped Send.
 
-The reviewed source update is **not deployed to HP yet**. Its public-practice
-native inspection exited unsuccessfully; the node then disconnected before
-logs could be retrieved. The cause is undetermined. No new real API call was
+The reviewed source update is **not deployed to HP yet**. Recovered logs from
+the failed public-practice inspection show that Chrome loaded the question,
+but the production AT-SPI read returned only one node and failed
+`native_practice_question_unreadable`. The underlying cause remains open.
+The harness now permits ten seconds of bounded polling of the same owned
+window and reports its timing and backend. Its 23 offline guard groups pass;
+this test-only change has not been executed on HP. Further deployment and
+desktop testing are handed to the user's HP agent. No new real API call was
 made and the actual real-answer GTK rendering gate remains pending. See
 [HP-RUNTIME-REPAIR.md](HP-RUNTIME-REPAIR.md) for the precise installation,
 verification, and remaining deployment scopes. Earlier results above retain
