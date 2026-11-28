@@ -2,6 +2,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -70,3 +71,104 @@ class SourcePreflightTests(unittest.TestCase):
             _probe([sys.executable, "-c", "print('x' * 100000)"], timeout=2)
         with self.assertRaises(subprocess.TimeoutExpired):
             _probe([sys.executable, "-c", "import time; time.sleep(10)"], timeout=0.05)
+
+    def test_real_probe_returns_bounded_process_output_and_exit_status(self):
+        result = _probe([sys.executable, "-c", "import sys; print('ready'); sys.exit(7)"], timeout=2)
+        self.assertEqual((result.returncode, result.stdout), (7, "ready\n"))
+
+    def test_expired_probe_and_sigterm_resistant_probe_are_reaped(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            _probe([sys.executable, "-c", "pass"], timeout=0)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            _probe([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                    "print('ready', flush=True); time.sleep(10)"], timeout=0.25)
+
+    def test_selected_audio_dependency_and_service_failures_are_reported(self):
+        errors, _ = check_sources(True, False, "microphone", "default", self.root,
+                                  run=self.probe, which=lambda _: None)
+        self.assertTrue(any("FFmpeg" in error for error in errors))
+        worker = self.root / "target/native-helpers/moonshine/socket_stream_moonshine/socket_stream_moonshine"
+        worker.unlink()
+
+        def failed_service(args, **kwargs):
+            result = self.probe(args, **kwargs)
+            result.returncode = 1
+            return result
+
+        errors, _ = check_sources(True, False, "microphone", "default", self.root,
+                                  run=failed_service, which=lambda _: "/fixture")
+        self.assertTrue(any("audio server" in error for error in errors))
+        self.assertTrue(any("Moonshine" in error for error in errors))
+
+    def test_screen_checks_use_the_same_distro_python_as_the_capture_helper(self):
+        with mock.patch("source_preflight.Path.is_file", return_value=True):
+            errors, _ = check_sources(False, True, "microphone", "default", self.root,
+                                      run=self.probe, which=lambda _: None)
+        self.assertEqual(errors, [])
+        self.assertEqual(self.calls[0][0], "/usr/bin/python3")
+        with mock.patch("source_preflight.Path.is_file", return_value=False):
+            check_sources(False, True, "microphone", "default", self.root,
+                          run=self.probe, which=lambda _: None)
+        self.assertEqual(self.calls[-1][0], sys.executable)
+
+    def test_disabled_toolkit_status_explains_fix_without_changing_settings(self):
+        def disabled(args, **kwargs):
+            result = self.probe(args, **kwargs)
+            if args[-1] == "IsEnabled":
+                result.stdout = "(<false>,)\n"
+            return result
+
+        errors, notes = check_sources(False, True, "microphone", "default", self.root,
+                                     run=disabled, which=lambda _: "/fixture")
+        self.assertEqual(errors, [])
+        self.assertTrue(any("toolkit-accessibility true" in note for note in notes))
+        self.assertTrue(any(args[-1] == "IsEnabled" for args in self.calls))
+        self.assertFalse(any("org.freedesktop.DBus.Properties.Set" in args for args in self.calls))
+        self.assertFalse(any(args[0] in ("gsettings", "xprop", "xdotool") for args in self.calls))
+
+    def test_enabled_native_wayland_bus_does_not_require_an_x11_display(self):
+        def enabled(args, **kwargs):
+            result = self.probe(args, **kwargs)
+            if args[-1] == "IsEnabled":
+                result.stdout = "(<true>,)\n"
+            return result
+
+        with mock.patch.dict("os.environ", {"XDG_SESSION_TYPE": "wayland", "WAYLAND_DISPLAY": "wayland-0"}, clear=True):
+            errors, notes = check_sources(False, True, "microphone", "default", self.root,
+                                         run=enabled, which=lambda _: "/fixture")
+        self.assertEqual(errors, [])
+        self.assertFalse(any("disabled" in note for note in notes))
+
+    def test_failed_status_query_is_not_mistaken_for_a_disabled_toolkit(self):
+        def unavailable(args, **kwargs):
+            result = self.probe(args, **kwargs)
+            if args[-1] == "IsEnabled":
+                result.returncode = 1
+            return result
+
+        errors, notes = check_sources(False, True, "microphone", "default", self.root,
+                                     run=unavailable, which=lambda _: "/fixture")
+        self.assertEqual(errors, [])
+        self.assertTrue(any("could not be checked" in note for note in notes))
+
+    def test_unreachable_bus_and_missing_typelib_report_actionable_errors(self):
+        def unavailable(args, **kwargs):
+            result = self.probe(args, **kwargs)
+            result.returncode = 1
+            return result
+
+        errors, _ = check_sources(False, True, "microphone", "default", self.root,
+                                  run=unavailable, which=lambda _: "/fixture")
+        self.assertTrue(any("Python GI" in error for error in errors))
+        self.assertTrue(any("logged-in desktop session" in error for error in errors))
+        self.assertFalse(any(args[-1] == "IsEnabled" for args in self.calls))
+
+    def test_dependency_and_bus_timeouts_do_not_read_any_screen_content(self):
+        def timeout(args, **kwargs):
+            self.calls.append(args)
+            raise subprocess.TimeoutExpired(args, 3)
+
+        errors, _ = check_sources(False, True, "microphone", "default", self.root,
+                                  run=timeout, which=lambda _: "/fixture")
+        self.assertEqual(len(errors), 2)
+        self.assertFalse(any("get_desktop" in " ".join(args) for args in self.calls))

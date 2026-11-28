@@ -27,7 +27,26 @@ PROVIDER_SETTING_KEYS = (
 )
 
 _LIMIT = 256 * 1024
+_MAX_JSON_DEPTH = 64
 _PROVIDERS = ("mock", "codex", "openai-compatible", "ollama")
+
+
+def _validate_json_depth(data):
+    """Bound unknown extension data independently of Python's JSON recursion limit.
+
+    Recent Python JSON decoders can accept thousands of container levels even
+    with a lower interpreter recursion limit. Walk iteratively so loading and
+    strict read-before-write use the same explicit limit on every runtime.
+    Strings (including credentials containing brackets) are never traversed.
+    """
+    pending = [(data, 1)]
+    while pending:
+        node, depth = pending.pop()
+        if depth > _MAX_JSON_DEPTH:
+            raise ValueError("Provider settings nesting is too deep")
+        values = node.values() if isinstance(node, dict) else node
+        pending.extend((value, depth + 1) for value in values
+                       if isinstance(value, (dict, list)))
 
 
 def _validate_metadata(data):
@@ -100,6 +119,7 @@ def _read(directory, name, strict=False):
         data = json.loads(text)
         if not isinstance(data, dict):
             raise ValueError("Invalid provider settings")
+        _validate_json_depth(data)
         _validate_metadata(data)
         return data
     except (ValueError, UnicodeError, RecursionError):

@@ -3,6 +3,7 @@ mod audio_live;
 mod auth_commands;
 mod extraction_benchmark;
 mod hotkeys;
+mod live_context;
 mod live_events;
 mod live_observe;
 mod moonshine_live;

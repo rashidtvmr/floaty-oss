@@ -1,5 +1,6 @@
 //! Consent-based screen context and model routing for developer practice.
 pub mod a11y;
+pub mod a11y_diff;
 pub mod accessibility;
 pub mod ai;
 pub mod audio;
@@ -9,6 +10,7 @@ pub mod capture;
 pub mod codex_auth;
 pub mod config;
 pub mod context;
+pub mod conversation;
 pub mod ocr;
 pub mod openai_device_auth;
 pub mod paths;

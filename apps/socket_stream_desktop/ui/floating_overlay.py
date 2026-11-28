@@ -696,13 +696,12 @@ class FloatingOverlay:
         self.history_revealer.add(history_body)
         layout.pack_start(self.history_revealer, False, False, 0)
 
-        # Manual prompt row: type a question for the model, or capture the
-        # screen now (accessibility first, screenshot fallback) and answer
-        # what is on it. Both work during a live session and standalone.
+        # Typed questions keep their existing session context. A stopped
+        # Capture chooses an explicit accessible window before reading it.
         self.prompt_row = style(Gtk.Box(spacing=6), "ss-footer")
         layout.pack_start(self.prompt_row, False, False, 0)
         self.prompt_entry = style(Gtk.Entry(), "ss-prompt")
-        self.prompt_entry.set_placeholder_text("Ask about this screen…")
+        self.prompt_entry.set_placeholder_text("Ask a question…")
         self.prompt_entry.set_max_length(2000)
         self.prompt_entry.set_hexpand(True)
         self.prompt_entry.get_accessible().set_name("Manual question")
@@ -716,13 +715,15 @@ class FloatingOverlay:
         self.prompt_entry.connect("focus-out-event", self._on_prompt_focus_out)
         self.prompt_row.pack_start(self.prompt_entry, True, True, 0)
         self.ask_button = style(Gtk.Button(label="Send"), "ss-quiet")
-        self.ask_button.set_tooltip_text("Send the typed question to the model")
+        self.ask_button.set_tooltip_text(
+            "Send the typed question. A live session includes its existing context; "
+            "while stopped, Send does not read the screen. Use Capture to read a window.")
         self.ask_button.get_accessible().set_name("Send")
         self.ask_button.connect("clicked", self._on_prompt_activate)
         self.prompt_row.pack_start(self.ask_button, False, False, 0)
         self.capture_button = style(Gtk.Button(label="Capture"), "ss-quiet")
         self.capture_button.set_tooltip_text(
-            "Read the screen now and answer what is on it (accessibility first, screenshot fallback)")
+            "Read the current session's screen now. While stopped, choose an accessible question window and confirm the read.")
         self.capture_button.get_accessible().set_name("Capture screen")
         self.capture_button.connect("clicked", lambda *_: self._on_capture_clicked())
         self.prompt_row.pack_start(self.capture_button, False, False, 0)
@@ -1556,10 +1557,19 @@ class FloatingOverlay:
 
     def show(self):
         was_visible = self.is_visible()
+        was_shown = self._ever_shown
         self._user_hidden = False
         self._ever_shown = True
         if not self._should_hide():
             self._show_window()
+            if was_shown:
+                # A minimized GTK window can still have visible=True, so
+                # show_all() alone cannot restore an explicit Show request.
+                # Leave the first map and nonactivating focus policy intact.
+                try:
+                    self.window.deiconify()
+                except Exception:  # noqa: BLE001 - the compositor may refuse
+                    pass
             self._schedule_input_shape()
             if not was_visible and getattr(self, "_motion_enabled", False):
                 self._fade_in()

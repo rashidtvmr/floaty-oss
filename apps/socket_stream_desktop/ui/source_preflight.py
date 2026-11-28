@@ -77,7 +77,8 @@ def check_sources(audio, screen, source, device, root, *, run=_probe,
             errors.append("Bundled Moonshine speech engine is missing or not executable. Reinstall the release.")
     if screen:
         try:
-            result = run([sys.executable, "-c",
+            python = "/usr/bin/python3" if Path("/usr/bin/python3").is_file() else sys.executable
+            result = run([python, "-c",
                           "import gi; gi.require_version('Atspi', '2.0'); from gi.repository import Atspi"],
                          capture_output=True, text=True, timeout=3, check=False)
             if result.returncode:
@@ -91,6 +92,17 @@ def check_sources(audio, screen, source, device, root, *, run=_probe,
                           capture_output=True, text=True, timeout=3, check=False)
                 if bus.returncode != 0:
                     errors.append("Cannot reach the desktop accessibility bus. Enable Accessibility in the logged-in desktop session.")
+                else:
+                    status = run(["gdbus", "call", "--session", "--dest", "org.a11y.Bus",
+                                  "--object-path", "/org/a11y/bus", "--method",
+                                  "org.freedesktop.DBus.Properties.Get", "org.a11y.Status", "IsEnabled"],
+                                 capture_output=True, text=True, timeout=3, check=False)
+                    if status.returncode == 0 and "false" in status.stdout.lower():
+                        notes.append("Desktop toolkit accessibility is disabled. Enable it in the desktop "
+                                     "accessibility settings, or run: gsettings set org.gnome.desktop.interface "
+                                     "toolkit-accessibility true. Restart an application if it still exposes no text.")
+                    elif status.returncode != 0:
+                        notes.append("The accessibility bus is reachable, but its toolkit status could not be checked.")
             except (OSError, subprocess.TimeoutExpired):
                 errors.append("Accessibility bus check could not run. Check the desktop session.")
         else:

@@ -1,4 +1,5 @@
 //! AI requests for user-authorized practice and code review.
+use crate::conversation::ConversationMessage;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
@@ -150,6 +151,23 @@ impl ChatRequest {
                 .then(|| serde_json::json!({"include_usage": true})),
         }
     }
+
+    fn with_history(
+        base_url: &str,
+        model: &str,
+        user: ChatMessage,
+        stream: bool,
+        history: &[ConversationMessage],
+    ) -> Self {
+        let mut request = Self::new(base_url, model, user, stream);
+        let previous = history
+            .iter()
+            .map(|message| ChatMessage::text(message.role.as_str(), &message.content));
+        // Preserve the fixed system prefix, then replay successful turns in
+        // order. The last user message contains only the newest screen delta.
+        request.messages.splice(1..1, previous);
+        request
+    }
 }
 
 /// Actual provider-reported counts, not local estimates or cache guarantees.
@@ -256,11 +274,63 @@ struct ChatResponse {
 #[derive(Deserialize)]
 struct Choice {
     message: OutputMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct OutputMessage {
     content: Option<String>,
+}
+
+// Metadata-only chunks may omit these fields or use null. Present fields must
+// have the text-stream schema; silently skipping a malformed chunk would let
+// a later [DONE] acknowledge an incomplete answer.
+#[derive(Deserialize)]
+struct StreamingEvent {
+    choices: Option<Vec<StreamingChoice>>,
+}
+
+#[derive(Deserialize)]
+struct StreamingChoice {
+    delta: Option<StreamingDelta>,
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct StreamingDelta {
+    content: Option<String>,
+}
+
+/// A transport terminator is not proof of a complete model answer. Keep
+/// rejection messages static: provider error bodies may contain private data.
+fn completion_reason(reason: Option<&str>) -> Result<bool, AiError> {
+    match reason {
+        None => Ok(false),
+        Some("stop") => Ok(true),
+        Some("length") => Err(AiError::Provider(
+            "model response reached its output limit before completion".into(),
+        )),
+        Some("content_filter") => Err(AiError::Provider(
+            "model response was blocked by the provider".into(),
+        )),
+        Some("tool_calls" | "function_call") => Err(AiError::Provider(
+            "provider requested a tool call, which this answer workflow does not support".into(),
+        )),
+        Some(_) => Err(AiError::Provider(
+            "provider returned an unsupported completion reason".into(),
+        )),
+    }
+}
+
+fn reject_provider_error(event: &serde_json::Value) -> Result<(), AiError> {
+    if event.get("error").is_some_and(|error| !error.is_null()) {
+        Err(AiError::Provider(
+            "provider reported an inference error".into(),
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn endpoint_is_allowed(endpoint: &str) -> bool {
@@ -476,8 +546,33 @@ pub async fn stream_answer_with_meta_vision(
     output: &tokio::sync::mpsc::Sender<String>,
     meta: Option<&tokio::sync::mpsc::Sender<ApiEvent>>,
 ) -> Result<(), AiError> {
+    stream_answer_with_history(provider, question, &[], image_png, output, meta).await
+}
+
+/// Stream one turn using this session's previously acknowledged messages.
+///
+/// Compatible chat endpoints are stateless: the initial screen snapshot,
+/// subsequent patches and previous answers must be replayed. Only the newest
+/// user message is a delta; this API does not claim wire-level delta sessions
+/// or server caching. The caller commits history only after success, retaining
+/// both history and the tree baseline unchanged on cancellation or failure.
+pub async fn stream_answer_with_history(
+    provider: &Provider,
+    question: &str,
+    history: &[ConversationMessage],
+    image_png: Option<&[u8]>,
+    output: &tokio::sync::mpsc::Sender<String>,
+    meta: Option<&tokio::sync::mpsc::Sender<ApiEvent>>,
+) -> Result<(), AiError> {
     let question = question.trim();
-    if question.is_empty() || question.len() > MAX_PROMPT_BYTES {
+    let total_bytes = history.iter().fold(
+        SYSTEM_PROMPT.len().checked_add(question.len()),
+        |total, message| total.and_then(|bytes| bytes.checked_add(message.content.len())),
+    );
+    if question.is_empty()
+        || total_bytes.is_none_or(|bytes| bytes > MAX_PROMPT_BYTES)
+        || history.len() > 256
+    {
         return Err(AiError::InvalidPrompt);
     }
     if let Some(image) = image_png
@@ -487,22 +582,79 @@ pub async fn stream_answer_with_meta_vision(
             "attached screenshot exceeds the size limit".into(),
         ));
     }
+    if let Provider::Fallback(alternatives) = provider {
+        if alternatives.is_empty() || alternatives.len() > 3 {
+            return Err(AiError::Provider(
+                "fallback requires 1–3 configured providers".into(),
+            ));
+        }
+        let mut last_error = None;
+        for alternative in alternatives {
+            // Buffer each candidate: a failing stream must not leak half an
+            // answer before another provider starts answering the same turn.
+            let (parts, mut receiver) = tokio::sync::mpsc::channel(16);
+            let mut candidate = Box::pin(stream_answer_with_history(
+                alternative,
+                question,
+                history,
+                image_png,
+                &parts,
+                meta,
+            ));
+            let mut text = String::new();
+            let outcome = loop {
+                tokio::select! {
+                    Some(part) = receiver.recv() => {
+                        if text.len().saturating_add(part.len()) > 2_097_152 {
+                            break Err(AiError::Provider("fallback answer exceeds size limit".into()));
+                        }
+                        text.push_str(&part);
+                    }
+                    result = &mut candidate => {
+                        while let Ok(part) = receiver.try_recv() {
+                            if text.len().saturating_add(part.len()) > 2_097_152 {
+                                return Err(AiError::Provider("fallback answer exceeds size limit".into()));
+                            }
+                            text.push_str(&part);
+                        }
+                        break result;
+                    }
+                }
+            };
+            match outcome {
+                Ok(()) => {
+                    return output
+                        .send(text)
+                        .await
+                        .map_err(|_| AiError::Provider("answer panel closed".into()));
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        return Err(
+            last_error.unwrap_or_else(|| AiError::Provider("no providers available".into()))
+        );
+    }
     let Provider::OpenAiCompatible {
         base_url,
         model,
         api_key,
     } = provider
     else {
+        let replay = replay_prompt(question, history)?;
         if let Some(meta) = meta {
             let _ = meta
                 .send(ApiEvent::Request {
                     url: "(local provider)".into(),
                     model: provider_label(provider),
-                    prompt: question.to_owned(),
+                    prompt: replay.clone(),
                 })
                 .await;
         }
-        let text = answer(provider, question).await?;
+        let text = answer(provider, &replay).await?;
+        if text.trim().is_empty() {
+            return Err(AiError::Provider("empty provider answer".into()));
+        }
         if let Some(meta) = meta {
             let _ = meta
                 .send(ApiEvent::Response {
@@ -524,7 +676,7 @@ pub async fn stream_answer_with_meta_vision(
         Some(image) => ChatMessage::vision(question, image),
         None => ChatMessage::text("user", question),
     };
-    let body = ChatRequest::new(base_url, model, user_message, true);
+    let body = ChatRequest::with_history(base_url, model, user_message, true, history);
     if let Some(meta) = meta {
         let _ = meta
             .send(ApiEvent::Request {
@@ -563,16 +715,22 @@ pub async fn stream_answer_with_meta_vision(
         .is_some_and(|v| v.starts_with("text/event-stream"));
     if !sse {
         let value = bounded_json(response).await?;
+        reject_provider_error(&value)?;
         if let (Some(meta), Some(usage)) = (meta, TokenUsage::parse(&value)) {
             let _ = meta.send(ApiEvent::Usage(usage)).await;
         }
         let parsed: ChatResponse = serde_json::from_value(value)
             .map_err(|_| AiError::Provider("invalid model response".into()))?;
-        let content = parsed
+        let choice = parsed
             .choices
             .into_iter()
             .next()
-            .and_then(|c| c.message.content)
+            .ok_or_else(|| AiError::Provider("missing response content".into()))?;
+        completion_reason(choice.finish_reason.as_deref())?;
+        let content = choice
+            .message
+            .content
+            .filter(|content| !content.trim().is_empty())
             .ok_or_else(|| AiError::Provider("missing response content".into()))?;
         if let Some(meta) = meta {
             let _ = meta
@@ -590,6 +748,7 @@ pub async fn stream_answer_with_meta_vision(
     let mut buffer = Vec::new();
     let mut total = 0_usize;
     let mut received = false;
+    let mut completed = false;
     let mut collected = String::new();
     while let Some(chunk) = response
         .chunk()
@@ -610,7 +769,7 @@ pub async fn stream_answer_with_meta_vision(
                 .map_err(|_| AiError::Provider("invalid stream UTF-8".into()))?
                 .trim();
             if text == "[DONE]" {
-                return if received {
+                return if received && !collected.trim().is_empty() {
                     if let Some(meta) = meta {
                         let _ = meta
                             .send(ApiEvent::Response {
@@ -629,14 +788,20 @@ pub async fn stream_answer_with_meta_vision(
             }
             let event: serde_json::Value = serde_json::from_str(text)
                 .map_err(|_| AiError::Provider("invalid streaming event".into()))?;
+            reject_provider_error(&event)?;
+            let frame = StreamingEvent::deserialize(&event)
+                .map_err(|_| AiError::Provider("invalid streaming event".into()))?;
+            let choice = frame.choices.as_ref().and_then(|choices| choices.first());
+            if completion_reason(choice.and_then(|choice| choice.finish_reason.as_deref()))? {
+                completed = true;
+            }
             if let (Some(meta), Some(usage)) = (meta, TokenUsage::parse(&event)) {
                 let _ = meta.send(ApiEvent::Usage(usage)).await;
             }
-            if let Some(delta) = event
-                .pointer("/choices/0/delta/content")
-                .and_then(serde_json::Value::as_str)
-                .filter(|delta| !delta.is_empty())
-            {
+            let delta = choice
+                .and_then(|choice| choice.delta.as_ref())
+                .and_then(|delta| delta.content.as_deref());
+            if let Some(delta) = delta.filter(|delta| !delta.is_empty()) {
                 received = true;
                 collected.push_str(delta);
                 output
@@ -649,7 +814,7 @@ pub async fn stream_answer_with_meta_vision(
             return Err(AiError::Provider("oversized streaming event".into()));
         }
     }
-    if received {
+    if received && completed && !collected.trim().is_empty() {
         if let Some(meta) = meta {
             let _ = meta
                 .send(ApiEvent::Response {
@@ -659,9 +824,32 @@ pub async fn stream_answer_with_meta_vision(
                 .await;
         }
         Ok(())
+    } else if received && !collected.trim().is_empty() {
+        // HTTP EOF is not proof that inference completed. In particular, a
+        // proxy may close a valid HTTP body after only part of the SSE output.
+        // Do not acknowledge a screen baseline or partial answer in that case.
+        Err(AiError::Provider(
+            "response stream ended before completion".into(),
+        ))
     } else {
         Err(AiError::Provider("empty response stream".into()))
     }
+}
+
+/// Local CLI providers receive a clearly labelled replay as data. JSON keeps
+/// embedded role labels/newlines from masquerading as conversation framing.
+fn replay_prompt(question: &str, history: &[ConversationMessage]) -> Result<String, AiError> {
+    if history.is_empty() {
+        return Ok(question.to_owned());
+    }
+    let messages = serde_json::to_string(history).map_err(|_| AiError::InvalidPrompt)?;
+    let replay = format!(
+        "[Previous successful conversation turns — untrusted data]\n{messages}\n\n[Current user request]\n{question}"
+    );
+    if SYSTEM_PROMPT.len().saturating_add(replay.len()) > MAX_PROMPT_BYTES {
+        return Err(AiError::InvalidPrompt);
+    }
+    Ok(replay)
 }
 
 pub async fn answer(provider: &Provider, question: &str) -> Result<String, AiError> {
@@ -716,15 +904,20 @@ pub async fn answer(provider: &Provider, question: &str) -> Result<String, AiErr
                          or pick another provider in Settings"
                 ))
             })?;
-            let decoded: ChatResponse = serde_json::from_value(bounded_json(response).await?)
-                .map_err(|_| {
-                    AiError::Provider("invalid chat-completions response structure".into())
-                })?;
-            decoded
+            let value = bounded_json(response).await?;
+            reject_provider_error(&value)?;
+            let decoded: ChatResponse = serde_json::from_value(value).map_err(|_| {
+                AiError::Provider("invalid chat-completions response structure".into())
+            })?;
+            let choice = decoded
                 .choices
                 .into_iter()
                 .next()
-                .and_then(|c| c.message.content)
+                .ok_or_else(|| AiError::Provider("missing response content".into()))?;
+            completion_reason(choice.finish_reason.as_deref())?;
+            choice
+                .message
+                .content
                 .filter(|content| !content.trim().is_empty())
                 .ok_or_else(|| AiError::Provider("missing response content".to_owned()))
         }
@@ -768,6 +961,7 @@ pub async fn answer(provider: &Provider, question: &str) -> Result<String, AiErr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conversation::{Conversation, ConversationRole};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
@@ -1365,6 +1559,813 @@ mod tests {
             text.push_str(&delta);
         }
         assert_eq!(text, "A code editor");
+        server.await.unwrap();
+    }
+
+    /// Consume the complete request before replying so larger session histories
+    /// cannot race a server close and spuriously reset the TCP connection.
+    async fn history_fixture(
+        status: &str,
+        content_type: &str,
+        body: &str,
+    ) -> (Provider, tokio::task::JoinHandle<serde_json::Value>) {
+        let fragmented = content_type == "text/event-stream";
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let provider = Provider::OpenAiCompatible {
+            base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+            model: "session-fixture".into(),
+            api_key: String::new(),
+        };
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 4096];
+            let (end, length) = loop {
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&chunk[..count]);
+                if let Some(index) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let header = String::from_utf8_lossy(&request[..index]).to_ascii_lowercase();
+                    let length: usize = header
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length: "))
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    break (index + 4, length);
+                }
+            };
+            while request.len() < end + length {
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&chunk[..count]);
+            }
+            let json = serde_json::from_slice(&request[end..end + length]).unwrap();
+            if fragmented {
+                // Real providers pause between deltas. Leave the model future
+                // pending after its first chunk so fallback has to buffer it
+                // before discovering whether the remaining stream succeeds.
+                let split = response.find("\n\n").unwrap() + 2;
+                socket
+                    .write_all(&response.as_bytes()[..split])
+                    .await
+                    .unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                socket
+                    .write_all(&response.as_bytes()[split..])
+                    .await
+                    .unwrap();
+            } else {
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+            json
+        });
+        (provider, server)
+    }
+
+    #[tokio::test]
+    async fn session_requests_replay_snapshot_then_only_latest_delta_as_new_message() {
+        let mut conversation = Conversation::default();
+        let snapshot = r#"{"type":"snapshot","nodes":[{"id":"app/button","name":"Save"}]}"#;
+        let patch = r#"{"type":"patch","updated":[{"id":"app/button","name":"Saved"}]}"#;
+        for (index, prompt) in [snapshot, patch, "Why did that change?"].iter().enumerate() {
+            let response =
+                format!(r#"{{"choices":[{{"message":{{"content":"answer {index}"}}}}]}}"#);
+            let (provider, server) = history_fixture("200 OK", "application/json", &response).await;
+            let pending = conversation.prepare(prompt).unwrap();
+            let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+            stream_answer_with_history(
+                &provider,
+                pending.prompt(),
+                conversation.messages(),
+                None,
+                &output,
+                None,
+            )
+            .await
+            .unwrap();
+            let answer = receiver.try_recv().unwrap();
+            assert_eq!(answer, format!("answer {index}"));
+            let sent = server.await.unwrap();
+            let messages = sent["messages"].as_array().unwrap();
+            assert_eq!(messages.len(), 2 + index * 2);
+            assert_eq!(messages[0]["content"], SYSTEM_PROMPT);
+            assert_eq!(messages.last().unwrap()["content"], *prompt);
+            if index > 0 {
+                assert_eq!(messages[1]["content"], snapshot);
+                assert_eq!(messages[2]["role"], "assistant");
+                assert_eq!(messages[2]["content"], "answer 0");
+                assert!(
+                    !messages.last().unwrap()["content"]
+                        .as_str()
+                        .unwrap()
+                        .contains("\"Save\"")
+                );
+            }
+            conversation.commit(pending, &answer).unwrap();
+        }
+        assert_eq!(conversation.messages().len(), 6);
+    }
+
+    #[tokio::test]
+    async fn fresh_or_reset_session_has_no_previous_screen_content() {
+        let mut previous = Conversation::default();
+        let pending = previous.prepare("private old window").unwrap();
+        previous.commit(pending, "old answer").unwrap();
+        previous.reset();
+        for conversation in [previous, Conversation::default()] {
+            let (provider, server) = history_fixture(
+                "200 OK",
+                "application/json",
+                r#"{"choices":[{"message":{"content":"fresh answer"}}]}"#,
+            )
+            .await;
+            let (output, _receiver) = tokio::sync::mpsc::channel(4);
+            stream_answer_with_history(
+                &provider,
+                "fresh snapshot",
+                conversation.messages(),
+                None,
+                &output,
+                None,
+            )
+            .await
+            .unwrap();
+            let sent = server.await.unwrap();
+            assert_eq!(sent["messages"].as_array().unwrap().len(), 2);
+            assert!(!sent.to_string().contains("private old window"));
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_provider_and_closed_output_do_not_commit_a_pending_screen_patch() {
+        let mut conversation = Conversation::default();
+        let first = conversation.prepare("base snapshot").unwrap();
+        conversation.commit(first, "base answer").unwrap();
+        let before = conversation.messages().to_vec();
+        let pending = conversation.prepare("unacknowledged patch").unwrap();
+        let (provider, server) =
+            history_fixture("503 Unavailable", "application/json", "private error").await;
+        let (output, _receiver) = tokio::sync::mpsc::channel(4);
+        let error = stream_answer_with_history(
+            &provider,
+            pending.prompt(),
+            conversation.messages(),
+            None,
+            &output,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("503"));
+        assert!(!error.to_string().contains("private error"));
+        server.await.unwrap();
+        assert_eq!(conversation.messages(), before);
+        let (closed, receiver) = tokio::sync::mpsc::channel(4);
+        drop(receiver);
+        assert!(
+            stream_answer_with_history(
+                &Provider::Mock,
+                pending.prompt(),
+                conversation.messages(),
+                None,
+                &closed,
+                None
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("panel closed")
+        );
+        assert_eq!(conversation.messages(), before);
+        // Closing the consumer after a successful fallback also rejects the
+        // turn, and a local provider with no history uses the plain prompt.
+        assert!(
+            stream_answer_with_history(
+                &Provider::Fallback(vec![Provider::Mock]),
+                "plain question",
+                &[],
+                None,
+                &closed,
+                None,
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("panel closed")
+        );
+        // The same pending revision can still be acknowledged after a retry.
+        conversation.commit(pending, "successful retry").unwrap();
+        assert_eq!(conversation.messages()[2].content, "unacknowledged patch");
+    }
+
+    #[tokio::test]
+    async fn cancellation_before_provider_completion_leaves_history_unchanged() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let provider = Provider::OpenAiCompatible {
+            base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+            model: "fixture".into(),
+            api_key: String::new(),
+        };
+        let (arrived, arrival) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut chunk = [0; 1024];
+            assert!(socket.read(&mut chunk).await.unwrap() > 0);
+            let _ = arrived.send(());
+            std::future::pending::<()>().await;
+        });
+        let conversation = Conversation::default();
+        let pending = conversation
+            .prepare("snapshot not yet acknowledged")
+            .unwrap();
+        let (output, _receiver) = tokio::sync::mpsc::channel(4);
+        {
+            let future = stream_answer_with_history(
+                &provider,
+                pending.prompt(),
+                conversation.messages(),
+                None,
+                &output,
+                None,
+            );
+            tokio::pin!(future);
+            tokio::select! {
+                result = &mut future => panic!("fixture should be pending: {result:?}"),
+                received = arrival => received.unwrap(),
+            }
+            // Dropping the in-flight future is exactly how Pause/Stop cancels.
+        }
+        server.abort();
+        assert!(conversation.is_empty());
+        assert_eq!(conversation.byte_len(), 0);
+    }
+
+    #[tokio::test]
+    async fn fallback_keeps_history_and_vision_and_discards_failed_partial_answer() {
+        let partial =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"discard me\"}}]}\n\ndata: not-json\n\n";
+        let (failed, failed_server) = history_fixture("200 OK", "text/event-stream", partial).await;
+        let (working, working_server) = history_fixture(
+            "200 OK",
+            "application/json",
+            r#"{"choices":[{"message":{"content":"complete answer"}}]}"#,
+        )
+        .await;
+        let provider = Provider::Fallback(vec![failed, working]);
+        let mut conversation = Conversation::default();
+        let turn = conversation.prepare("original snapshot").unwrap();
+        conversation.commit(turn, "original answer").unwrap();
+        let (output, mut receiver) = tokio::sync::mpsc::channel(8);
+        stream_answer_with_history(
+            &provider,
+            "changed node",
+            conversation.messages(),
+            Some(b"PNG"),
+            &output,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(receiver.try_recv().unwrap(), "complete answer");
+        assert!(receiver.try_recv().is_err());
+        for sent in [failed_server.await.unwrap(), working_server.await.unwrap()] {
+            assert_eq!(sent["messages"][1]["content"], "original snapshot");
+            assert_eq!(sent["messages"][2]["content"], "original answer");
+            assert_eq!(sent["messages"][3]["content"][0]["text"], "changed node");
+            assert_eq!(sent["messages"][3]["content"][1]["type"], "image_url");
+        }
+    }
+
+    #[tokio::test]
+    async fn sse_eof_requires_an_explicit_completion_before_acknowledging_history() {
+        let delta = "data: {\"choices\":[{\"delta\":{\"content\":\"Partial answer\"}}]}\n\n";
+        let stop = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n";
+        for (suffix, success) in [("", false), (stop, true)] {
+            let (provider, server) =
+                history_fixture("200 OK", "text/event-stream", &format!("{delta}{suffix}")).await;
+            let mut conversation = Conversation::default();
+            let pending = conversation.prepare("unacknowledged snapshot").unwrap();
+            let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+            let outcome = stream_answer_with_history(
+                &provider,
+                pending.prompt(),
+                conversation.messages(),
+                None,
+                &output,
+                None,
+            )
+            .await;
+            let answer = receiver.try_recv().unwrap();
+            assert_eq!(outcome.is_ok(), success);
+            if success {
+                conversation.commit(pending, &answer).unwrap();
+                assert_eq!(conversation.messages().len(), 2);
+            } else {
+                assert!(
+                    outcome
+                        .unwrap_err()
+                        .to_string()
+                        .contains("ended before completion")
+                );
+                assert!(conversation.is_empty());
+            }
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_failed_finish_reasons_are_not_overridden_by_done() {
+        let delta = "data: {\"choices\":[{\"delta\":{\"content\":\"Incomplete answer\"}}]}\n\n";
+        for reason in [
+            "length",
+            "content_filter",
+            "tool_calls",
+            "function_call",
+            "unknown",
+        ] {
+            let body = format!(
+                "{delta}data: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n"
+            );
+            let (provider, server) = history_fixture("200 OK", "text/event-stream", &body).await;
+            let (output, _receiver) = tokio::sync::mpsc::channel(4);
+            let (meta, mut events) = tokio::sync::mpsc::channel(8);
+            let error =
+                stream_answer_with_history(&provider, "Question", &[], None, &output, Some(&meta))
+                    .await
+                    .expect_err(
+                        "explicit incomplete/unsupported finish must fail before acknowledgement",
+                    );
+            assert!(!error.to_string().contains("Incomplete answer"));
+            while let Ok(event) = events.try_recv() {
+                assert!(!matches!(
+                    event,
+                    ApiEvent::Response {
+                        status: Some(200),
+                        ..
+                    }
+                ));
+            }
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_finish_reasons_are_rejected_without_acknowledging_or_echoing_them() {
+        for reason in [
+            serde_json::json!(false),
+            serde_json::json!(7),
+            serde_json::json!(["length"]),
+            serde_json::json!({"reason":"length", "detail":"synthetic private data"}),
+        ] {
+            let event = serde_json::json!({"choices":[{
+                "delta":{"content":"Incomplete answer"},"finish_reason":reason
+            }]});
+            let body = format!("data: {event}\n\ndata: [DONE]\n\n");
+            let (provider, server) = history_fixture("200 OK", "text/event-stream", &body).await;
+            let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+            let (meta, mut events) = tokio::sync::mpsc::channel(8);
+            let error =
+                stream_answer_with_history(&provider, "Question", &[], None, &output, Some(&meta))
+                    .await
+                    .expect_err("malformed completion reasons must not be acknowledged");
+            assert!(error.to_string().contains("invalid streaming event"));
+            assert!(!error.to_string().contains("synthetic private data"));
+            assert!(!error.to_string().contains("Incomplete answer"));
+            assert!(receiver.try_recv().is_err());
+            while let Ok(event) = events.try_recv() {
+                assert!(!matches!(
+                    event,
+                    ApiEvent::Response {
+                        status: Some(200),
+                        ..
+                    }
+                ));
+            }
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn absent_or_null_finish_reasons_still_accept_a_done_terminated_answer() {
+        for reason in [None, Some(serde_json::Value::Null)] {
+            let mut event = serde_json::json!({"choices":[{
+                "delta":{"content":"Complete answer"}
+            }]});
+            if let Some(reason) = reason {
+                event["choices"][0]["finish_reason"] = reason;
+            }
+            let body = format!("data: {event}\n\ndata: [DONE]\n\n");
+            let (provider, server) = history_fixture("200 OK", "text/event-stream", &body).await;
+            let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+            stream_answer_with_history(&provider, "Question", &[], None, &output, None)
+                .await
+                .unwrap();
+            assert_eq!(receiver.try_recv().unwrap(), "Complete answer");
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_delta_content_cannot_silently_truncate_an_acknowledged_answer() {
+        for content in [
+            serde_json::json!(false),
+            serde_json::json!(7),
+            serde_json::json!(["omitted tail"]),
+            serde_json::json!({"text":"synthetic private omitted tail"}),
+        ] {
+            let first = serde_json::json!({"choices":[{
+                "delta":{"content":"Incomplete answer"}
+            }]});
+            let last = serde_json::json!({"choices":[{
+                "delta":{"content":content},"finish_reason":"stop"
+            }]});
+            let body = format!("data: {first}\n\ndata: {last}\n\ndata: [DONE]\n\n");
+            let (provider, server) = history_fixture("200 OK", "text/event-stream", &body).await;
+            let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+            let (meta, mut events) = tokio::sync::mpsc::channel(8);
+            let error =
+                stream_answer_with_history(&provider, "Question", &[], None, &output, Some(&meta))
+                    .await
+                    .expect_err("unreadable text chunks must not acknowledge a partial answer");
+            assert!(error.to_string().contains("invalid streaming event"));
+            assert!(!error.to_string().contains("synthetic private omitted tail"));
+            assert_eq!(receiver.try_recv().unwrap(), "Incomplete answer");
+            assert!(receiver.try_recv().is_err());
+            while let Ok(event) = events.try_recv() {
+                assert!(!matches!(
+                    event,
+                    ApiEvent::Response {
+                        status: Some(200),
+                        ..
+                    }
+                ));
+            }
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn absent_or_null_content_remains_valid_for_nontext_stream_chunks() {
+        for content in [None, Some(serde_json::Value::Null)] {
+            let mut metadata = serde_json::json!({"choices":[{
+                "delta":{"role":"assistant"},"finish_reason":null
+            }]});
+            let mut stop = serde_json::json!({"choices":[{
+                "delta":{},"finish_reason":"stop"
+            }]});
+            if let Some(content) = content {
+                metadata["choices"][0]["delta"]["content"] = content.clone();
+                stop["choices"][0]["delta"]["content"] = content;
+            }
+            let text = serde_json::json!({"choices":[{
+                "delta":{"content":"Complete answer"}
+            }]});
+            let body = format!("data: {metadata}\n\ndata: {text}\n\ndata: {stop}\n\n");
+            let (provider, server) = history_fixture("200 OK", "text/event-stream", &body).await;
+            let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+            stream_answer_with_history(&provider, "Question", &[], None, &output, None)
+                .await
+                .unwrap();
+            assert_eq!(receiver.try_recv().unwrap(), "Complete answer");
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_stream_structures_cannot_acknowledge_prior_partial_content() {
+        for event in [
+            serde_json::json!({"choices": {"delta":{"content":"synthetic private data"}}}),
+            serde_json::json!({"choices": true}),
+            serde_json::json!({"choices": [null]}),
+            serde_json::json!({"choices": [{"delta": "synthetic private data"}]}),
+            serde_json::json!({"choices": [{"delta": []}]}),
+            serde_json::json!({"choices": [{"delta": false}]}),
+        ] {
+            let first = serde_json::json!({"choices":[{
+                "delta":{"content":"Partial answer"}
+            }]});
+            let body = format!("data: {first}\n\ndata: {event}\n\ndata: [DONE]\n\n");
+            let (provider, server) = history_fixture("200 OK", "text/event-stream", &body).await;
+            let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+            let error = stream_answer_with_history(&provider, "Question", &[], None, &output, None)
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("invalid streaming event"));
+            assert!(!error.to_string().contains("synthetic private data"));
+            assert_eq!(receiver.try_recv().unwrap(), "Partial answer");
+            assert!(receiver.try_recv().is_err());
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn metadata_chunks_allow_missing_null_or_empty_choices_and_additive_fields() {
+        for metadata in [
+            serde_json::json!({"usage":{"prompt_tokens":1}}),
+            serde_json::json!({"choices":null,"usage":{"prompt_tokens":1}}),
+            serde_json::json!({"choices":[],"usage":{"prompt_tokens":1}}),
+            serde_json::json!({"choices":[{}]}),
+            serde_json::json!({"choices":[{"delta":null,"finish_reason":null}]}),
+            serde_json::json!({"choices":[{"delta":{"role":"assistant","vendor":true}}],"vendor":{}}),
+        ] {
+            let answer = serde_json::json!({"choices":[{
+                "delta":{"content":"Complete answer"},"finish_reason":"stop"
+            }]});
+            let body = format!("data: {metadata}\n\ndata: {answer}\n\ndata: [DONE]\n\n");
+            let (provider, server) = history_fixture("200 OK", "text/event-stream", &body).await;
+            let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+            stream_answer_with_history(&provider, "Question", &[], None, &output, None)
+                .await
+                .unwrap();
+            assert_eq!(receiver.try_recv().unwrap(), "Complete answer");
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn json_completions_apply_the_same_finish_reason_rules() {
+        for reason in [
+            "length",
+            "content_filter",
+            "tool_calls",
+            "function_call",
+            "unknown",
+        ] {
+            let body = serde_json::json!({"choices":[{
+                "message":{"content":"Incomplete answer"},"finish_reason":reason
+            }]})
+            .to_string();
+            for streaming_wrapper in [false, true] {
+                let (provider, server) = history_fixture("200 OK", "application/json", &body).await;
+                if streaming_wrapper {
+                    let (output, _receiver) = tokio::sync::mpsc::channel(4);
+                    assert!(
+                        stream_answer_with_history(&provider, "Question", &[], None, &output, None)
+                            .await
+                            .is_err()
+                    );
+                } else {
+                    assert!(answer(&provider, "Question").await.is_err());
+                }
+                server.await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_or_empty_json_envelopes_publish_no_answer_in_either_api() {
+        let cases = [
+            ("invalid JSON", "{"),
+            ("missing choices", "{}"),
+            ("wrong choices shape", r#"{"choices":{}}"#),
+            ("empty choices", r#"{"choices":[]}"#),
+            ("missing message", r#"{"choices":[{}]}"#),
+            ("missing content", r#"{"choices":[{"message":{}}]}"#),
+            (
+                "null content",
+                r#"{"choices":[{"message":{"content":null}}]}"#,
+            ),
+            (
+                "whitespace content",
+                r#"{"choices":[{"message":{"content":" \n\t"}}]}"#,
+            ),
+            (
+                "wrong content shape",
+                r#"{"choices":[{"message":{"content":{"text":"synthetic private data"}}}]}"#,
+            ),
+        ];
+        for (case, body) in cases {
+            for streaming_wrapper in [false, true] {
+                let (provider, server) = history_fixture("200 OK", "application/json", body).await;
+                let error = if streaming_wrapper {
+                    let (output, mut received) = tokio::sync::mpsc::channel(4);
+                    let (meta, mut events) = tokio::sync::mpsc::channel(8);
+                    let result = stream_answer_with_history(
+                        &provider,
+                        "Question",
+                        &[],
+                        None,
+                        &output,
+                        Some(&meta),
+                    )
+                    .await;
+                    assert!(received.try_recv().is_err(), "{case} published answer text");
+                    while let Ok(event) = events.try_recv() {
+                        assert!(
+                            !matches!(
+                                event,
+                                ApiEvent::Response {
+                                    status: Some(200),
+                                    ..
+                                }
+                            ),
+                            "{case} published a successful response"
+                        );
+                    }
+                    result.expect_err(case)
+                } else {
+                    answer(&provider, "Question").await.expect_err(case)
+                };
+                assert!(matches!(error, AiError::Provider(_)), "{case}: {error}");
+                assert!(!error.to_string().contains("synthetic private data"));
+                let request = server.await.unwrap();
+                assert_eq!(request["stream"], streaming_wrapper, "{case}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn in_band_provider_errors_are_rejected_and_redacted_before_done() {
+        let secret_error = "synthetic private upstream detail";
+        let event = serde_json::json!({"error":{"message":secret_error}});
+        let stream = format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"content\":\"partial\"}}}}]}}\n\ndata: {event}\n\ndata: [DONE]\n\n"
+        );
+        for (kind, body) in [
+            ("text/event-stream", stream),
+            ("application/json", event.to_string()),
+        ] {
+            let (provider, server) = history_fixture("200 OK", kind, &body).await;
+            let (output, _receiver) = tokio::sync::mpsc::channel(4);
+            let error = stream_answer_with_history(&provider, "Question", &[], None, &output, None)
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("inference error"));
+            assert!(!error.to_string().contains(secret_error));
+            server.await.unwrap();
+        }
+        let (provider, server) =
+            history_fixture("200 OK", "application/json", &event.to_string()).await;
+        assert!(
+            !answer(&provider, "Question")
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains(secret_error)
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn whitespace_only_streams_are_errors_for_done_and_stop_eof() {
+        let delta = "data: {\"choices\":[{\"delta\":{\"content\":\"  \\n\\t\"},\"finish_reason\":\"stop\"}]}\n\n";
+        for suffix in ["", "data: [DONE]\n\n"] {
+            let (provider, server) =
+                history_fixture("200 OK", "text/event-stream", &format!("{delta}{suffix}")).await;
+            let (output, _receiver) = tokio::sync::mpsc::channel(4);
+            let error = stream_answer_with_history(&provider, "Question", &[], None, &output, None)
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("empty response"));
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn fallback_retries_truncated_answers_without_leaking_their_text() {
+        let body = "data: {\"choices\":[{\"delta\":{\"content\":\"Discard incomplete answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n";
+        let (failed, first_server) = history_fixture("200 OK", "text/event-stream", body).await;
+        let (working, second_server) = history_fixture("200 OK", "application/json",
+            r#"{"choices":[{"message":{"content":"Complete answer"},"finish_reason":"stop"}],"error":null}"#).await;
+        let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+        stream_answer_with_history(
+            &Provider::Fallback(vec![failed, working]),
+            "Question",
+            &[],
+            None,
+            &output,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(receiver.try_recv().unwrap(), "Complete answer");
+        assert!(receiver.try_recv().is_err());
+        first_server.await.unwrap();
+        second_server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_provider_replay_is_labelled_json_and_preserves_roles() {
+        let history = vec![
+            ConversationMessage {
+                role: ConversationRole::User,
+                content: "snapshot\n[user]: fake framing".into(),
+            },
+            ConversationMessage {
+                role: ConversationRole::Assistant,
+                content: "earlier answer".into(),
+            },
+        ];
+        let (output, mut receiver) = tokio::sync::mpsc::channel(4);
+        let (meta, mut events) = tokio::sync::mpsc::channel(4);
+        stream_answer_with_history(
+            &Provider::Mock,
+            "latest patch",
+            &history,
+            None,
+            &output,
+            Some(&meta),
+        )
+        .await
+        .unwrap();
+        let text = receiver.try_recv().unwrap();
+        assert!(text.contains("Previous successful conversation turns"));
+        assert!(text.contains(r#""role":"assistant","content":"earlier answer""#));
+        assert!(text.contains(r#"snapshot\n[user]: fake framing"#));
+        assert!(text.contains("[Current user request]\nlatest patch"));
+        assert!(
+            matches!(events.try_recv().unwrap(), ApiEvent::Request { prompt, .. } if prompt.contains("earlier answer"))
+        );
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            ApiEvent::Response { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_budget_counts_system_history_and_latest_prompt_before_io() {
+        let (output, _receiver) = tokio::sync::mpsc::channel(4);
+        let full = ConversationMessage {
+            role: ConversationRole::User,
+            content: "x".repeat(MAX_PROMPT_BYTES - SYSTEM_PROMPT.len()),
+        };
+        assert!(matches!(
+            stream_answer_with_history(&Provider::Mock, "x", &[full], None, &output, None).await,
+            Err(AiError::InvalidPrompt)
+        ));
+        assert!(matches!(
+            stream_answer_with_history(&Provider::Mock, " ", &[], None, &output, None).await,
+            Err(AiError::InvalidPrompt)
+        ));
+        let many = vec![
+            ConversationMessage {
+                role: ConversationRole::User,
+                content: "x".into()
+            };
+            257
+        ];
+        assert!(matches!(
+            stream_answer_with_history(&Provider::Mock, "x", &many, None, &output, None).await,
+            Err(AiError::InvalidPrompt)
+        ));
+        // JSON framing/escaping also counts for CLI providers, where the
+        // serialized history is itself part of the textual prompt.
+        let escaped = vec![ConversationMessage {
+            role: ConversationRole::User,
+            content: "\n".repeat(30_000),
+        }];
+        assert!(matches!(
+            stream_answer_with_history(&Provider::Mock, "x", &escaped, None, &output, None).await,
+            Err(AiError::InvalidPrompt)
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_fallbacks_and_empty_answers_are_not_successful_turns() {
+        let (output, _receiver) = tokio::sync::mpsc::channel(4);
+        for provider in [
+            Provider::Fallback(vec![]),
+            Provider::Fallback(vec![Provider::Mock; 4]),
+        ] {
+            assert!(
+                stream_answer_with_history(&provider, "question", &[], None, &output, None)
+                    .await
+                    .is_err()
+            );
+        }
+        let unavailable = Provider::OpenAiCompatible {
+            base_url: "http://not-local.invalid".into(),
+            model: "x".into(),
+            api_key: String::new(),
+        };
+        assert!(
+            stream_answer_with_history(
+                &Provider::Fallback(vec![unavailable]),
+                "question",
+                &[],
+                None,
+                &output,
+                None
+            )
+            .await
+            .is_err()
+        );
+        let (provider, server) = history_fixture(
+            "200 OK",
+            "application/json",
+            r#"{"choices":[{"message":{"content":"  "}}]}"#,
+        )
+        .await;
+        assert!(
+            stream_answer_with_history(&provider, "question", &[], None, &output, None)
+                .await
+                .is_err()
+        );
         server.await.unwrap();
     }
 }

@@ -1,9 +1,12 @@
 //! User-authorized, accessibility-first observation with JSONL UI events.
 //! OCR is never invoked without an explicit OCR flag or config opt-in.
+use crate::live_context::{LiveContext, LiveTurn, SCREEN_QUESTION, ScreenInput};
 use crate::live_events::Emitter;
 use socket_stream_core::a11y::{A11yReading, A11yTree, ReadMode, TokenBudget};
 use socket_stream_core::accessibility::{AccessibilityError, needs_ocr, read_foreground_tree};
-use socket_stream_core::ai::{AiError, ApiEvent, Provider, list_models, stream_answer_with_meta};
+use socket_stream_core::ai::{
+    AiError, ApiEvent, Provider, list_models, stream_answer_with_history,
+};
 use socket_stream_core::capture::{PortalFrameSource, capture_to, requires_linux_portal};
 use socket_stream_core::config::{Config, OcrConfig};
 use socket_stream_core::context::Deduplicator;
@@ -40,7 +43,7 @@ pub(crate) fn limit(
 #[derive(Clone)]
 pub(crate) struct A11yOptions {
     mode: ReadMode,
-    budget: TokenBudget,
+    pub(crate) budget: TokenBudget,
     region_ocr: bool,
     ocr_config: OcrConfig,
 }
@@ -129,6 +132,8 @@ enum ModelMessage {
     Finished {
         request: String,
         outcome: Result<(), AiError>,
+        turn: Box<LiveTurn>,
+        answer: String,
     },
 }
 
@@ -181,17 +186,30 @@ fn control_command(input: &str) -> Option<ControlCommand> {
 fn spawn_model_task(
     provider: Provider,
     request: String,
-    prompt: String,
+    turn: LiveTurn,
     sender: mpsc::Sender<ModelMessage>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let (parts_tx, mut parts_rx) = mpsc::channel::<String>(16);
         let (meta_tx, mut meta_rx) = mpsc::channel::<ApiEvent>(8);
-        let stream = stream_answer_with_meta(&provider, &prompt, &parts_tx, Some(&meta_tx));
+        let mut answer = String::new();
+        // The request owns an immutable context snapshot. Aborting this task
+        // drops it without acknowledging any screen changes.
+        let prompt = turn.prompt().to_owned();
+        let history = turn.history().to_vec();
+        let stream = stream_answer_with_history(
+            &provider,
+            &prompt,
+            &history,
+            None,
+            &parts_tx,
+            Some(&meta_tx),
+        );
         tokio::pin!(stream);
         loop {
             tokio::select! {
                 Some(part) = parts_rx.recv() => {
+                    if answer.len() < 8_000 { answer.push_str(&preview(&part, 4_000)); }
                     if sender
                         .send(ModelMessage::Delta { request: request.clone(), text: part })
                         .await
@@ -208,6 +226,7 @@ fn spawn_model_task(
                 }
                 finished = &mut stream => {
                     while let Ok(part) = parts_rx.try_recv() {
+                        if answer.len() < 8_000 { answer.push_str(&preview(&part, 4_000)); }
                         if sender
                             .send(ModelMessage::Delta { request: request.clone(), text: part })
                             .await
@@ -221,7 +240,7 @@ fn spawn_model_task(
                             return;
                         }
                     }
-                    let _ = sender.send(ModelMessage::Finished { request, outcome: finished }).await;
+                    let _ = sender.send(ModelMessage::Finished { request, outcome: finished, turn: Box::new(turn), answer }).await;
                     break;
                 }
             }
@@ -448,6 +467,7 @@ pub(crate) struct ScreenReader {
     keep_frames: bool,
     frame_toggle: bool,
     last_frame: Option<PathBuf>,
+    last_tree: Option<A11yTree>,
     fixed_window: bool,
 }
 
@@ -491,6 +511,7 @@ impl ScreenReader {
             keep_frames,
             frame_toggle: false,
             last_frame: None,
+            last_tree: None,
             fixed_window,
         })
     }
@@ -501,10 +522,25 @@ impl ScreenReader {
         self.last_frame.as_deref()
     }
 
+    pub(crate) fn last_tree(&self) -> Option<&A11yTree> {
+        self.last_tree.as_ref()
+    }
+
+    fn context_input<'a>(&'a self, text: Option<&'a str>) -> ScreenInput<'a> {
+        if let Some(tree) = self.last_tree() {
+            ScreenInput::Tree(tree)
+        } else if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
+            ScreenInput::Text(text)
+        } else {
+            ScreenInput::Unavailable
+        }
+    }
+
     pub(crate) fn pause(&mut self) {
         self.session.pause();
         self.portal.take();
         self.last_frame = None;
+        self.last_tree = None;
     }
 
     pub(crate) fn resume(&mut self) {
@@ -514,6 +550,8 @@ impl ScreenReader {
     pub(crate) fn stop(&mut self) {
         self.session.stop();
         self.portal = None;
+        self.last_tree = None;
+        self.last_frame = None;
     }
 
     fn capture_frame(&mut self) -> Result<PathBuf, &'static str> {
@@ -576,6 +614,11 @@ impl ScreenReader {
 
     /// One accessibility-first read with the configured OCR fallback.
     pub(crate) fn read_once(&mut self) -> Reading {
+        if !self.session.may_capture() {
+            self.last_tree = None;
+            self.last_frame = None;
+            return Reading::Nothing;
+        }
         let root = socket_stream_core::paths::project_root();
         let tree = read_foreground_tree(
             &root,
@@ -590,12 +633,14 @@ impl ScreenReader {
         // A subsequent accessibility-only read must not attach a screenshot
         // retained for an earlier question to the next model request.
         self.last_frame = None;
+        self.last_tree = None;
         let outcome = match tree {
             Ok(tree) => {
                 let rendered = tree.render_question(self.options.mode, self.options.budget);
                 let plan =
                     plan_tree_reading(&rendered, &self.options, self.allow_ocr, self.force_ocr);
                 if plan == ReadingPlan::UseAccessible {
+                    self.last_tree = Some(tree.question_tree_for_mode(self.options.mode));
                     return Reading::Question(rendered.text, rendered.display, "accessibility");
                 }
 
@@ -635,6 +680,7 @@ impl ScreenReader {
                             if remove_after {
                                 let _ = std::fs::remove_file(&screenshot);
                             }
+                            self.last_tree = Some(tree.question_tree_for_mode(self.options.mode));
                             return Reading::Question(
                                 rendered.text,
                                 rendered.display,
@@ -703,6 +749,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
     let allow_ocr = has(args, "--allow-ocr") || has(args, "--force-ocr");
     let force_ocr = has(args, "--force-ocr");
     let options = a11y_options(args)?;
+    let context_budget = options.budget;
     let portal_required = has(args, "--portal") || requires_linux_portal();
     let mut events = Emitter::new();
     if let Err(message) = verify_provider(&provider).await {
@@ -738,6 +785,8 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
     // Latest successful screen read, kept as bounded context for manually
     // typed questions so "what does this error mean?" can see the screen.
     let mut last_screen: Option<String> = None;
+    let mut context = LiveContext::default();
+    let mut pending_signature = None;
     // One queued manual question while an answer is still streaming; latest
     // request wins once the current answer completes.
     let mut manual_pending: Option<String> = None;
@@ -773,6 +822,28 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
             }
         };
     }
+    macro_rules! spawn_turn {
+        ($rid:expr, $question:expr) => {{
+            match context.prepare(
+                $question,
+                reader.context_input(last_screen.as_deref()),
+                context_budget,
+            ) {
+                Ok(turn) => {
+                    pending = Some(spawn_model_task(
+                        provider.clone(),
+                        $rid,
+                        turn,
+                        sender.clone(),
+                    ));
+                }
+                Err(error) => {
+                    pending_signature = None;
+                    emit!("error", "system", Some(&last_request), Some(&error));
+                }
+            }
+        }};
+    }
     let stop = tokio::signal::ctrl_c();
     tokio::pin!(stop);
     loop {
@@ -787,6 +858,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             dedup = Deduplicator::new(128);
                             last_request.clear();
                             last_screen = None;
+                            pending_signature = None;
                             if let Some(task) = pending.take() { task.abort(); }
                             emit!("session_paused", "system", None, None);
                         }
@@ -794,6 +866,14 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             paused = false;
                             reader.resume();
                             emit!("session_resumed", "system", None, None);
+                            if let Some(text) = manual_pending.take() {
+                                request_number += 1;
+                                let rid = format!("manual-{request_number}");
+                                last_request.clone_from(&rid);
+                                emit_question!("manual", &rid, &text, &text);
+                                emit!("answer_started", "manual", Some(&rid), None);
+                                spawn_turn!(rid, &text);
+                            }
                         }
                         Some(ControlCommand::Stop) => break,
                         Some(ControlCommand::NextQuestion) if !paused => {
@@ -803,14 +883,14 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             }
                             // Ignore late messages from the cancelled worker.
                             last_request.clear();
+                            pending_signature = None;
                             if let Some(text) = manual_pending.take() {
                                 request_number += 1;
                                 let rid = format!("manual-{request_number}");
                                 last_request.clone_from(&rid);
-                                let prompt = compose_prompt(&text, last_screen.as_deref());
                                 emit_question!("manual", &rid, &text, &text);
                                 emit!("answer_started", "manual", Some(&rid), None);
-                                pending = Some(spawn_model_task(provider.clone(), rid, prompt, sender.clone()));
+                                spawn_turn!(rid, &text);
                             }
                         }
                         Some(ControlCommand::Question(text)) => {
@@ -818,24 +898,23 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             if text.chars().filter(|c| c.is_alphabetic()).count() < 3 {
                                 emit!("error", "system", None,
                                     Some("Type a longer question before sending."));
-                            } else if pending.is_none() {
+                            } else if pending.is_none() && !paused {
                                 request_number += 1;
                                 let rid = format!("manual-{request_number}");
                                 last_request.clone_from(&rid);
-                                let prompt = compose_prompt(&text, last_screen.as_deref());
                                 emit_question!("manual", &rid, &text, &text);
                                 emit!("answer_started", "manual", Some(&rid), None);
-                                pending = Some(spawn_model_task(
-                                    provider.clone(), rid, prompt, sender.clone(),
-                                ));
+                                pending_signature = None;
+                                spawn_turn!(rid, &text);
                                 warned_accessibility = false;
                                 warned_ocr = false;
                             } else {
                                 manual_pending = Some(text);
                             }
                         }
-                        Some(ControlCommand::ReadScreen) => {
+                        Some(ControlCommand::ReadScreen) if !paused => {
                             let reading = reader.read_once();
+                            last_screen = None;
                             if let Reading::Question(text, ..) = &reading {
                                 last_screen = Some(bound_context(text));
                             }
@@ -847,13 +926,12 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                                         last_request.clone_from(&rid);
                                         emit_question!(&source, &rid, &text, &display);
                                         emit!("answer_started", &source, Some(&rid), None);
-                                        pending = Some(spawn_model_task(
-                                            provider.clone(), rid, text, sender.clone(),
-                                        ));
+                                        pending_signature = None;
+                                        spawn_turn!(rid, SCREEN_QUESTION);
                                         warned_accessibility = false;
                                         warned_ocr = false;
                                     } else {
-                                        manual_pending = Some(text);
+                                        manual_pending = Some(SCREEN_QUESTION.to_owned());
                                     }
                                 }
                                 Ok(None) => {}
@@ -868,6 +946,7 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
             _ = ticker.tick(), if observations < max && !paused => {
                 observations += 1;
                 let reading = reader.read_once();
+                last_screen = None;
                 if let Reading::Question(text, ..) = &reading {
                     last_screen = Some(bound_context(text));
                 }
@@ -881,15 +960,13 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                         // answer only once the screen has settled and is new.
                         let (signature, stable) = dedup.observe(&text);
                         if pending.is_none() && stable && dedup.is_new(signature) {
-                            dedup.remember(signature);
+                            pending_signature = Some(signature);
                             request_number += 1;
                             let rid = format!("question-{request_number}");
                             last_request.clone_from(&rid);
                             emit_question!(source, &rid, &text, &display);
                             emit!("answer_started", source, Some(&rid), None);
-                            pending = Some(spawn_model_task(
-                                provider.clone(), rid, text, sender.clone(),
-                            ));
+                            spawn_turn!(rid, SCREEN_QUESTION);
                             warned_accessibility = false;
                             warned_ocr = false;
                         }
@@ -942,12 +1019,20 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             emit_api_response!(&request, status, &text);
                         }
                     }
-                    ModelMessage::Finished { request, outcome } => {
+                    ModelMessage::Finished { request, outcome, turn, answer } => {
                         if request != last_request { continue; }
                         pending = None;
-                        match outcome {
-                            Ok(()) => emit!("answer_completed", "system", Some(&request), None),
-                            Err(_) => emit!("error", "system", Some(&request),
+                        let committed = outcome.is_ok() && context.commit(*turn, &answer).is_ok();
+                        if committed {
+                            if let Some(signature) = pending_signature.take() {
+                                dedup.remember(signature);
+                            }
+                        } else {
+                            pending_signature = None;
+                        }
+                        match committed {
+                            true => emit!("answer_completed", "system", Some(&request), None),
+                            false => emit!("error", "system", Some(&request),
                                 Some("Model unavailable. Check provider settings, login or quota.")),
                         }
                         if observations >= max { break; }
@@ -959,12 +1044,9 @@ pub async fn run(args: &[String], provider: Provider) -> Result<(), String> {
                             request_number += 1;
                             let rid = format!("manual-{request_number}");
                             last_request.clone_from(&rid);
-                            let prompt = compose_prompt(&text, last_screen.as_deref());
                             emit_question!("manual", &rid, &text, &text);
                             emit!("answer_started", "manual", Some(&rid), None);
-                            pending = Some(spawn_model_task(
-                                provider.clone(), rid, prompt, sender.clone(),
-                            ));
+                            spawn_turn!(rid, &text);
                         }
                     }
                 }
@@ -1217,6 +1299,42 @@ mod tests {
             Reading::Nothing
         ));
         assert!(reader.last_frame().is_none());
+        assert!(reader.last_tree().is_none());
+    }
+
+    #[test]
+    fn paused_and_stopped_reader_never_reads_and_clears_current_screen_context() {
+        let options = A11yOptions {
+            mode: ReadMode::Tree,
+            budget: TokenBudget::default(),
+            region_ocr: false,
+            ocr_config: OcrConfig::default(),
+        };
+        let mut reader = ScreenReader::start(false, false, false, false, options, 4).unwrap();
+        let tree = A11yTree::parse(r#"{"schema":1,"source":"atspi","nodes":[
+            {"id":1,"parent":null,"role":"text","text":"Explain why the current question is readable."}
+        ]}"#).unwrap();
+        assert!(matches!(
+            reader.read_tree_result(Ok(tree)),
+            Reading::Question(..)
+        ));
+        assert!(matches!(reader.context_input(None), ScreenInput::Tree(_)));
+        reader.pause();
+        assert!(matches!(reader.read_once(), Reading::Nothing));
+        assert!(reader.last_tree().is_none());
+        assert!(reader.last_frame().is_none());
+        assert!(matches!(
+            reader.context_input(Some(" ")),
+            ScreenInput::Unavailable
+        ));
+        assert!(matches!(
+            reader.context_input(Some("OCR-only content")),
+            ScreenInput::Text("OCR-only content")
+        ));
+        reader.stop();
+        reader.resume(); // Stop revokes the original authorization.
+        assert!(matches!(reader.read_once(), Reading::Nothing));
+        assert!(!reader.session.may_capture());
     }
 
     #[test]

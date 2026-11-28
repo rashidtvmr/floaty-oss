@@ -77,3 +77,109 @@ inventory exposed 5 playback monitors and 3 microphone inputs without recording.
 The official Codex default-model CLI independently retried transport and timed out;
 login/catalog success remains explicitly insufficient proof of inference access.
 See `PANEL-SESSION-PROFILES.md` for workflow and remaining hardware/platform limits.
+
+
+Ubuntu accessibility/session update (2026-11-27): foreground selection now
+excludes GNOME/Mutter mirrors consistently, native AT-SPI identities survive
+reads, explicit GI calls and bounded deadlines handle backend failures, and
+launcher/preflight use distro Python. Keyed snapshot/patch context is connected
+to observe-live and screen-assisted Moonshine, with successful-only commits,
+bounded dialogue checkpoints, focused-scope preservation and generation-tagged
+pause/resume reads. Rust fmt/Clippy and 259 Rust tests pass. Python unit tests
+ran 697 cases (691 passed, 6 skipped), and acceptance ran 45 (38 passed, 7
+skipped). Changed production runtime line coverage is 95.67%; the five feature
+modules each exceed 98%. Coverage excludes inline Rust test bodies and reports
+whole-workspace figures separately. See INCREMENTAL-SCREEN-CONTEXT.md and
+SCREEN-READING-COVERAGE.json for exact scope and denominators.
+
+A private native Weston/AT-SPI fixture was added but explicitly skipped here:
+the executor rejects AF_UNIX sockets with EPERM, so D-Bus and Wayland cannot
+start. Actual Ubuntu 26/GNOME/browser behavior, graphical portal prompts and
+hardware remain unverified in this change. Native GI identity/interface
+declarations were checked without reading a desktop. Independent reviews
+approved the capture boundaries, generation fence, transactional context and
+the explicit settings-depth preservation fix.
+
+Adversarial screen/session hardening (2026-11-28): separate Linux capture,
+tree-reconciliation and provider/session reviewers reproduced counterexamples,
+then cross-reviewed corrections. Empty layout branches can no longer exhaust
+the model's node budget before a readable question. Active compositor and
+own-window evidence prevents stale background focus from being captured;
+unavailable native role/name metadata remains partial and protected. Malformed
+or incomplete provider responses do not acknowledge screen or dialogue state.
+Speech detection now commits with successful context, preserving retries after
+failure/cancellation, current speaker choices, queued questions after Resume,
+and long Unicode clarification sessions. Serialized replay budgets and divergent
+cloned baselines have explicit regressions.
+
+The final isolated instrumentation gate passed Rust formatting, Clippy and 281
+Rust tests. Python unit tests ran 716 cases (710 passed, 6 skipped); acceptance
+ran 56 (49 passed, 7 skipped), including 11 new CLI/HTTP integration regressions.
+Changed production line coverage against main is 96.00% (1,008 / 1,050); this
+hardening pass alone is 97.01% (162 / 167). Each of the five feature-module gates
+exceeds 98%. Coverage builds are isolated from ordinary development artifacts;
+the environment is established before cleaning, and all acceptance fixtures use
+the instrumented CLI. See ADVERSARIAL-SCREEN-REVIEW.md and the latest
+SCREEN-READING-COVERAGE.json for exact scope, reproduced failures and evidence.
+
+The private Wayland fixture was attempted again and still skipped because this
+executor rejects AF_UNIX sockets. Actual Ubuntu 26/GNOME/browser behavior,
+graphical portal permissions and hardware remain unverified by this hardening
+pass. Test coverage does not establish a 100% reliability guarantee.
+
+GTK responsiveness and HP verification (2026-11-28): compositor backend
+construction, status queries and share-state probes now run outside the GTK
+main loop, with coalesced reads and generation checks. Explicit setup/remove
+operations are serialized with reads; shutdown rejects late results. Explicit
+Show requests restore a previously mapped panel without requesting keyboard
+focus. The Debian installer and dependency checker now require the separate
+GI-Cairo bridge as well as Pycairo.
+
+On Ubuntu 26.04/GNOME with Wayland, the actual GTK controller and answer panel
+were tested on the existing display using generated events and isolated
+preferences. With system Pycairo but no GI-Cairo bridge, the window mapped and
+rendered its generated answer but recorded 14 callback TypeErrors. An unchanged
+rerun using a private, version-matched GI-Cairo package in a user-owned virtual
+environment passed with zero callback errors, 155.5 ms construction, 118
+heartbeat ticks, a 52.7 ms maximum gap on a 50 ms timer, and 15 heartbeats during
+a controlled 750 ms status delay. Real read-only status/share probes completed
+on workers, the rendered answer buffer matched, and owned GTK cleanup passed.
+The compositor ignored dock iconification, so native restoration from minimized
+state remains unsupported by that run; the source regression is covered by
+unit tests. The harness starts no capture or model request and takes no image.
+
+The UI changes passed independent review and 20 focused worker/controller
+regressions, five panel restoration regressions, and six actual-script dependency
+checks. Fresh Python instrumentation plus the unchanged Rust coverage record
+measures 96.09% changed production lines (1,156/1,203) against the main baseline;
+the UI delta alone is 96.73% (148/153), and the new background helper has 100%
+statement and branch coverage. System installation still requires administrator
+authentication on the HP host; the passing runtime is explicitly user-owned.
+This finite generated-data test does not establish portal permissions, real
+screen-share exclusion, hardware audio, or unlimited-session reliability.
+
+## November 28 HP runtime followup
+
+The current coverage report is [SCREEN-READING-COVERAGE.json](SCREEN-READING-COVERAGE.json):
+**95.71% (1,226/1,281) changed production executable lines** against main.
+The fresh Python run passed 772 unit and 49 acceptance cases, with 13 skips.
+The 281 earlier Rust passes and Rust coverage are unchanged. Whole measured
+workspace coverage is Python 52.83% and Rust 71.98%.
+
+The later HP work enabled ordinary GNOME toolkit accessibility, installed
+working private Pulse client utilities, and built and checked the bundled
+Moonshine runtime. FFmpeg was already installed. The source also fixes stopped
+Capture's window selection and clarifies text-only stopped Send.
+
+The reviewed source update is **not deployed to HP yet**. Recovered logs from
+the failed public-practice inspection show that Chrome loaded the question,
+but the production AT-SPI read returned only one node and failed
+`native_practice_question_unreadable`. The underlying cause remains open.
+The harness now permits ten seconds of bounded polling of the same owned
+window and reports its timing and backend. Its 23 offline guard groups pass;
+this test-only change has not been executed on HP. Further deployment and
+desktop testing are handed to the user's HP agent. No new real API call was
+made and the actual real-answer GTK rendering gate remains pending. See
+[HP-RUNTIME-REPAIR.md](HP-RUNTIME-REPAIR.md) for the precise installation,
+verification, and remaining deployment scopes. Earlier results above retain
+their recorded scope and do not establish this pending ordinary-desktop gate.

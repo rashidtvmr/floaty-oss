@@ -192,6 +192,58 @@ class ProviderSettings(unittest.TestCase):
             settings.save_provider_profile("New", "codex", {})
         self.assertEqual(path.read_bytes(), before)
 
+    def test_explicit_depth_boundary_preserves_valid_unknown_extensions(self):
+        path = settings.save_provider_settings({})
+        for depth in (settings._MAX_JSON_DEPTH - 1, settings._MAX_JSON_DEPTH):
+            with self.subTest(container_depth=depth):
+                extension = 0
+                for index in range(depth - 1):
+                    extension = [extension] if index % 2 else {"future": extension}
+                payload = {"SOCKET_STREAM_API_KEY": "fixture-existing-key", "unknown": extension}
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                self.assertEqual(settings.load_provider_settings()["SOCKET_STREAM_API_KEY"],
+                                 "fixture-existing-key")
+                settings.save_provider_profile("New", "codex", {})
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(saved["unknown"], extension)
+                self.assertEqual(saved["profiles"]["Default"]["settings"]["SOCKET_STREAM_API_KEY"],
+                                 "fixture-existing-key")
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_depth_limit_rejects_arrays_and_objects_before_any_update(self):
+        path = settings.save_provider_settings({})
+        for container in (lambda child: [child], lambda child: {"future": child}):
+            extension = 0
+            for _ in range(settings._MAX_JSON_DEPTH):
+                extension = container(extension)
+            before = json.dumps({"unknown": extension}).encode()
+            path.write_bytes(before)
+            before_files = sorted(item.name for item in path.parent.iterdir())
+            self.assertEqual(settings.load_provider_settings(), {})
+            self.assertEqual(settings.load_provider_profiles()["profiles"], {})
+            for action in (
+                lambda: settings.save_provider_settings({"SOCKET_STREAM_API_KEY": "replacement"}),
+                lambda: settings.save_provider_profile("New", "codex", {}),
+                lambda: settings.rename_provider_profile("Existing", "New"),
+                lambda: settings.delete_provider_profile("Existing"),
+            ):
+                with self.assertRaisesRegex(ValueError, "existing file preserved"):
+                    action()
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(sorted(item.name for item in path.parent.iterdir()), before_files)
+
+    def test_brackets_and_escaped_quotes_in_strings_do_not_count_as_nesting(self):
+        credential = '[{"escaped":"\\\\\\\""}]' * 100
+        path = settings.save_provider_settings({"SOCKET_STREAM_API_KEY": credential})
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["future-string"] = "[" * 2000 + "}" * 2000
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertEqual(settings.load_provider_settings()["SOCKET_STREAM_API_KEY"], credential)
+        settings.save_provider_profile("New", "codex", {})
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["future-string"], payload["future-string"])
+        self.assertEqual(saved["profiles"]["Default"]["settings"]["SOCKET_STREAM_API_KEY"], credential)
+
 
 if __name__ == "__main__":
     unittest.main()

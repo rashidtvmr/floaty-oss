@@ -187,8 +187,11 @@ class OverlayModel(unittest.TestCase):
 
 class VisibilityControls(unittest.TestCase):
     class Window:
-        def __init__(self, visible=True):
+        def __init__(self, visible=True, iconified=False):
             self.visible = visible
+            self.iconified = iconified
+            self.restore_requests = 0
+            self.focus_requests = 0
 
         def get_visible(self):
             return self.visible
@@ -197,7 +200,18 @@ class VisibilityControls(unittest.TestCase):
             self.visible = False
 
         def show_all(self):
+            # GTK's visible property is independent of WM iconification.
             self.visible = True
+
+        def deiconify(self):
+            self.restore_requests += 1
+            self.iconified = False
+
+        def present(self):
+            self.focus_requests += 1
+
+        def present_with_time(self, _timestamp):
+            self.focus_requests += 1
 
     def make_overlay(self, *, user_hidden=False, visible=True):
         panel = overlay.FloatingOverlay.__new__(overlay.FloatingOverlay)
@@ -230,6 +244,58 @@ class VisibilityControls(unittest.TestCase):
         panel = self.make_overlay(visible=True)
         self.assertTrue(panel.apply_share_state(True))
         self.assertTrue(panel.window.get_visible())
+
+    def test_show_restores_a_logically_visible_iconified_panel_without_focus(self):
+        panel = self.make_overlay(visible=True)
+        panel.window.iconified = True
+
+        self.assertTrue(panel.show())
+
+        self.assertFalse(panel.window.iconified)
+        self.assertEqual(panel.window.restore_requests, 1)
+        self.assertEqual(panel.window.focus_requests, 0)
+
+    def test_hide_then_show_also_restores_prior_iconification(self):
+        panel = self.make_overlay(visible=True)
+        panel.window.iconified = True
+        panel.hide()
+
+        self.assertTrue(panel.show())
+
+        self.assertFalse(panel.window.iconified)
+        self.assertFalse(panel._user_hidden)
+        self.assertEqual(panel.window.focus_requests, 0)
+
+    def test_first_map_does_not_request_window_manager_restoration(self):
+        panel = self.make_overlay(visible=False)
+        panel._ever_shown = False
+
+        self.assertTrue(panel.show())
+
+        self.assertTrue(panel._ever_shown)
+        self.assertEqual(panel.window.restore_requests, 0)
+        self.assertEqual(panel.window.focus_requests, 0)
+
+    def test_passive_share_update_does_not_restore_an_iconified_panel(self):
+        panel = self.make_overlay(visible=True)
+        panel.window.iconified = True
+
+        panel.apply_share_state(True)
+        panel.apply_share_state(False)
+
+        self.assertTrue(panel.window.iconified)
+        self.assertEqual(panel.window.restore_requests, 0)
+        self.assertEqual(panel.window.focus_requests, 0)
+
+    def test_unsupported_restoration_keeps_explicit_show_usable(self):
+        panel = self.make_overlay(visible=False)
+
+        def unsupported():
+            raise RuntimeError("synthetic unsupported window manager operation")
+
+        panel.window.deiconify = unsupported
+        self.assertTrue(panel.show())
+        self.assertEqual(panel.window.focus_requests, 0)
 
 
 class PanelIdentity(unittest.TestCase):

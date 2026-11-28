@@ -25,6 +25,21 @@ remain pending.
 
 No vision LLM is required for the OCR path; it works by sending extracted text.
 
+### Incremental screen sessions on Linux
+
+`observe-live` and `audio-live --read-screen` now keep session context and send
+keyed accessibility updates: one initial snapshot, then changed/added/moved/
+removed nodes. Successful model responses acknowledge updates; failed or
+cancelled requests retain the previous baseline. Bounded checkpoints preserve
+the current screen and recent dialogue. Compatible chat APIs replay the required
+history alongside the latest patch.
+
+Ubuntu/Wayland foreground selection, AT-SPI interface calls, native object
+identities, distro Python selection and startup diagnostics are hardened. See
+[the protocol, Ubuntu setup and coverage gate](docs/INCREMENTAL-SCREEN-CONTEXT.md).
+Actual Ubuntu/GNOME desktop validation remains pending; the isolated native
+fixture cannot run in an executor that blocks Unix sockets.
+
 ## Try it
 
 - Install Rust stable. macOS OCR uses Apple's built-in Vision framework; no Tesseract needed. Linux OCR uses distro Tesseract plus AT-SPI2/GTK Python bindings.
@@ -32,7 +47,7 @@ No vision LLM is required for the OCR path; it works by sending extracted text.
 - `cargo run -p socket_stream -- doctor`
 - `cargo run -p socket_stream -- analyze-file --file examples/sample-question.txt --provider mock`
 - macOS GUI: `./scripts/start-macos.sh` opens the installed `~/Applications/SocketStream.app` (the bundle has the stable TCC identity). Build or refresh it with `./scripts/build-macos-app.sh`; use `./scripts/start-macos.sh --dev` for the raw development GUI. See `docs/MACOS-TESTING.md`.
-- Linux GUI: `./scripts/start-linux.sh` (native GTK3; requires `python3-gi`, `gir1.2-gtk-3.0`).
+- Linux GUI: `./scripts/start-linux.sh` (native GTK3; requires `python3-gi`, `python3-cairo`, `python3-gi-cairo`, `gir1.2-gtk-3.0`).
 - `cargo run -p socket_stream -- observe --authorized --provider mock` (explicit on-screen session required).
 - `cargo run -p socket_stream -- observe --authorized --force-ocr --provider mock` to skip accessibility for canvas-based editors.
 - `cargo run -p socket_stream -- a11y --authorized` to inspect current foreground app accessible text (after OS authorization).
@@ -111,7 +126,7 @@ System audio requires a user-approved OS capture permission. Explicitly exported
 
 ## Linux Wayland dependencies
 
-On recent Ubuntu/Debian install `python3-dbus`, `python3-gi`, `gir1.2-atspi-2.0`, `gir1.2-gtk-3.0`, `gir1.2-gstreamer-1.0`, `gstreamer1.0-pipewire`, `gstreamer1.0-plugins-good`, `xdg-desktop-portal`, `tesseract-ocr`, `ffmpeg` and `imagemagick`. The `--portal` flag explicitly selects the XDG ScreenCast chooser for authorized OCR:
+On recent Ubuntu/Debian install `python3-dbus`, `python3-gi`, `python3-cairo`, `python3-gi-cairo`, `gir1.2-atspi-2.0`, `gir1.2-gtk-3.0`, `gir1.2-gstreamer-1.0`, `gstreamer1.0-pipewire`, `gstreamer1.0-plugins-good`, `xdg-desktop-portal`, `tesseract-ocr`, `ffmpeg` and `imagemagick`. The GTK answer panel needs the separate `python3-gi-cairo` bridge even when `import cairo` succeeds. `./scripts/linux-check-dependencies.sh` checks both. The `--portal` flag explicitly selects the XDG ScreenCast chooser for authorized OCR:
 
 ```bash
 cargo run -p socket_stream -- observe --authorized --portal --force-ocr --provider mock

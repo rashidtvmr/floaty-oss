@@ -36,6 +36,7 @@ from shortcuts import (  # noqa: E402  (path set just above)
     save_cursor_blending,
 )
 from answer_format import question_title  # noqa: E402
+from background_refresh import BackgroundRefresh  # noqa: E402
 from ui_theme import style  # noqa: E402
 from provider_settings import (  # noqa: E402  (path set just above)
     PROVIDER_SETTING_KEYS,
@@ -185,7 +186,7 @@ def create_window():
     """Construct the real GTK controller without starting its main loop."""
     from live_state import LiveState
     from workspace_ui import build_workspace
-    from capture_rules import CaptureExclusion, CaptureRuleError
+    from capture_rules import CaptureExclusion, CaptureRuleError, RuleStatus
     from overlay_guard import (
         backend_is_x11, build_plan, capability_report, detect_session,
         ensure_panel_backend, ScreenShareWatcher,
@@ -207,8 +208,12 @@ def create_window():
     except (ImportError, ValueError) as exc:
         raise SystemExit(f"GTK3 unavailable: {exc}. Install python3-gi and gir1.2-gtk-3.0.")
 
-    capture_exclusion = CaptureExclusion(session=session)
-    initial_capture_status = capture_exclusion.status()
+    # Even constructing a backend can query the compositor. The first window
+    # must not wait for D-Bus, systemd, package queries or runtime validation.
+    initial_capture_status = RuleStatus(
+        backend=session.compositor, supported=False, configured=False,
+        verified=False, detail="Checking compositor status in the background.",
+    )
     plan = build_plan(
         session, compositor_skip_capture=initial_capture_status.configured,
         xwayland_dock=panel_x11,
@@ -244,10 +249,18 @@ def create_window():
             self.live_state = LiveState()
             self.share_timeout = None
             self.share_polls = 0
-            self.capture_exclusion = capture_exclusion
+            self.capture_exclusion = None
             self.capture_rules = initial_capture_status
+            self._capture_status_pending = True
+            self._capture_request = None
+            self._question_window_request = None
+            self._capture_lock = threading.Lock()
             self.capture_busy = False
             self.share_watcher = ScreenShareWatcher(interval=2.0)
+            self._capture_refresh = BackgroundRefresh(
+                self._read_capture_status, self._capture_status_ready, GLib.idle_add)
+            self._share_refresh = BackgroundRefresh(
+                self._read_share_state, self._share_state_ready, GLib.idle_add)
             self.env = {
                 name: os.environ.get(name, default)
                 for name, default in {
@@ -297,6 +310,7 @@ def create_window():
                         lambda *_: self.preview_appearance() if not self._exiting and self.theme_select.get_active_id() == "system" else None))
             self.sync_provider_label()
             self.refresh_session()
+            self.refresh_capture_status()
             self.report_capabilities()
             self.share_timeout = GLib.timeout_add_seconds(2, self.poll_share_state)
             self.poll_share_state()
@@ -836,7 +850,10 @@ def create_window():
             self.floating.set_stealth(button.get_active())
 
         def report_capabilities(self):
-            status = self.refresh_capture_status()
+            status = self.capture_rules
+            if self._capture_status_pending:
+                self.write("Checking compositor capabilities in the background; capture exclusion is unverified.\n")
+                return
             report = capability_report(
                 detect_session(), compositor_skip_capture=status.configured,
                 capture_rule_supported=status.supported,
@@ -875,10 +892,48 @@ def create_window():
                 "rule is not proof of exclusion until a real share is checked.\n")
 
         def refresh_capture_status(self):
-            """Read the compositor rule state and keep the row/buttons in sync."""
-            status = self.capture_exclusion.status()
+            """Request a coalesced background read and render the cached state."""
+            if not self._exiting and not self.capture_busy:
+                self._capture_refresh.request()
+            self._render_capture_status()
+            return self.capture_rules
+
+        def _read_capture_status(self):
+            # Serialize probes with explicit setup/remove; the lock is never
+            # acquired by the GTK thread. Backend construction is lazy too.
+            with self._capture_lock:
+                if self._exiting:
+                    return None
+                if self.capture_exclusion is None:
+                    self.capture_exclusion = CaptureExclusion(session=session)
+                return self.capture_exclusion.status()
+
+        def _capture_status_ready(self, status, error):
+            if self._exiting or self.capture_busy:
+                return False
+            if status is None or error:
+                status = RuleStatus(
+                    backend=session.compositor, supported=False, configured=False,
+                    verified=False, detail="Compositor status could not be checked.",
+                    guidance="Status will be checked again in the background.",
+                )
+            changed = self._capture_status_pending or status != self.capture_rules
+            self._capture_status_pending = False
             self.capture_rules = status
-            if status.backend == "gnome":
+            self._render_capture_status()
+            self._apply_capture_plan()
+            if changed:
+                self.report_capabilities()
+            return False
+
+        def _render_capture_status(self):
+            """GTK-only rendering; this method must never run a probe."""
+            if self._exiting:
+                return
+            status = self.capture_rules
+            if self._capture_status_pending:
+                text = "Capture exclusion: checking compositor status…"
+            elif status.backend == "gnome":
                 text = self._gnome_capture_text(status)
             elif status.configured:
                 text = f"Capture exclusion: {status.backend} rule installed"
@@ -893,9 +948,9 @@ def create_window():
             self.capture_label.set_tooltip_text(
                 "\n".join(part for part in (status.detail, status.guidance) if part)
             )
-            self.capture_setup_button.set_sensitive(bool(status.can_install))
+            self.capture_setup_button.set_sensitive(bool(status.can_install) and not self.capture_busy)
             self.capture_setup_button.set_tooltip_text(status.guidance or status.detail)
-            self.capture_remove_button.set_sensitive(bool(status.can_remove))
+            self.capture_remove_button.set_sensitive(bool(status.can_remove) and not self.capture_busy)
             self.capture_restart.set_visible(bool(status.restart_required))
             if status.restart_required:
                 if status.configured:
@@ -910,7 +965,6 @@ def create_window():
                         "with the current setup. SocketStream never restarts your desktop "
                         "or your session."
                     )
-            return status
 
         @staticmethod
         def _gnome_capture_text(status):
@@ -936,7 +990,7 @@ def create_window():
 
         def _apply_capture_plan(self):
             """Recompute the plan after a rule is installed or removed."""
-            status = self.capture_exclusion.status()
+            status = self.capture_rules
             self.floating.plan = build_plan(
                 detect_session(), compositor_skip_capture=status.configured,
                 xwayland_dock=panel_x11,
@@ -951,9 +1005,12 @@ def create_window():
             loop.  The buttons are disabled while it runs so a second click
             cannot start a concurrent transaction.
             """
-            if getattr(self, "capture_busy", False):
+            if self._exiting or getattr(self, "capture_busy", False):
                 return
             self.capture_busy = True
+            # A result queued before this mutation may not overwrite its
+            # result, even if GTK receives that old callback afterwards.
+            self._capture_refresh.invalidate()
             self.capture_setup_button.set_sensitive(False)
             self.capture_remove_button.set_sensitive(False)
             if action == "install":
@@ -965,8 +1022,14 @@ def create_window():
 
             def worker():
                 try:
-                    status = getattr(self.capture_exclusion, action)()
-                    note = self.capture_exclusion.note()
+                    with self._capture_lock:
+                        if self._exiting:
+                            GLib.idle_add(finish, None, "", None)
+                            return
+                        if self.capture_exclusion is None:
+                            self.capture_exclusion = CaptureExclusion(session=session)
+                        status = getattr(self.capture_exclusion, action)()
+                        note = self.capture_exclusion.note()
                     error = None
                 except CaptureRuleError as exc:
                     status, note, error = None, "", str(exc)
@@ -981,9 +1044,10 @@ def create_window():
                     return False
                 if error is not None:
                     self.write(f"Capture exclusion was not {action}ed: {error}\n")
+                    self._capture_status_ready(None, "capture_action_failed")
                     self.refresh_capture_status()
                     return False
-                self.refresh_capture_status()
+                self._capture_status_ready(status, None)
                 if action == "install":
                     self.write(f"Capture exclusion: {status.detail}\n")
                     if note:
@@ -1003,8 +1067,6 @@ def create_window():
                             "  Activation changed: the running shell still uses the "
                             "previous setup, so log out and back in. SocketStream never "
                             "restarts your desktop or your session.\n")
-                self._apply_capture_plan()
-                self.report_capabilities()
                 return False
 
             threading.Thread(target=worker, daemon=True).start()
@@ -1043,12 +1105,24 @@ def create_window():
             self.navigate("tools")
 
         def poll_share_state(self):
-            active = self.share_watcher.poll()
-            self.floating.apply_share_state(active)
+            if self._exiting:
+                return False
+            self._share_refresh.request()
             self.share_polls += 1
             if self.share_polls % 10 == 0:
                 self.refresh_capture_status()
-            status = self.share_watcher.status()
+            return True
+
+        def _read_share_state(self):
+            active = self.share_watcher.poll()
+            return active, self.share_watcher.status()
+
+        def _share_state_ready(self, value, error):
+            if self._exiting:
+                return False
+            active, status = value if value is not None and not error else (
+                False, {"checked": False, "detail": "probe unavailable"})
+            self.floating.apply_share_state(active)
             if active:
                 text = "Screen share: detected — answer panel remains visible and may be captured"
             elif status.get("checked"):
@@ -1057,7 +1131,7 @@ def create_window():
                 text = "Screen share: none detected (probe unavailable)"
             detail = status.get("detail") or ""
             self.share_status.set_text(text + (f" · {detail}" if detail else ""))
-            return True
+            return False
 
         def selected_provider(self):
             return self.provider.get_active_text() or "mock"
@@ -1194,6 +1268,8 @@ def create_window():
             if self.proc is not None:
                 self.write("An operation is already running; select Stop first.\n")
                 return False
+            self._capture_request = None
+            self._question_window_request = None
             if not CLI.is_file():
                 self.write(f"CLI not installed: {CLI}\n")
                 return False
@@ -1418,23 +1494,46 @@ def create_window():
             if proc is not None:
                 self.write("Stop the active operation before running a standalone capture.\n")
                 return
-            explanation = (f"Read only the selected window: {self.question_window_title}? "
-                           "Accessibility text only; no screenshots or OCR. "
-                           if self.question_window_target is not None else
-                    "The app reads foreground accessibility text and, when no text "
-                    "is readable, takes a local screenshot for OCR and model vision. "
-                    )
-            if not self.confirmation("Read the screen once?", explanation +
-                    "Only capture applications where assistance is permitted."):
-                self.set_status("Permission declined")
+            if self._starting or self._exiting or self._capture_request is not None:
                 return
-            args = ["ask", "--read-screen", "--authorized", "--allow-ocr",
-                    "--provider", self.selected_provider()]
-            if self.question_window_target is not None:
-                args.remove("--allow-ocr")
-                args.append("--no-vision")
-            if self.run_cli(args):
-                self.show_answer_panel()
+            request = object()
+            self._capture_request = request
+            generation = self._process_generation
+            if self.question_window_target is None:
+                # The consent dialog can leave Floaty focused. Select an
+                # explicit native window before asking to read it; never
+                # guess which background application the user intended.
+                def selected(accepted):
+                    if self._capture_request is not request:
+                        return
+                    self._capture_request = None
+                    if (accepted and generation == self._process_generation and not self._exiting
+                            and not self._starting and self.proc is None and self.question_window_target is not None):
+                        self.manual_capture()
+
+                self.choose_question_window(on_selected=selected, require_selected=True)
+                return
+            target = self.question_window_target
+            try:
+                explanation = (f"Read only the selected window: {self.question_window_title}? "
+                               "Accessibility text only; no screenshots or OCR. "
+                               "Only capture applications where assistance is permitted.")
+                if not self.confirmation("Read the screen once?", explanation):
+                    self.set_status("Permission declined")
+                    return
+                if (self._capture_request is not request or generation != self._process_generation
+                        or self.question_window_target != target or self.proc is not None
+                        or self._starting or self._exiting):
+                    if not self._exiting:
+                        self.write("Screen read cancelled because the selected window or session changed.\n")
+                    return
+                args = ["ask", "--read-screen", "--authorized",
+                        "--provider", self.selected_provider(), "--no-vision"]
+                if self.run_cli(args):
+                    self.show_answer_panel()
+            finally:
+                if self._capture_request is request:
+                    self._capture_request = None
 
         def confirmation(self, title, explanation):
             dialog = Gtk.MessageDialog(
@@ -1451,6 +1550,8 @@ def create_window():
             if self.proc is not None or self._starting:
                 self.write("An operation is already running; select Stop first.\n")
                 return
+            self._capture_request = None
+            self._question_window_request = None
             audio = self.audio_check.get_active()
             screen = self.screen_check.get_active()
             try:
@@ -1495,8 +1596,13 @@ def create_window():
             source, device = self.audio_source, self.audio_device
 
             def check():
-                from source_preflight import check_sources
-                errors, notes = check_sources(audio, screen, source, device, ROOT)
+                try:
+                    from source_preflight import check_sources
+                    errors, notes = check_sources(audio, screen, source, device, ROOT)
+                except Exception:
+                    # An unexpected worker failure must still complete the
+                    # startup handshake and leave the visible panel usable.
+                    errors, notes = ["Source readiness check could not complete. Check the desktop services and retry."], []
 
                 def ready():
                     if self._exiting or not self._starting or generation != self._process_generation:
@@ -1522,12 +1628,31 @@ def create_window():
 
             threading.Thread(target=check, daemon=True).start()
 
-        def choose_question_window(self, _button=None):
-            if self.proc is not None or self._starting:
+        def choose_question_window(self, _button=None, *, on_selected=None, require_selected=False):
+            if self.proc is not None or self._starting or self._exiting:
                 self.feedback(self.session_message, "Stop before changing the question window.", error=True)
+                if on_selected is not None:
+                    on_selected(False)
                 return
+            if self._question_window_request is not None or (self._capture_request is not None and on_selected is None):
+                self.feedback(self.session_message, "Finish or cancel the current window selection or screen-read confirmation.")
+                if on_selected is not None:
+                    on_selected(False)
+                return
+            request = object()
+            self._question_window_request = request
             self.feedback(self.session_message, "Listing accessible window titles only; no question text is read.")
             generation = self._process_generation
+
+            def current():
+                return (self._question_window_request is request and not self._exiting
+                        and self.proc is None and not self._starting and generation == self._process_generation)
+
+            def finish(accepted=False):
+                if self._question_window_request is request:
+                    self._question_window_request = None
+                if on_selected is not None:
+                    on_selected(accepted)
 
             def load():
                 try:
@@ -1537,14 +1662,24 @@ def create_window():
                         ["/usr/bin/python3", str(ROOT / "scripts/linux-accessibility.py"), "--mode", "windows"],
                         env=env, capture_output=True, text=True, timeout=6)
                     windows = json.loads(result.stdout) if result.returncode == 0 else None
+                    if not isinstance(windows, list) or any(
+                            not isinstance(window, dict) or not all(isinstance(window.get(key), str) for key in ("id", "title"))
+                            or not isinstance(window.get("application", ""), str) for window in windows):
+                        windows = None
                 except (OSError, ValueError, subprocess.TimeoutExpired):
                     windows = None
 
                 def show():
-                    if self._exiting or self.proc is not None or self._starting or generation != self._process_generation:
+                    if not current():
+                        finish()
                         return False
                     if windows is None:
                         self.feedback(self.session_message, "Could not list accessible windows. Check Accessibility access and retry.", error=True)
+                        finish()
+                        return False
+                    if require_selected and not windows:
+                        self.feedback(self.session_message, "No accessible question window is available. Open your practice page and try Capture again.", error=True)
+                        finish()
                         return False
                     dialog = Gtk.Dialog(title="Choose question window", transient_for=self, flags=0)
                     dialog.set_modal(True)
@@ -1553,22 +1688,36 @@ def create_window():
                     explanation.set_line_wrap(True)
                     dialog.get_content_area().pack_start(explanation, False, False, 10)
                     choices = Gtk.ComboBoxText()
-                    choices.append("automatic", "Automatic foreground (no fixed window)")
+                    if not require_selected:
+                        choices.append("automatic", "Automatic foreground (no fixed window)")
                     for index, window in enumerate(windows):
                         label = (window.get("application", "") + " — " + window["title"]).lstrip(" —")
                         choices.append(str(index), label)
-                    choices.set_active(0)
+                    choices.set_active(-1 if require_selected else 0)
+                    if require_selected:
+                        dialog.set_response_sensitive(Gtk.ResponseType.OK, False)
+                        choices.connect("changed", lambda widget: dialog.set_response_sensitive(
+                            Gtk.ResponseType.OK, widget.get_active_id() is not None))
                     dialog.get_content_area().pack_start(choices, False, False, 10)
                     dialog.show_all()
                     accepted = dialog.run() == Gtk.ResponseType.OK
                     selected = choices.get_active_id()
                     dialog.destroy()
-                    if accepted and self.proc is None and not self._starting and not self._exiting:
+                    valid = (selected == "automatic" and not require_selected) or (
+                        isinstance(selected, str) and selected.isdecimal() and int(selected) < len(windows))
+                    if accepted and valid and current():
                         window = None if selected == "automatic" else windows[int(selected)]
                         self.question_window_target = window["id"] if window else None
                         self.question_window_title = window["title"] if window else ""
                         self.question_window_hint.set_text("Screen target: " + (self.question_window_title if window else "automatic foreground"))
-                        self.feedback(self.session_message, "Question window updated. Press Start to review consent; nothing is being captured.")
+                        self.feedback(self.session_message, "Question window selected. Review the screen-read confirmation next."
+                                      if on_selected is not None else
+                                      "Question window updated. Press Start to review consent; nothing is being captured.")
+                        finish(True)
+                    else:
+                        if current() and on_selected is not None:
+                            self.feedback(self.session_message, "Screen read cancelled. No window was captured.")
+                        finish()
                     return False
 
                 GLib.idle_add(show)
@@ -1576,6 +1725,8 @@ def create_window():
             threading.Thread(target=load, daemon=True).start()
 
         def stop(self, _button=None):
+            self._capture_request = None
+            self._question_window_request = None
             if self._starting:
                 self._starting = False
                 self._process_generation += 1
@@ -2235,6 +2386,8 @@ def create_window():
             if self._exiting:
                 return
             self._exiting = True
+            self._capture_refresh.close()
+            self._share_refresh.close()
             for handler in getattr(self, "_theme_signals", []):
                 self._theme_settings.disconnect(handler)
             self._theme_signals = []

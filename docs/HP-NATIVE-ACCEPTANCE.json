@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "title": "Generated native screen acceptance",
+  "recorded_date_utc": "2026-11-28",
+  "status": "passed_for_recorded_scopes",
+  "environment": {
+    "os": "Ubuntu 26.04 LTS",
+    "os_version_id": "26.04",
+    "display_protocol": "Wayland",
+    "browser_version": "Chrome/150.0.7871.186",
+    "chrome_sandbox_enabled": true,
+    "tesseract_version": "tesseract 5.5.0",
+    "gi_cairo_package_version": "3.56.2-1",
+    "capture_scope": "owned generated window on private D-Bus and AT-SPI buses",
+    "version_artifacts": [
+      "hp-native-preflight.json",
+      "hp-user-runtime-verified.json"
+    ]
+  },
+  "source_provenance": {
+    "native_cli_sha256": "4abcd3e5bbf68a39dcfb327ed4030e20e345f47fe05bd9fd5a090dc95143a82d",
+    "fixture_sha256": "2333952a78fece31f376f14e133ea017e20b3d4b1fec308d134f2481aeb7bf8c",
+    "oracle_sha256": "3558c56bfa8d5861f60169fe104f17971440437961512ad83de606b9b62500e1",
+    "all_cases_bundle_base_commit": "eea9666fe8df8706eea084bd27ea998e8ccc0801",
+    "all_cases_bundle_sha256": "a80c3977f40cdfbd927e8286312bdc9e854ebf9b6f4ecfa24bc7857be133dc33",
+    "installed_ui_commit": "d8b612cd5e10e7e47a7933db945447026703bd95",
+    "installed_ui_tree": "8d1746249387584c422ea536d11edbb7832c09d0",
+    "installed_ui_source_sha256": {
+      "background_refresh.py": "5bf5a36551b9b469b576215d3af7b58b35a0713b2e90ae6baa7635feca66cc7e",
+      "floating_overlay.py": "1949c31a15b6abdaf317fa5aef99a254bed14e80a4f50c8e576a925628cb82ab",
+      "linux-gtk.py": "1af588f15170a08052d878b9171674c61e7c721c1e77655c165a711711e762bd"
+    },
+    "reviewed_helper_sha256": {
+      "native_browser_screen_lab.py": "149d872a7fc53b3c3cdeca6b7e49e469469e1bf7007da5d0fe3da280f42a2127",
+      "screen_model_relay.py": "b417dfbde0eb3fdf788263bd3bc49a6ddda852282a76a0aeb60154198e4d3b72",
+      "native_canvas_ocr.py": "a30f1f2c35656e7d1486955ee67b32ded71083e614ee53e2f4494d9d97b9f0b6",
+      "openai_live_smoke.py": "041de4032e4052912df2baa77e0ad9390f68821426b1b20e83ba16d292cf72ce"
+    },
+    "note": "Bundle provenance belongs to the all-cases run. The combined live reports separately record the native CLI and fixture hashes; the synthetic-provider run has its own CLI hash."
+  },
+  "native_extraction_matrix": {
+    "passed": true,
+    "case_ids_tested": 20,
+    "extraction_stages_passed": 26,
+    "baseline_raw_native_nodes": 249,
+    "model_requests": 2,
+    "provider": "local_mock",
+    "external_ai": false,
+    "strict_native_snapshot_replay_verified": true,
+    "private_bus_default_selection_passed": true,
+    "all_case_model_answers_tested": false,
+    "artifact": "hp-native-verified.json"
+  },
+  "combined_native_live_openai": {
+    "passed": true,
+    "requires_both_native_and_controller_evidence": true,
+    "cases": [
+      "baseline",
+      "followup"
+    ],
+    "native_artifact": "hp-openai-live-native-report.json",
+    "controller_artifact": "hp-openai-live-root-report.json",
+    "requested_model": "gpt-6-luna",
+    "fixed_endpoint": "https://api.openai.com/v1/chat/completions",
+    "upstream_post_attempts": 2,
+    "retries": 0,
+    "max_completion_tokens_per_request": 1024,
+    "completed_upstream_answers": 2,
+    "completed_native_cli_answers": 2,
+    "native_cli_exit_code": 0,
+    "raw_native_nodes_per_case": [
+      249,
+      249
+    ],
+    "initial_model_snapshot_nodes": 68,
+    "updated_native_nodes": 2,
+    "added_nodes": 0,
+    "removed_nodes": 0,
+    "moved_nodes": 0,
+    "native_alias_changes": [
+      {
+        "role": "paragraph",
+        "changed_fields": [
+          "text"
+        ]
+      },
+      {
+        "role": "static",
+        "changed_fields": [
+          "name",
+          "text",
+          "bounds"
+        ]
+      }
+    ],
+    "exact_acknowledged_history": true,
+    "unchanged_anchor_omitted_from_latest_patch": true,
+    "full_native_snapshot_replay_verified": true,
+    "saved_request_response_attempt_bindings_revalidated": true,
+    "original_sse_semantic_answers_revalidated": true,
+    "real_api_key_on_native_host": false,
+    "upstream_network_origin": "separate key-holding controller",
+    "oracle_answers_injected_into_model_request": false,
+    "responses_buffered_before_native_delivery": true,
+    "streaming_latency_tested": false,
+    "actual_live_answers_rendered_in_gtk_ui_tested": false,
+    "request_context_policy": "Only the newest screen message is a delta. Each complete stateless API request replays bounded prior history; checkpoints can send an explicit bounded snapshot.",
+    "turns": [
+      {
+        "turn": 1,
+        "http_status": 200,
+        "returned_model": "gpt-6-luna",
+        "finish_reason": "stop",
+        "validated_answer_field": "25; MARIGOLD-42",
+        "usage": {
+          "prompt_tokens": 4421,
+          "completion_tokens": 198,
+          "total_tokens": 4619,
+          "cached_tokens": 1845
+        },
+        "request_sha256": "e98f585a8b4c0f92699b3ca3ca10286c5981e8356cbe47a0282fd2931eb8e559",
+        "messages_sha256": "61df30b3b25841b2eace0bc2d665994e4a039da118559849aaac900aaf4a91cc",
+        "completed_text_sha256": "b835f7e2a631945b29f928b42c9cc1fd530cca109ce15af69cb9c83e9e3fe8ab",
+        "saved_artifact_sha256": {
+          "request": "854357c52cb4bf9e2979ea0958c97d63b6bdee30c77970a1ce69ad7b63a49ac5",
+          "attempt": "b92a4124fe5122125bd5bc6deeae1aea0ce0bf60cfa628d563917b62c29926f4",
+          "response": "c6aea99f63f77f8211208dca7c2ad2a029d330850b6399f5518196fbd0da5a2b"
+        }
+      },
+      {
+        "turn": 2,
+        "http_status": 200,
+        "returned_model": "gpt-6-luna",
+        "finish_reason": "stop",
+        "validated_answer_field": "50; MARIGOLD-42",
+        "usage": {
+          "prompt_tokens": 4881,
+          "completion_tokens": 83,
+          "total_tokens": 4964,
+          "cached_tokens": 4418
+        },
+        "request_sha256": "e4b5e03661867dc2dd1d8954fcf9a63950eeb31ba7fa996a8480207bd9fbf151",
+        "messages_sha256": "0bab3007e6186e5df84cd92063fb5ef715a6fadbd33186f0b141cd7580a72eca",
+        "completed_text_sha256": "c2a15d473201641fe7051afc11cbbb7f69c2bbb792abcea0c0ac05fe84de76c9",
+        "saved_artifact_sha256": {
+          "request": "6fe253b258971616d4cb839d0f767aaa364479974d217f747afdcf3f4dcaf768",
+          "attempt": "daa950f303cd0edc4de1e50959ccc4fd203f2a4f27631d8140c45a939132e62d",
+          "response": "f47f4200178789b537af8d46741361a1028ae36484f90c92c3186d0a8487aba1"
+        }
+      }
+    ],
+    "total_usage": {
+      "prompt_tokens": 9302,
+      "completion_tokens": 281,
+      "total_tokens": 9583,
+      "cached_tokens": 6263
+    },
+    "native_replay_evidence_note": "Equality to fresh native captures is established by the reviewed native runner gate. Separately retained wire snapshots, patches, original SSE, and bindings were revalidated without another native or API call."
+  },
+  "canvas_ocr_component": {
+    "passed": true,
+    "production_cli_command": "ocr --file",
+    "image_source": "owned_generated_canvas_png",
+    "width": 720,
+    "height": 160,
+    "png_bytes": 12203,
+    "png_sha256": "e0ec44f989e4fbaebd4184d48636b893e54b2a7b4ffc9647a5c54ddf6e9e0fb4",
+    "normalized_text_sha256": "d041ae451f15e3ebc989b08576a574ac549f7cb263bd0b1c66640677e26ea994",
+    "readable_markers_checked": 1,
+    "explicit_owned_tool_directory_used": true,
+    "oracle_text_injected": false,
+    "desktop_screenshot_taken": false,
+    "portal_permissions_tested": false,
+    "automatic_fallback_tested": false,
+    "artifact": "hp-native-verified.json"
+  },
+  "gtk_panel_and_recovery": {
+    "generated_panel_probe_passed": true,
+    "callback_errors_after_compatible_gi_cairo_bridge": 0,
+    "answer_buffer_matched": true,
+    "panel_mapped": true,
+    "nonactivating_policy_preserved": true,
+    "heartbeat": {
+      "interval_ms": 50,
+      "maximum_gap_ms": 52.7,
+      "ticks": 118,
+      "passed": true
+    },
+    "controlled_background_delay_ms": 750,
+    "heartbeats_during_controlled_delay": 15,
+    "iconified_panel_restoration_status": "unsupported_iconification_not_observed",
+    "installed_ui_generated_preview_recovery_passed": true,
+    "installed_ui_main_mapped": true,
+    "installed_ui_panel_mapped": true,
+    "installed_ui_panel_visible": true,
+    "installed_ui_callback_errors": 0,
+    "provider_requests_started": 0,
+    "screen_capture_started": false,
+    "system_package_installation": false,
+    "actual_ai_stream_rendered_in_ui_tested": false,
+    "artifacts": [
+      "hp-gtk-panel-portable.json",
+      "hp-installed-ui-recovery.json"
+    ]
+  },
+  "separate_synthetic_live_provider_check": {
+    "passed": true,
+    "screen_source": "synthetic_tree_helper",
+    "native_validation": false,
+    "model": "gpt-6-luna",
+    "completed_cli_answers": 2,
+    "validated_answer_fields": [
+      "25",
+      "50; MARIGOLD-42"
+    ],
+    "latest_changed_nodes": 1,
+    "exact_history": true,
+    "upstream_post_attempts": 2,
+    "retries": 0,
+    "cli_sha256": "748312e5f51925c50192ffd1b9f74b3cd0ce83326586d11de60e61add155a939",
+    "source_checkout_commit": "d8b612cd5e10e7e47a7933db945447026703bd95",
+    "artifact": "openai-live-production-cli-current-route.json"
+  },
+  "limitations": [
+    "The 20-case matrix tests extraction with two mock model turns. Only baseline and followup used the combined native-to-real-provider flow.",
+    "GTK recovery used generated preview events. Real model answers completed through the production CLI; an actual AI stream in the recovered GTK UI was not tested.",
+    "Canvas OCR used only the owned generated PNG through file OCR. Desktop screenshots, portals, automatic pixel fallback, and vision-model input were not tested.",
+    "Default foreground selection was tested only on the private bus containing the generated browser, not among ordinary GNOME applications.",
+    "Fixture navigation used owned CDP controls. Native Next-button actions and physical keyboard/mouse input were not established by these runs.",
+    "The compositor did not expose panel iconification, so native minimized-panel restoration remains unsupported by this run.",
+    "Buffered relay responses do not measure streaming latency. Short heartbeat probes do not establish long-session performance or hardware-audio behavior.",
+    "One Ubuntu/Chrome/runtime configuration and selected generated regressions do not establish 100 percent reliability or universal application compatibility."
+  ],
+  "publication_scope": {
+    "raw_requests_or_responses_included": false,
+    "credentials_included": false,
+    "private_identifiers_or_absolute_paths_included": false,
+    "safe_hashes_counts_flags_and_generated_answer_fields_only": true
+  },
+  "evidence_artifacts": [
+    {
+      "name": "hp-native-preflight.json",
+      "sha256": "3c514a27b51a589847cc405a033bbfca7711f41427fe54292255973cf2104af1"
+    },
+    {
+      "name": "hp-user-runtime-verified.json",
+      "sha256": "3feed9e4bb52011a5c5bc72db683dc8391a9ca6f5d3b6d023576200154754e48"
+    },
+    {
+      "name": "hp-gtk-native-success.json",
+      "sha256": "68626f3ac2b90efb873346b66284b35b83cab53286d42b1f811bf1ba52119265"
+    },
+    {
+      "name": "hp-gtk-panel-portable.json",
+      "sha256": "8eaaa32ece3ee8fa62056b1b5cf0756b0413def8c5b85f1e9fc1685a56b75720"
+    },
+    {
+      "name": "hp-installed-ui-recovery.json",
+      "sha256": "2a117ad87bbec7f25d883a803b6514e7b093cac2e454bcfac28f7c2bf2f1cbe1"
+    },
+    {
+      "name": "hp-native-verified.json",
+      "sha256": "22c0bca1e7b993e7f292db42559160527bc8f3d5347bcc9eaaad1909da6adc6b"
+    },
+    {
+      "name": "hp-openai-live-native-report.json",
+      "sha256": "dfac591b0537ca7798d1718219b9ccb57cec33b6e79ef648ca4fb260d40c636a"
+    },
+    {
+      "name": "hp-openai-live-root-report.json",
+      "sha256": "b293e35139c1957c1bb79250b47386b6c4522f63148416a7a18ad5c37a2c9c06"
+    },
+    {
+      "name": "openai-live-production-cli-current-route.json",
+      "sha256": "199aa6b0181c9fbbc830788e6751753dbf5ad4878485ed1a310bb53918db4828"
+    }
+  ]
+}

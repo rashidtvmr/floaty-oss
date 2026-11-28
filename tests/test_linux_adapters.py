@@ -350,9 +350,11 @@ class ManualQuestionDispatch(unittest.TestCase):
         return scope[name]
 
     def controller(self, proc=None, stdin_live=False):
-        sent, launched, shown, messages, confirmed = [], [], [], [], []
+        sent, launched, shown, messages, confirmed, choices = [], [], [], [], [], []
         fake = SimpleNamespace(
             proc=proc, _stdin_live=stdin_live,
+            _starting=False, _exiting=False, _process_generation=0,
+            _capture_request=None, _question_window_request=None,
             question_window_target=None, question_window_title="",
             write=lambda text: messages.append(text),
             run_cli=lambda args: (launched.append(args) or True),
@@ -360,9 +362,10 @@ class ManualQuestionDispatch(unittest.TestCase):
             show_answer_panel=lambda: shown.append(True),
             confirmation=lambda title, text: confirmed.append((title, text)) or self.confirm_result,
             set_status=lambda status: messages.append(f"status:{status}"),
+            choose_question_window=lambda **kwargs: choices.append(kwargs),
         )
         return fake, SimpleNamespace(sent=sent, launched=launched, shown=shown,
-                                     messages=messages, confirmed=confirmed)
+                                     messages=messages, confirmed=confirmed, choices=choices)
 
     class RecordingStdin:
         def __init__(self, sink):
@@ -412,18 +415,20 @@ class ManualQuestionDispatch(unittest.TestCase):
         self.assertEqual(lines, ["read-screen\n"])
         self.assertEqual(seen.launched, [])
 
-    def test_standalone_capture_confirms_then_runs_authorized_ask(self):
+    def test_standalone_capture_chooses_a_window_before_consent_or_read(self):
         fake, seen = self.controller()
         self._method("manual_capture")(fake)
-        self.assertEqual(len(seen.confirmed), 1)
-        self.assertEqual(seen.launched,
-                         [["ask", "--read-screen", "--authorized", "--allow-ocr",
-                           "--provider", "mock"]])
-        self.assertEqual(seen.shown, [True])
+        self.assertEqual(len(seen.choices), 1)
+        self.assertTrue(seen.choices[0]["require_selected"])
+        self.assertEqual(seen.confirmed, [])
+        self.assertEqual(seen.launched, [])
+        self.assertEqual(seen.shown, [])
 
     def test_standalone_capture_respects_declined_consent(self):
         self.confirm_result = False
         fake, seen = self.controller()
+        fake.question_window_target = '[":1.99","/window/1"]'
+        fake.question_window_title = "Practice fixture"
         self._method("manual_capture")(fake)
         self.assertEqual(seen.launched, [])
         self.assertIn("status:Permission declined", seen.messages)

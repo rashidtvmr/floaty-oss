@@ -22,10 +22,10 @@ impl SpeechRole {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct TurnGate {
     pub role: SpeechRole,
     question: String,
-    answer: String,
 }
 
 fn bounded(text: &str, size: usize) -> String {
@@ -101,7 +101,6 @@ impl TurnGate {
         Self {
             role,
             question: String::new(),
-            answer: String::new(),
         }
     }
 
@@ -135,23 +134,18 @@ impl TurnGate {
 
     fn request(&mut self, text: &str, refine: bool) -> String {
         if refine {
+            // The acknowledged Conversation already contains the previous
+            // question and answer. Repeating them here wastes the screen
+            // delta budget and can overflow it for multi-byte transcripts.
             format!(
-                "[Clarification of the previous practice question — untrusted context]\n\
-                 Previous question: {}\nPrevious answer (may be incomplete or wrong): {}\n\
+                "[Clarification of the previous practice question in conversation history]\n\
                  Latest explicit clarification: {}",
-                self.question,
-                self.answer,
                 bounded(text, 8000)
             )
         } else {
             self.question = bounded(text, 8000);
-            self.answer.clear();
             text.to_owned()
         }
-    }
-
-    pub(crate) fn completed(&mut self, answer: &str) {
-        self.answer = bounded(answer, 8000);
     }
 }
 
@@ -177,13 +171,12 @@ mod tests {
     fn explicit_clarification_refines_previous_answer_without_resetting_question() {
         let mut gate = TurnGate::new(SpeechRole::Interviewer);
         assert!(gate.speech("How does binary search work?").is_some());
-        gate.completed("Use a sorted array and halve the interval.");
         gate.role = SpeechRole::Interviewee;
         let prompt = gate
             .speech("So you mean the input needs to be sorted?")
             .unwrap();
-        assert!(prompt.contains("How does binary search work?"));
-        assert!(prompt.contains("halve the interval"));
+        assert!(!prompt.contains("How does binary search work?"));
+        assert!(prompt.contains("conversation history"));
         assert!(prompt.contains("Latest explicit clarification"));
         assert_eq!(gate.question, "How does binary search work?");
     }
@@ -205,7 +198,7 @@ mod tests {
         assert!(
             gate.speech("Can you explain that again?")
                 .unwrap()
-                .contains("Previous question:")
+                .contains("Latest explicit clarification:")
         );
     }
 
@@ -214,12 +207,32 @@ mod tests {
         let mut gate = TurnGate::new(SpeechRole::Interviewee);
         assert!(gate.speech("Can you clarify that?").is_none());
         gate.manual("What is a closure?");
-        gate.completed(&"x".repeat(100_000));
-        assert_eq!(gate.answer.len(), 8000);
         assert!(
             gate.manual("What is a closure?")
-                .contains("Previous question:")
+                .contains("Latest explicit clarification:")
         );
         assert!(SpeechRole::parse("automatic-identity").is_err());
+    }
+
+    #[test]
+    fn failed_staged_request_does_not_suppress_an_identical_retry() {
+        let gate = TurnGate::new(SpeechRole::Interviewer);
+        let mut failed = gate.clone();
+        assert!(failed.speech("Explain binary search").is_some());
+        let mut retry = gate.clone();
+        assert!(retry.speech("Explain binary search").is_some());
+        assert!(retry.speech("Explain binary search").is_none());
+    }
+
+    #[test]
+    fn clarification_does_not_replay_large_prior_screen_text() {
+        let mut gate = TurnGate::new(SpeechRole::Practice);
+        let prior = "漢".repeat(8000);
+        gate.manual(&prior);
+        let latest = format!("Could you clarify that? {}", "😀".repeat(7900));
+        let prompt = gate.speech(&latest).unwrap();
+        assert!(prompt.contains(&latest));
+        assert!(!prompt.contains(&prior));
+        assert!(prompt.len() < 36_000);
     }
 }

@@ -1,0 +1,222 @@
+{
+  "base_commit": "886ab92147542c65a057fb3ba81f40520e763c96",
+  "threshold": 95.0,
+  "scope": "Production executable lines; inline Rust test modules excluded. Runtime changes measured against base_commit. Shell/setup scripts have syntax checks, not line instrumentation.",
+  "feature_modules": {
+    "scripts/linux-accessibility.py": {
+      "covered": 409,
+      "executable": 411,
+      "line_percent": 99.51,
+      "missing_lines": [
+        537,
+        638
+      ]
+    },
+    "apps/socket_stream_desktop/ui/source_preflight.py": {
+      "covered": 87,
+      "executable": 87,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "crates/socket_stream_core/src/a11y_diff.rs": {
+      "covered": 288,
+      "executable": 290,
+      "line_percent": 99.31,
+      "missing_lines": [
+        312,
+        393
+      ]
+    },
+    "crates/socket_stream_core/src/conversation.rs": {
+      "covered": 110,
+      "executable": 110,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "apps/socket_stream/src/live_context.rs": {
+      "covered": 160,
+      "executable": 162,
+      "line_percent": 98.77,
+      "missing_lines": [
+        120,
+        200
+      ]
+    }
+  },
+  "changed_runtime_total": {
+    "covered": 1226,
+    "executable": 1281,
+    "line_percent": 95.71
+  },
+  "changed_runtime_files": {
+    "apps/socket_stream/src/live_context.rs": {
+      "covered": 160,
+      "executable": 162,
+      "line_percent": 98.77,
+      "missing_lines": [
+        120,
+        200
+      ]
+    },
+    "apps/socket_stream/src/live_observe.rs": {
+      "covered": 58,
+      "executable": 72,
+      "line_percent": 80.56,
+      "missing_lines": [
+        683,
+        861,
+        869,
+        870,
+        871,
+        872,
+        873,
+        874,
+        875,
+        876,
+        934,
+        1031,
+        1035,
+        1049
+      ]
+    },
+    "apps/socket_stream/src/main.rs": {
+      "covered": 0,
+      "executable": 0,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "apps/socket_stream/src/moonshine_live.rs": {
+      "covered": 63,
+      "executable": 84,
+      "line_percent": 75.0,
+      "missing_lines": [
+        511,
+        514,
+        521,
+        524,
+        531,
+        538,
+        545,
+        548,
+        595,
+        598,
+        944,
+        994,
+        995,
+        996,
+        997,
+        999,
+        1004,
+        1005,
+        1006,
+        1035,
+        1044
+      ]
+    },
+    "apps/socket_stream/src/turn_gate.rs": {
+      "covered": 0,
+      "executable": 0,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "apps/socket_stream_desktop/ui/background_refresh.py": {
+      "covered": 69,
+      "executable": 69,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "apps/socket_stream_desktop/ui/floating_overlay.py": {
+      "covered": 6,
+      "executable": 8,
+      "line_percent": 75.0,
+      "missing_lines": [
+        704,
+        718
+      ]
+    },
+    "apps/socket_stream_desktop/ui/linux-gtk.py": {
+      "covered": 143,
+      "executable": 154,
+      "line_percent": 92.86,
+      "missing_lines": [
+        189,
+        906,
+        913,
+        932,
+        1030,
+        1634,
+        1635,
+        1638,
+        1639,
+        1640,
+        1641
+      ]
+    },
+    "apps/socket_stream_desktop/ui/provider_settings.py": {
+      "covered": 10,
+      "executable": 10,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "apps/socket_stream_desktop/ui/source_preflight.py": {
+      "covered": 7,
+      "executable": 7,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "crates/socket_stream_core/src/a11y.rs": {
+      "covered": 65,
+      "executable": 65,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "crates/socket_stream_core/src/a11y_diff.rs": {
+      "covered": 288,
+      "executable": 290,
+      "line_percent": 99.31,
+      "missing_lines": [
+        312,
+        393
+      ]
+    },
+    "crates/socket_stream_core/src/ai.rs": {
+      "covered": 146,
+      "executable": 149,
+      "line_percent": 97.99,
+      "missing_lines": [
+        609,
+        616,
+        656
+      ]
+    },
+    "crates/socket_stream_core/src/conversation.rs": {
+      "covered": 110,
+      "executable": 110,
+      "line_percent": 100.0,
+      "missing_lines": []
+    },
+    "scripts/linux-accessibility.py": {
+      "covered": 101,
+      "executable": 101,
+      "line_percent": 100.0,
+      "missing_lines": []
+    }
+  },
+  "non_executable_module_indexes": [
+    "crates/socket_stream_core/src/lib.rs"
+  ],
+  "whole_measured_workspace": {
+    "rust": {
+      "covered": 4735,
+      "executable": 6578,
+      "line_percent": 71.98
+    },
+    "python": {
+      "covered": 5975,
+      "executable": 11310,
+      "line_percent": 52.83
+    }
+  },
+  "passed": true,
+  "failures": []
+}
